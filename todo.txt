@@ -1,0 +1,23 @@
+Create an IOS app from an existing project.
+The existing project we wrote is ~/src/cpmemu.
+It is underoing major changes in anouther claude session
+so keep any changes you might want in the project to merge in later.
+Write an IOS app to run Z80/8080 operating systems/roms.
+The current cpmemu is targeted at the CP/M os but it is getting
+RomWBW support right now to run MP/M and many other OSes.
+In the cpmemu sources there is a build to webassembly.  So the core
+is designed to be veyr portable.  Hopefully you can build a native IOS
+app to integrate the existinng emulator code.
+
+Each emulator window would run a cpmemu instance.  Mainly its just
+character io like the webassembly version.  disk IO should go to disk
+images we supply or the user can make a file of there own. Don't worry
+too much about disk format for now the current cpmemu work will take care of
+disk formats.  Id start with a tradtional floppy image like cpmenu defaults to.
+
+xcode is installed with the IOS emulator.
+I installed and setup the xcode command line tools
+I have an new ipad air to test with.
+I did not setup with testflight or whatever its caleld to get apps into it yet.
+I do have an apple developer account
+

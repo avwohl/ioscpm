@@ -1,0 +1,463 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		/* Swift files */
+		A1000001 /* iOSCPMApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000001; };
+		A1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000002; };
+		A1000003 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000003; };
+		A1000004 /* EmulatorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000004; };
+
+		/* Objective-C++ files */
+		A1000010 /* CPMEmulator.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000010; };
+
+		/* C++ Core files */
+		A1000020 /* qkz80.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000020; };
+		A1000021 /* qkz80_mem.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000021; };
+		A1000022 /* qkz80_reg_set.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000022; };
+		A1000023 /* qkz80_errors.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000023; };
+		A1000024 /* CPMBios.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000024; };
+
+		/* Resources */
+		A1000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000030; };
+		A1000031 /* cpm22.sys in Resources */ = {isa = PBXBuildFile; fileRef = B1000031; };
+		A1000032 /* drivea.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000032; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		/* Product */
+		C1000001 /* iOSCPM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iOSCPM.app; sourceTree = BUILT_PRODUCTS_DIR; };
+
+		/* Swift files */
+		B1000001 /* iOSCPMApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iOSCPMApp.swift; sourceTree = "<group>"; };
+		B1000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B1000003 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
+		B1000004 /* EmulatorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmulatorViewModel.swift; sourceTree = "<group>"; };
+
+		/* Objective-C++ files */
+		B1000010 /* CPMEmulator.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = CPMEmulator.mm; sourceTree = "<group>"; };
+		B1000011 /* CPMEmulator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CPMEmulator.h; sourceTree = "<group>"; };
+
+		/* C++ Core files */
+		B1000020 /* qkz80.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = qkz80.cc; sourceTree = "<group>"; };
+		B1000021 /* qkz80_mem.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = qkz80_mem.cc; sourceTree = "<group>"; };
+		B1000022 /* qkz80_reg_set.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = qkz80_reg_set.cc; sourceTree = "<group>"; };
+		B1000023 /* qkz80_errors.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = qkz80_errors.cc; sourceTree = "<group>"; };
+		B1000024 /* CPMBios.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CPMBios.cc; sourceTree = "<group>"; };
+
+		/* C++ Header files */
+		B1000040 /* qkz80.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80.h; sourceTree = "<group>"; };
+		B1000041 /* qkz80_mem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80_mem.h; sourceTree = "<group>"; };
+		B1000042 /* qkz80_reg_set.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80_reg_set.h; sourceTree = "<group>"; };
+		B1000043 /* qkz80_reg_pair.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80_reg_pair.h; sourceTree = "<group>"; };
+		B1000044 /* qkz80_cpu_flags.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80_cpu_flags.h; sourceTree = "<group>"; };
+		B1000045 /* qkz80_trace.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80_trace.h; sourceTree = "<group>"; };
+		B1000046 /* qkz80_types.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80_types.h; sourceTree = "<group>"; };
+		B1000047 /* CPMBios.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CPMBios.h; sourceTree = "<group>"; };
+
+		/* Resources */
+		B1000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B1000031 /* cpm22.sys */ = {isa = PBXFileReference; lastKnownFileType = file; path = cpm22.sys; sourceTree = "<group>"; };
+		B1000032 /* drivea.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = drivea.img; sourceTree = "<group>"; };
+
+		/* Other files */
+		B1000050 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B1000051 /* iOSCPM-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "iOSCPM-Bridging-Header.h"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		D1000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		E1000001 = {
+			isa = PBXGroup;
+			children = (
+				E1000002 /* iOSCPM */,
+				E1000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		E1000002 /* iOSCPM */ = {
+			isa = PBXGroup;
+			children = (
+				B1000001 /* iOSCPMApp.swift */,
+				E1000004 /* Views */,
+				E1000005 /* Bridge */,
+				E1000006 /* Core */,
+				E1000007 /* Resources */,
+				B1000030 /* Assets.xcassets */,
+				B1000050 /* Info.plist */,
+				B1000051 /* iOSCPM-Bridging-Header.h */,
+			);
+			path = iOSCPM;
+			sourceTree = "<group>";
+		};
+		E1000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C1000001 /* iOSCPM.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		E1000004 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				B1000002 /* ContentView.swift */,
+				B1000003 /* TerminalView.swift */,
+				B1000004 /* EmulatorViewModel.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		E1000005 /* Bridge */ = {
+			isa = PBXGroup;
+			children = (
+				B1000011 /* CPMEmulator.h */,
+				B1000010 /* CPMEmulator.mm */,
+			);
+			path = Bridge;
+			sourceTree = "<group>";
+		};
+		E1000006 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				B1000040 /* qkz80.h */,
+				B1000020 /* qkz80.cc */,
+				B1000041 /* qkz80_mem.h */,
+				B1000021 /* qkz80_mem.cc */,
+				B1000042 /* qkz80_reg_set.h */,
+				B1000022 /* qkz80_reg_set.cc */,
+				B1000043 /* qkz80_reg_pair.h */,
+				B1000044 /* qkz80_cpu_flags.h */,
+				B1000045 /* qkz80_trace.h */,
+				B1000046 /* qkz80_types.h */,
+				B1000023 /* qkz80_errors.cc */,
+				B1000047 /* CPMBios.h */,
+				B1000024 /* CPMBios.cc */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		E1000007 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				B1000031 /* cpm22.sys */,
+				B1000032 /* drivea.img */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		F1000001 /* iOSCPM */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F1000010;
+			buildPhases = (
+				F1000002 /* Sources */,
+				D1000001 /* Frameworks */,
+				F1000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = iOSCPM;
+			productName = iOSCPM;
+			productReference = C1000001 /* iOSCPM.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		089C1665FE841187C02AAC07 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					F1000001 = {
+						CreatedOnToolsVersion = 15.0;
+						LastSwiftMigration = 1500;
+					};
+				};
+			};
+			buildConfigurationList = F1000020;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = E1000001;
+			productRefGroup = E1000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F1000001 /* iOSCPM */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		F1000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000030 /* Assets.xcassets in Resources */,
+				A1000031 /* cpm22.sys in Resources */,
+				A1000032 /* drivea.img in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		F1000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000001 /* iOSCPMApp.swift in Sources */,
+				A1000002 /* ContentView.swift in Sources */,
+				A1000003 /* TerminalView.swift in Sources */,
+				A1000004 /* EmulatorViewModel.swift in Sources */,
+				A1000010 /* CPMEmulator.mm in Sources */,
+				A1000020 /* qkz80.cc in Sources */,
+				A1000021 /* qkz80_mem.cc in Sources */,
+				A1000022 /* qkz80_reg_set.cc in Sources */,
+				A1000023 /* qkz80_errors.cc in Sources */,
+				A1000024 /* CPMBios.cc in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		/* Debug configuration for target */
+		F1000011 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = iOSCPM/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.iOSCPM;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "iOSCPM/iOSCPM-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/iOSCPM/Core";
+			};
+			name = Debug;
+		};
+		/* Release configuration for target */
+		F1000012 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = iOSCPM/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.iOSCPM;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "iOSCPM/iOSCPM-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/iOSCPM/Core";
+			};
+			name = Release;
+		};
+		/* Debug configuration for project */
+		F1000021 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		/* Release configuration for project */
+		F1000022 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		F1000010 /* Build configuration list for PBXNativeTarget "iOSCPM" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F1000011 /* Debug */,
+				F1000012 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F1000020 /* Build configuration list for PBXProject "iOSCPM" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F1000021 /* Debug */,
+				F1000022 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 089C1665FE841187C02AAC07 /* Project object */;
+}
