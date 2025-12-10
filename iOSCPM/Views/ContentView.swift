@@ -9,7 +9,7 @@ struct ContentView: View {
     @StateObject private var viewModel = EmulatorViewModel()
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             VStack(spacing: 0) {
                 // Terminal display
                 TerminalView(text: $viewModel.terminalText) { char in
@@ -121,10 +121,12 @@ struct ContentView: View {
             ) { result in
                 viewModel.handleExportResult(result)
             }
-            .alert("Error", isPresented: $viewModel.showingError) {
-                Button("OK") {}
-            } message: {
-                Text(viewModel.errorMessage)
+            .alert(isPresented: $viewModel.showingError) {
+                Alert(
+                    title: Text("Error"),
+                    message: Text(viewModel.errorMessage),
+                    dismissButton: .default(Text("OK"))
+                )
             }
         }
         .onAppear {

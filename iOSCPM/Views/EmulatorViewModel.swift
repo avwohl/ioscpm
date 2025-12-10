@@ -53,7 +53,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
             emulator?.createEmptyDiskA()
         }
 
-        statusText = "System loaded - Press Play to start"
+        // Auto-start the emulator
+        start()
     }
 
     // MARK: - Emulation Control
