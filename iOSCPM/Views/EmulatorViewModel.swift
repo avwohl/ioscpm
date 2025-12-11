@@ -1,59 +1,99 @@
 /*
- * EmulatorViewModel.swift - View model for CP/M emulator
+ * EmulatorViewModel.swift - View model for RomWBW emulator
  */
 
 import SwiftUI
 import Combine
+import AVFoundation
 
 class EmulatorViewModel: NSObject, ObservableObject {
-    @Published var terminalText: String = ""
     @Published var statusText: String = "Ready"
     @Published var isRunning: Bool = false
 
-    @Published var showingDiskAPicker: Bool = false
-    @Published var showingDiskBPicker: Bool = false
-    @Published var showingDiskAExporter: Bool = false
-    @Published var showingDiskBExporter: Bool = false
+    @Published var showingDiskPicker: Bool = false
+    @Published var showingDiskExporter: Bool = false
     @Published var showingError: Bool = false
     @Published var errorMessage: String = ""
 
+    // Current disk unit being imported/exported
+    var currentDiskUnit: Int = 0
     var exportDocument: DiskImageDocument?
 
-    private var emulator: CPMEmulator?
-    private var outputBuffer: String = ""
-    private var cursorX: Int = 0
+    // VDA terminal state (25x80 character cells)
+    @Published var terminalCells: [[TerminalCell]] = []
+    @Published var cursorRow: Int = 0
+    @Published var cursorCol: Int = 0
+
+    private var emulator: RomWBWEmulator?
+
+    // Audio engine for beep
+    private var audioEngine: AVAudioEngine?
+    private var tonePlayer: AVAudioPlayerNode?
+
+    // Terminal dimensions
+    let terminalRows = 25
+    let terminalCols = 80
 
     override init() {
         super.init()
-        emulator = CPMEmulator()
+
+        // Initialize terminal cells
+        terminalCells = Array(repeating: Array(repeating: TerminalCell(), count: terminalCols), count: terminalRows)
+
+        emulator = RomWBWEmulator()
         emulator?.delegate = self
+
+        setupAudio()
+    }
+
+    // MARK: - Audio Setup
+
+    private func setupAudio() {
+        audioEngine = AVAudioEngine()
+        tonePlayer = AVAudioPlayerNode()
+
+        guard let engine = audioEngine, let player = tonePlayer else { return }
+
+        engine.attach(player)
+        let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
+        engine.connect(player, to: engine.mainMixerNode, format: format)
+
+        do {
+            try engine.start()
+        } catch {
+            print("Audio engine failed to start: \(error)")
+        }
     }
 
     // MARK: - Resource Loading
 
     func loadBundledResources() {
-        // Load CP/M system from bundle
-        guard let systemURL = Bundle.main.url(forResource: "cpm22", withExtension: "sys"),
-              let systemData = try? Data(contentsOf: systemURL) else {
-            statusText = "Error: cpm22.sys not found"
+        // Load RomWBW boot ROM
+        guard emulator?.loadROM(fromBundle: "emu_hbios.bin") == true else {
+            statusText = "Error: emu_hbios.bin not found"
             return
         }
 
-        guard emulator?.loadSystem(from: systemData) == true else {
-            statusText = "Error: Failed to load system"
+        // Load CP/M OS image to disk unit 0
+        guard emulator?.loadDisk(0, fromBundle: "cpm_wbw.img") == true else {
+            statusText = "Error: cpm_wbw.img not found"
             return
         }
 
-        // Load default disk image if available
-        if let diskURL = Bundle.main.url(forResource: "drivea", withExtension: "img"),
-           let diskData = try? Data(contentsOf: diskURL) {
-            _ = emulator?.loadDiskA(diskData)
-        } else {
-            // Create empty disk if no default
-            emulator?.createEmptyDiskA()
-        }
+        // Load ZSDOS to disk unit 1
+        _ = emulator?.loadDisk(1, fromBundle: "zsys_wbw.img")
 
-        // Auto-start the emulator
+        // Load QPM to disk unit 2
+        _ = emulator?.loadDisk(2, fromBundle: "qpm_wbw.img")
+
+        // Load sample drive A to disk unit 3
+        _ = emulator?.loadDisk(3, fromBundle: "drivea.img")
+
+        // Set boot string to auto-boot CP/M (option 0)
+        // User can change OS at boot menu
+        emulator?.setBootString("")
+
+        // Auto-start
         start()
     }
 
@@ -71,28 +111,50 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     func reset() {
         emulator?.reset()
-        terminalText = ""
-        outputBuffer = ""
-        cursorX = 0
+        clearTerminal()
         isRunning = false
         statusText = "Reset - Press Play to start"
     }
 
     func sendKey(_ char: Character) {
-        emulator?.sendKey(char.utf16.first ?? 0)
+        let code = char.asciiValue ?? UInt8(char.utf16.first ?? 0)
+        emulator?.sendCharacter(unichar(code))
+    }
+
+    func sendString(_ str: String) {
+        emulator?.send(str)
+    }
+
+    // MARK: - Terminal Operations
+
+    func clearTerminal() {
+        for row in 0..<terminalRows {
+            for col in 0..<terminalCols {
+                terminalCells[row][col] = TerminalCell()
+            }
+        }
+        cursorRow = 0
+        cursorCol = 0
     }
 
     // MARK: - Disk Management
 
-    func handleDiskAImport(_ result: Result<[URL], Error>) {
-        handleDiskImport(result, isDiskA: true)
+    func loadDisk(_ unit: Int) {
+        currentDiskUnit = unit
+        showingDiskPicker = true
     }
 
-    func handleDiskBImport(_ result: Result<[URL], Error>) {
-        handleDiskImport(result, isDiskA: false)
+    func saveDisk(_ unit: Int) {
+        guard let data = emulator?.getDiskData(Int32(unit)) else {
+            showError("No data in disk unit \(unit)")
+            return
+        }
+        currentDiskUnit = unit
+        exportDocument = DiskImageDocument(data: data)
+        showingDiskExporter = true
     }
 
-    private func handleDiskImport(_ result: Result<[URL], Error>, isDiskA: Bool) {
+    func handleDiskImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
@@ -105,11 +167,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
             do {
                 let data = try Data(contentsOf: url)
-                if isDiskA {
-                    _ = emulator?.loadDiskA(data)
-                } else {
-                    _ = emulator?.loadDiskB(data)
-                }
+                _ = emulator?.loadDisk(Int32(currentDiskUnit), from: data)
+                statusText = "Loaded disk unit \(currentDiskUnit)"
             } catch {
                 showError("Failed to load disk: \(error.localizedDescription)")
             }
@@ -119,37 +178,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
     }
 
-    func saveDiskA() {
-        guard let data = emulator?.getDiskAData() else {
-            showError("No disk A data to save")
-            return
-        }
-        exportDocument = DiskImageDocument(data: data)
-        showingDiskAExporter = true
-    }
-
-    func saveDiskB() {
-        guard let data = emulator?.getDiskBData() else {
-            showError("No disk B data to save")
-            return
-        }
-        exportDocument = DiskImageDocument(data: data)
-        showingDiskBExporter = true
-    }
-
     func handleExportResult(_ result: Result<URL, Error>) {
         if case .failure(let error) = result {
             showError("Export failed: \(error.localizedDescription)")
         }
         exportDocument = nil
-    }
-
-    func createEmptyDiskA() {
-        emulator?.createEmptyDiskA()
-    }
-
-    func createEmptyDiskB() {
-        emulator?.createEmptyDiskB()
     }
 
     // MARK: - Helpers
@@ -158,63 +191,159 @@ class EmulatorViewModel: NSObject, ObservableObject {
         errorMessage = message
         showingError = true
     }
+
+    // MARK: - Sound Generation
+
+    private func playBeep(durationMs: Int) {
+        guard let engine = audioEngine, let player = tonePlayer else { return }
+
+        let sampleRate: Double = 44100
+        let frequency: Double = 800  // 800 Hz beep
+        let duration = Double(durationMs) / 1000.0
+        let frameCount = AVAudioFrameCount(sampleRate * duration)
+
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: engine.mainMixerNode.outputFormat(forBus: 0),
+                                            frameCapacity: frameCount) else { return }
+        buffer.frameLength = frameCount
+
+        let channels = Int(buffer.format.channelCount)
+        for ch in 0..<channels {
+            guard let channelData = buffer.floatChannelData?[ch] else { continue }
+            for frame in 0..<Int(frameCount) {
+                let phase = Double(frame) / sampleRate * frequency * 2.0 * .pi
+                // Square wave
+                channelData[frame] = sin(phase) > 0 ? 0.3 : -0.3
+            }
+        }
+
+        player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
+        player.play()
+    }
 }
 
-// MARK: - CPMEmulatorDelegate
+// MARK: - Terminal Cell
 
-extension EmulatorViewModel: CPMEmulatorDelegate {
-    func emulatorDidOutputCharacter(_ character: unichar) {
-        let ch = Int(character)
+struct TerminalCell: Equatable {
+    var character: Character = " "
+    var foreground: UInt8 = 7  // White
+    var background: UInt8 = 0  // Black
+}
 
-        switch ch {
-        case 0x07: // Bell
-            // Could play a sound
-            break
+// MARK: - RomWBWEmulatorDelegate
 
-        case 0x08: // Backspace
-            if !outputBuffer.isEmpty {
-                outputBuffer.removeLast()
-                cursorX = max(0, cursorX - 1)
-            }
+extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
-        case 0x09: // Tab
-            let spaces = 8 - (cursorX % 8)
-            outputBuffer += String(repeating: " ", count: spaces)
-            cursorX += spaces
-
-        case 0x0A: // Line feed
-            outputBuffer += "\n"
-            cursorX = 0
-
-        case 0x0D: // Carriage return
-            // CP/M sends CR+LF, we only need to handle LF for newline
-            // So ignore CR to avoid double spacing
-            break
-
-        case 0x20...0x7E: // Printable ASCII
-            outputBuffer += String(UnicodeScalar(ch)!)
-            cursorX += 1
-
-        default:
-            // Ignore other control characters
-            break
-        }
-
-        // Update terminal (limit size to prevent memory issues)
-        let maxLength = 50000
-        if outputBuffer.count > maxLength {
-            let startIndex = outputBuffer.index(outputBuffer.endIndex, offsetBy: -maxLength)
-            outputBuffer = String(outputBuffer[startIndex...])
-        }
-
-        terminalText = outputBuffer
+    // Console output (streaming text, used by some apps)
+    func emulatorDidOutputCharacter(_ ch: unichar) {
+        // Handle as VDA write at current cursor
+        emulatorVDAWriteChar(ch)
     }
 
     func emulatorDidChangeStatus(_ status: String) {
-        statusText = status
+        DispatchQueue.main.async {
+            self.statusText = status
+        }
     }
 
     func emulatorDidRequestInput() {
-        // Could show a visual indicator that input is expected
+        // Could show cursor blinking or input indicator
+    }
+
+    // MARK: - VDA (Video Display Adapter)
+
+    func emulatorVDAClear() {
+        DispatchQueue.main.async {
+            self.clearTerminal()
+        }
+    }
+
+    func emulatorVDASetCursorRow(_ row: Int32, col: Int32) {
+        DispatchQueue.main.async {
+            self.cursorRow = min(max(Int(row), 0), self.terminalRows - 1)
+            self.cursorCol = min(max(Int(col), 0), self.terminalCols - 1)
+        }
+    }
+
+    func emulatorVDAWriteChar(_ ch: unichar) {
+        DispatchQueue.main.async {
+            let char = Character(UnicodeScalar(ch) ?? UnicodeScalar(32))
+
+            // Handle control characters
+            switch ch {
+            case 0x07: // Bell
+                self.playBeep(durationMs: 100)
+                return
+
+            case 0x08: // Backspace
+                if self.cursorCol > 0 {
+                    self.cursorCol -= 1
+                }
+                return
+
+            case 0x09: // Tab
+                self.cursorCol = min((self.cursorCol + 8) & ~7, self.terminalCols - 1)
+                return
+
+            case 0x0A: // Line feed
+                self.cursorRow += 1
+                if self.cursorRow >= self.terminalRows {
+                    self.scrollUp(1)
+                    self.cursorRow = self.terminalRows - 1
+                }
+                return
+
+            case 0x0D: // Carriage return
+                self.cursorCol = 0
+                return
+
+            default:
+                break
+            }
+
+            // Printable character
+            if ch >= 0x20 && ch <= 0x7E {
+                self.terminalCells[self.cursorRow][self.cursorCol].character = char
+                self.cursorCol += 1
+                if self.cursorCol >= self.terminalCols {
+                    self.cursorCol = 0
+                    self.cursorRow += 1
+                    if self.cursorRow >= self.terminalRows {
+                        self.scrollUp(1)
+                        self.cursorRow = self.terminalRows - 1
+                    }
+                }
+            }
+        }
+    }
+
+    func emulatorVDAScrollUp(_ lines: Int32) {
+        DispatchQueue.main.async {
+            self.scrollUp(Int(lines))
+        }
+    }
+
+    func emulatorVDASetAttr(_ attr: UInt8) {
+        // Attr is CGA-style: bits 0-3 = foreground, bits 4-6 = background, bit 7 = blink
+        // For now, store and use when writing chars
+        // This could be enhanced to update current attribute state
+    }
+
+    private func scrollUp(_ lines: Int) {
+        guard lines > 0 else { return }
+
+        for row in 0..<(terminalRows - lines) {
+            terminalCells[row] = terminalCells[row + lines]
+        }
+        for row in (terminalRows - lines)..<terminalRows {
+            terminalCells[row] = Array(repeating: TerminalCell(), count: terminalCols)
+        }
+    }
+
+    // MARK: - Sound
+
+    func emulatorBeep(_ durationMs: Int32) {
+        DispatchQueue.main.async {
+            self.playBeep(durationMs: Int(durationMs))
+        }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * ContentView.swift - Main view for CP/M emulator
+ * ContentView.swift - Main view for RomWBW emulator
  */
 
 import SwiftUI
@@ -12,7 +12,13 @@ struct ContentView: View {
         NavigationView {
             VStack(spacing: 0) {
                 // Terminal display
-                TerminalView(text: $viewModel.terminalText) { char in
+                TerminalView(
+                    cells: $viewModel.terminalCells,
+                    cursorRow: $viewModel.cursorRow,
+                    cursorCol: $viewModel.cursorCol,
+                    rows: viewModel.terminalRows,
+                    cols: viewModel.terminalCols
+                ) { char in
                     viewModel.sendKey(char)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -45,30 +51,46 @@ struct ContentView: View {
                 .padding(.vertical, 4)
                 .background(Color(.systemGray6))
             }
-            .navigationTitle("CP/M")
+            .navigationTitle("RomWBW")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Menu {
-                        Button("Load Disk A...") {
-                            viewModel.showingDiskAPicker = true
+                        // OS Images
+                        Button("Load OS to Slot 0...") {
+                            viewModel.loadDisk(0)
                         }
-                        Button("Load Disk B...") {
-                            viewModel.showingDiskBPicker = true
+                        Button("Load OS to Slot 1...") {
+                            viewModel.loadDisk(1)
                         }
+                        Button("Load OS to Slot 2...") {
+                            viewModel.loadDisk(2)
+                        }
+
                         Divider()
-                        Button("Save Disk A...") {
-                            viewModel.saveDiskA()
+
+                        // Data Disks
+                        Button("Load Drive A (Slot 3)...") {
+                            viewModel.loadDisk(3)
                         }
-                        Button("Save Disk B...") {
-                            viewModel.saveDiskB()
+                        Button("Load Drive B (Slot 4)...") {
+                            viewModel.loadDisk(4)
                         }
+                        Button("Load Drive C (Slot 5)...") {
+                            viewModel.loadDisk(5)
+                        }
+                        Button("Load Drive D (Slot 6)...") {
+                            viewModel.loadDisk(6)
+                        }
+
                         Divider()
-                        Button("Create Empty Disk A") {
-                            viewModel.createEmptyDiskA()
+
+                        // Save Disks
+                        Button("Save Drive A (Slot 3)...") {
+                            viewModel.saveDisk(3)
                         }
-                        Button("Create Empty Disk B") {
-                            viewModel.createEmptyDiskB()
+                        Button("Save Drive B (Slot 4)...") {
+                            viewModel.saveDisk(4)
                         }
                     } label: {
                         Label("Disks", systemImage: "opticaldiscdrive")
@@ -92,32 +114,17 @@ struct ContentView: View {
                 }
             }
             .fileImporter(
-                isPresented: $viewModel.showingDiskAPicker,
+                isPresented: $viewModel.showingDiskPicker,
                 allowedContentTypes: [.data, .item],
                 allowsMultipleSelection: false
             ) { result in
-                viewModel.handleDiskAImport(result)
-            }
-            .fileImporter(
-                isPresented: $viewModel.showingDiskBPicker,
-                allowedContentTypes: [.data, .item],
-                allowsMultipleSelection: false
-            ) { result in
-                viewModel.handleDiskBImport(result)
+                viewModel.handleDiskImport(result)
             }
             .fileExporter(
-                isPresented: $viewModel.showingDiskAExporter,
+                isPresented: $viewModel.showingDiskExporter,
                 document: viewModel.exportDocument,
                 contentType: .data,
-                defaultFilename: "diskA.img"
-            ) { result in
-                viewModel.handleExportResult(result)
-            }
-            .fileExporter(
-                isPresented: $viewModel.showingDiskBExporter,
-                document: viewModel.exportDocument,
-                contentType: .data,
-                defaultFilename: "diskB.img"
+                defaultFilename: "disk\(viewModel.currentDiskUnit).img"
             ) { result in
                 viewModel.handleExportResult(result)
             }

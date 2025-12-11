@@ -1,83 +1,199 @@
 /*
- * TerminalView.swift - Terminal display for CP/M console
+ * TerminalView.swift - VDA-style terminal display for RomWBW
  */
 
 import SwiftUI
 import UIKit
 
 struct TerminalView: UIViewRepresentable {
-    @Binding var text: String
+    @Binding var cells: [[TerminalCell]]
+    @Binding var cursorRow: Int
+    @Binding var cursorCol: Int
     var onKeyInput: ((Character) -> Void)?
 
+    let rows: Int
+    let cols: Int
+
+    init(cells: Binding<[[TerminalCell]]>,
+         cursorRow: Binding<Int>,
+         cursorCol: Binding<Int>,
+         rows: Int = 25,
+         cols: Int = 80,
+         onKeyInput: ((Character) -> Void)? = nil) {
+        self._cells = cells
+        self._cursorRow = cursorRow
+        self._cursorCol = cursorCol
+        self.rows = rows
+        self.cols = cols
+        self.onKeyInput = onKeyInput
+    }
+
     func makeUIView(context: Context) -> TerminalUIView {
-        let view = TerminalUIView()
+        let view = TerminalUIView(rows: rows, cols: cols)
         view.onKeyInput = onKeyInput
         return view
     }
 
     func updateUIView(_ uiView: TerminalUIView, context: Context) {
-        uiView.terminalText = text
+        uiView.updateCells(cells, cursorRow: cursorRow, cursorCol: cursorCol)
     }
 }
 
 class TerminalUIView: UIView, UIKeyInput {
-    var terminalText: String = "" {
-        didSet {
-            textView.text = terminalText
-            scrollToBottom()
-        }
-    }
-
     var onKeyInput: ((Character) -> Void)?
 
-    private let textView: UITextView = {
-        let tv = UITextView()
-        tv.isEditable = false
-        tv.isSelectable = true
-        tv.backgroundColor = .black
-        tv.textColor = .green
-        tv.font = UIFont.monospacedSystemFont(ofSize: 14, weight: .regular)
-        tv.translatesAutoresizingMaskIntoConstraints = false
-        tv.autocorrectionType = .no
-        tv.autocapitalizationType = .none
-        tv.spellCheckingType = .no
-        return tv
-    }()
+    private let rows: Int
+    private let cols: Int
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setup()
-    }
+    private var cells: [[TerminalCell]] = []
+    private var cursorRow: Int = 0
+    private var cursorCol: Int = 0
 
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setup()
-    }
+    private var charWidth: CGFloat = 0
+    private var charHeight: CGFloat = 0
+    private let font: UIFont
 
-    private func setup() {
+    // CGA color palette
+    private let cgaColors: [UIColor] = [
+        UIColor(red: 0/255, green: 0/255, blue: 0/255, alpha: 1),       // 0: Black
+        UIColor(red: 0/255, green: 0/255, blue: 170/255, alpha: 1),     // 1: Blue
+        UIColor(red: 0/255, green: 170/255, blue: 0/255, alpha: 1),     // 2: Green
+        UIColor(red: 0/255, green: 170/255, blue: 170/255, alpha: 1),   // 3: Cyan
+        UIColor(red: 170/255, green: 0/255, blue: 0/255, alpha: 1),     // 4: Red
+        UIColor(red: 170/255, green: 0/255, blue: 170/255, alpha: 1),   // 5: Magenta
+        UIColor(red: 170/255, green: 85/255, blue: 0/255, alpha: 1),    // 6: Brown
+        UIColor(red: 170/255, green: 170/255, blue: 170/255, alpha: 1), // 7: Light Gray
+        UIColor(red: 85/255, green: 85/255, blue: 85/255, alpha: 1),    // 8: Dark Gray
+        UIColor(red: 85/255, green: 85/255, blue: 255/255, alpha: 1),   // 9: Light Blue
+        UIColor(red: 85/255, green: 255/255, blue: 85/255, alpha: 1),   // 10: Light Green
+        UIColor(red: 85/255, green: 255/255, blue: 255/255, alpha: 1),  // 11: Light Cyan
+        UIColor(red: 255/255, green: 85/255, blue: 85/255, alpha: 1),   // 12: Light Red
+        UIColor(red: 255/255, green: 85/255, blue: 255/255, alpha: 1),  // 13: Light Magenta
+        UIColor(red: 255/255, green: 255/255, blue: 85/255, alpha: 1),  // 14: Yellow
+        UIColor(red: 255/255, green: 255/255, blue: 255/255, alpha: 1)  // 15: White
+    ]
+
+    init(rows: Int, cols: Int) {
+        self.rows = rows
+        self.cols = cols
+
+        // Use a monospace font that scales well
+        #if targetEnvironment(macCatalyst)
+        self.font = UIFont.monospacedSystemFont(ofSize: 18, weight: .regular)
+        #else
+        self.font = UIFont.monospacedSystemFont(ofSize: 16, weight: .regular)
+        #endif
+
+        super.init(frame: .zero)
+
+        // Calculate character dimensions
+        let testString = "M" as NSString
+        let size = testString.size(withAttributes: [.font: font])
+        charWidth = size.width
+        charHeight = size.height
+
+        // Initialize cells
+        cells = Array(repeating: Array(repeating: TerminalCell(), count: cols), count: rows)
+
         backgroundColor = .black
-        addSubview(textView)
-
-        NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(equalTo: topAnchor),
-            textView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            textView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: trailingAnchor)
-        ])
 
         // Add tap gesture to become first responder
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
         addGestureRecognizer(tap)
     }
 
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
+
     @objc private func handleTap() {
         becomeFirstResponder()
     }
 
-    private func scrollToBottom() {
-        guard textView.text.count > 0 else { return }
-        let range = NSRange(location: textView.text.count - 1, length: 1)
-        textView.scrollRangeToVisible(range)
+    func updateCells(_ newCells: [[TerminalCell]], cursorRow: Int, cursorCol: Int) {
+        self.cells = newCells
+        self.cursorRow = cursorRow
+        self.cursorCol = cursorCol
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+
+        // Calculate scaling to fit view
+        let viewWidth = bounds.width
+        let viewHeight = bounds.height
+        let terminalWidth = CGFloat(cols) * charWidth
+        let terminalHeight = CGFloat(rows) * charHeight
+
+        let scaleX = viewWidth / terminalWidth
+        let scaleY = viewHeight / terminalHeight
+        let scale = min(scaleX, scaleY)
+
+        let scaledWidth = terminalWidth * scale
+        let scaledHeight = terminalHeight * scale
+        let offsetX = (viewWidth - scaledWidth) / 2
+        let offsetY = (viewHeight - scaledHeight) / 2
+
+        context.saveGState()
+        context.translateBy(x: offsetX, y: offsetY)
+        context.scaleBy(x: scale, y: scale)
+
+        // Draw background
+        UIColor.black.setFill()
+        context.fill(CGRect(x: 0, y: 0, width: terminalWidth, height: terminalHeight))
+
+        // Draw cells
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: UIColor.green
+        ]
+
+        for row in 0..<min(rows, cells.count) {
+            for col in 0..<min(cols, cells[row].count) {
+                let cell = cells[row][col]
+                let x = CGFloat(col) * charWidth
+                let y = CGFloat(row) * charHeight
+
+                // Draw background if not black
+                if cell.background != 0 {
+                    let bgColor = cgaColors[Int(cell.background) & 0x0F]
+                    bgColor.setFill()
+                    context.fill(CGRect(x: x, y: y, width: charWidth, height: charHeight))
+                }
+
+                // Draw character
+                let fgColor = cgaColors[Int(cell.foreground) & 0x0F]
+                let charAttrs: [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: fgColor
+                ]
+
+                let str = String(cell.character) as NSString
+                str.draw(at: CGPoint(x: x, y: y), withAttributes: charAttrs)
+            }
+        }
+
+        // Draw cursor (blinking block)
+        let cursorX = CGFloat(cursorCol) * charWidth
+        let cursorY = CGFloat(cursorRow) * charHeight
+
+        // Simple block cursor
+        UIColor.green.withAlphaComponent(0.7).setFill()
+        context.fill(CGRect(x: cursorX, y: cursorY, width: charWidth, height: charHeight))
+
+        // Redraw character at cursor position in black so it's visible
+        if cursorRow < cells.count && cursorCol < cells[cursorRow].count {
+            let cell = cells[cursorRow][cursorCol]
+            let charAttrs: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: UIColor.black
+            ]
+            let str = String(cell.character) as NSString
+            str.draw(at: CGPoint(x: cursorX, y: cursorY), withAttributes: charAttrs)
+        }
+
+        context.restoreGState()
     }
 
     // MARK: - UIKeyInput
@@ -91,7 +207,6 @@ class TerminalUIView: UIView, UIKeyInput {
     }
 
     func deleteBackward() {
-        // Send backspace (ASCII 8) or DEL (127)
         onKeyInput?(Character(UnicodeScalar(8)))
     }
 
@@ -100,11 +215,23 @@ class TerminalUIView: UIView, UIKeyInput {
     override var canBecomeFirstResponder: Bool { true }
 
     override var keyCommands: [UIKeyCommand]? {
-        // Handle special keys
-        return [
+        var commands = [
             UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(enterPressed)),
-            UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escapePressed))
+            UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escapePressed)),
+            UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(upArrowPressed)),
+            UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(downArrowPressed)),
+            UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(leftArrowPressed)),
+            UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(rightArrowPressed))
         ]
+
+        // Add Ctrl+key commands for common CP/M usage
+        for char in "abcdefghijklmnopqrstuvwxyz" {
+            if let input = char.asciiValue {
+                commands.append(UIKeyCommand(input: String(char), modifierFlags: .control, action: #selector(ctrlKeyPressed(_:))))
+            }
+        }
+
+        return commands
     }
 
     @objc private func enterPressed() {
@@ -114,8 +241,35 @@ class TerminalUIView: UIView, UIKeyInput {
     @objc private func escapePressed() {
         onKeyInput?(Character(UnicodeScalar(27)))
     }
+
+    @objc private func upArrowPressed() {
+        // Send ANSI up arrow or Ctrl-E for WordStar
+        onKeyInput?(Character(UnicodeScalar(5))) // Ctrl-E
+    }
+
+    @objc private func downArrowPressed() {
+        onKeyInput?(Character(UnicodeScalar(24))) // Ctrl-X
+    }
+
+    @objc private func leftArrowPressed() {
+        onKeyInput?(Character(UnicodeScalar(19))) // Ctrl-S
+    }
+
+    @objc private func rightArrowPressed() {
+        onKeyInput?(Character(UnicodeScalar(4))) // Ctrl-D
+    }
+
+    @objc private func ctrlKeyPressed(_ command: UIKeyCommand) {
+        guard let input = command.input, let firstChar = input.first else { return }
+        // Convert to control character (A=1, B=2, etc.)
+        if let ascii = firstChar.asciiValue {
+            let ctrlCode = ascii - 96  // 'a' (97) -> 1, 'b' (98) -> 2, etc.
+            onKeyInput?(Character(UnicodeScalar(ctrlCode)))
+        }
+    }
 }
 
 #Preview {
-    TerminalView(text: .constant("A>DIR\r\n\r\nNo file"))
+    let cells = Array(repeating: Array(repeating: TerminalCell(character: "A", foreground: 2, background: 0), count: 80), count: 25)
+    return TerminalView(cells: .constant(cells), cursorRow: .constant(0), cursorCol: .constant(0))
 }

@@ -13,20 +13,25 @@
 		A1000003 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000003; };
 		A1000004 /* EmulatorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000004; };
 
-		/* Objective-C++ files */
-		A1000010 /* CPMEmulator.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000010; };
+		/* Objective-C++ Bridge */
+		A1000010 /* RomWBWEmulator.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000010; };
+		A1000011 /* emu_io_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000012; };
 
 		/* C++ Core files */
 		A1000020 /* qkz80.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000020; };
 		A1000021 /* qkz80_mem.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000021; };
 		A1000022 /* qkz80_reg_set.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000022; };
 		A1000023 /* qkz80_errors.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000023; };
-		A1000024 /* CPMBios.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000024; };
+		A1000024 /* hbios_core.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000024; };
+		A1000025 /* hbios_dispatch.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000025; };
 
 		/* Resources */
 		A1000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000030; };
-		A1000031 /* cpm22.sys in Resources */ = {isa = PBXBuildFile; fileRef = B1000031; };
+		A1000031 /* emu_hbios.bin in Resources */ = {isa = PBXBuildFile; fileRef = B1000031; };
 		A1000032 /* drivea.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000032; };
+		A1000033 /* cpm_wbw.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000033; };
+		A1000034 /* zsys_wbw.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000034; };
+		A1000035 /* qpm_wbw.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000035; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,16 +44,18 @@
 		B1000003 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		B1000004 /* EmulatorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmulatorViewModel.swift; sourceTree = "<group>"; };
 
-		/* Objective-C++ files */
-		B1000010 /* CPMEmulator.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = CPMEmulator.mm; sourceTree = "<group>"; };
-		B1000011 /* CPMEmulator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CPMEmulator.h; sourceTree = "<group>"; };
+		/* Objective-C++ Bridge files */
+		B1000010 /* RomWBWEmulator.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomWBWEmulator.mm; sourceTree = "<group>"; };
+		B1000011 /* RomWBWEmulator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomWBWEmulator.h; sourceTree = "<group>"; };
+		B1000012 /* emu_io_ios.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = emu_io_ios.mm; sourceTree = "<group>"; };
 
 		/* C++ Core files */
 		B1000020 /* qkz80.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = qkz80.cc; sourceTree = "<group>"; };
 		B1000021 /* qkz80_mem.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = qkz80_mem.cc; sourceTree = "<group>"; };
 		B1000022 /* qkz80_reg_set.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = qkz80_reg_set.cc; sourceTree = "<group>"; };
 		B1000023 /* qkz80_errors.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = qkz80_errors.cc; sourceTree = "<group>"; };
-		B1000024 /* CPMBios.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CPMBios.cc; sourceTree = "<group>"; };
+		B1000024 /* hbios_core.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hbios_core.cc; sourceTree = "<group>"; };
+		B1000025 /* hbios_dispatch.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hbios_dispatch.cc; sourceTree = "<group>"; };
 
 		/* C++ Header files */
 		B1000040 /* qkz80.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80.h; sourceTree = "<group>"; };
@@ -58,12 +65,18 @@
 		B1000044 /* qkz80_cpu_flags.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80_cpu_flags.h; sourceTree = "<group>"; };
 		B1000045 /* qkz80_trace.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80_trace.h; sourceTree = "<group>"; };
 		B1000046 /* qkz80_types.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80_types.h; sourceTree = "<group>"; };
-		B1000047 /* CPMBios.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CPMBios.h; sourceTree = "<group>"; };
+		B1000047 /* hbios_core.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hbios_core.h; sourceTree = "<group>"; };
+		B1000048 /* emu_io.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = emu_io.h; sourceTree = "<group>"; };
+		B1000049 /* romwbw_mem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = romwbw_mem.h; sourceTree = "<group>"; };
+		B1000052 /* hbios_dispatch.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hbios_dispatch.h; sourceTree = "<group>"; };
 
 		/* Resources */
 		B1000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		B1000031 /* cpm22.sys */ = {isa = PBXFileReference; lastKnownFileType = file; path = cpm22.sys; sourceTree = "<group>"; };
+		B1000031 /* emu_hbios.bin */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_hbios.bin; sourceTree = "<group>"; };
 		B1000032 /* drivea.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = drivea.img; sourceTree = "<group>"; };
+		B1000033 /* cpm_wbw.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = cpm_wbw.img; sourceTree = "<group>"; };
+		B1000034 /* zsys_wbw.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = zsys_wbw.img; sourceTree = "<group>"; };
+		B1000035 /* qpm_wbw.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = qpm_wbw.img; sourceTree = "<group>"; };
 
 		/* Other files */
 		B1000050 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -125,8 +138,8 @@
 		E1000005 /* Bridge */ = {
 			isa = PBXGroup;
 			children = (
-				B1000011 /* CPMEmulator.h */,
-				B1000010 /* CPMEmulator.mm */,
+				B1000011 /* RomWBWEmulator.h */,
+				B1000010 /* RomWBWEmulator.mm */,
 			);
 			path = Bridge;
 			sourceTree = "<group>";
@@ -134,6 +147,13 @@
 		E1000006 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				B1000048 /* emu_io.h */,
+				B1000012 /* emu_io_ios.mm */,
+				B1000047 /* hbios_core.h */,
+				B1000024 /* hbios_core.cc */,
+				B1000052 /* hbios_dispatch.h */,
+				B1000025 /* hbios_dispatch.cc */,
+				B1000049 /* romwbw_mem.h */,
 				B1000040 /* qkz80.h */,
 				B1000020 /* qkz80.cc */,
 				B1000041 /* qkz80_mem.h */,
@@ -145,8 +165,6 @@
 				B1000045 /* qkz80_trace.h */,
 				B1000046 /* qkz80_types.h */,
 				B1000023 /* qkz80_errors.cc */,
-				B1000047 /* CPMBios.h */,
-				B1000024 /* CPMBios.cc */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -154,7 +172,10 @@
 		E1000007 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				B1000031 /* cpm22.sys */,
+				B1000031 /* emu_hbios.bin */,
+				B1000033 /* cpm_wbw.img */,
+				B1000034 /* zsys_wbw.img */,
+				B1000035 /* qpm_wbw.img */,
 				B1000032 /* drivea.img */,
 			);
 			path = Resources;
@@ -220,8 +241,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000030 /* Assets.xcassets in Resources */,
-				A1000031 /* cpm22.sys in Resources */,
+				A1000031 /* emu_hbios.bin in Resources */,
 				A1000032 /* drivea.img in Resources */,
+				A1000033 /* cpm_wbw.img in Resources */,
+				A1000034 /* zsys_wbw.img in Resources */,
+				A1000035 /* qpm_wbw.img in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -236,12 +260,14 @@
 				A1000002 /* ContentView.swift in Sources */,
 				A1000003 /* TerminalView.swift in Sources */,
 				A1000004 /* EmulatorViewModel.swift in Sources */,
-				A1000010 /* CPMEmulator.mm in Sources */,
+				A1000010 /* RomWBWEmulator.mm in Sources */,
+				A1000011 /* emu_io_ios.mm in Sources */,
 				A1000020 /* qkz80.cc in Sources */,
 				A1000021 /* qkz80_mem.cc in Sources */,
 				A1000022 /* qkz80_reg_set.cc in Sources */,
 				A1000023 /* qkz80_errors.cc in Sources */,
-				A1000024 /* CPMBios.cc in Sources */,
+				A1000024 /* hbios_core.cc in Sources */,
+				A1000025 /* hbios_dispatch.cc in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -280,7 +306,10 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/iOSCPM/Core";
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/iOSCPM/Core",
+					"$(SRCROOT)/iOSCPM/Bridge",
+				);
 			};
 			name = Debug;
 		};
@@ -315,7 +344,10 @@
 				SWIFT_OBJC_BRIDGING_HEADER = "iOSCPM/iOSCPM-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/iOSCPM/Core";
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/iOSCPM/Core",
+					"$(SRCROOT)/iOSCPM/Bridge",
+				);
 			};
 			name = Release;
 		};
