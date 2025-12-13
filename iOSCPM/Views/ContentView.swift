@@ -6,7 +6,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 // Version for tracking updates
-let appVersion = "0.2.6"
+let appVersion = "0.2.7"
 
 struct ContentView: View {
     @StateObject private var viewModel = EmulatorViewModel()
@@ -32,6 +32,10 @@ struct ContentView: View {
 
                 // Status bar
                 HStack {
+                    Text("v\(appVersion)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
                     Text(viewModel.statusText)
                         .font(.caption)
                         .foregroundColor(.secondary)
