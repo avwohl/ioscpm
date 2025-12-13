@@ -194,19 +194,53 @@ struct SettingsView: View {
 
                 // Disk Section
                 Section(header: Text("Disk Images")) {
-                    Picker("Disk 0", selection: $viewModel.selectedDisk0) {
-                        ForEach(viewModel.availableDisks) { disk in
-                            Text(disk.name).tag(disk as DiskOption?)
-                        }
-                    }
-                    .pickerStyle(.menu)
+                    ForEach(0..<4, id: \.self) { unit in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(viewModel.diskLabels[unit])
+                                    .font(.subheadline)
+                                Spacer()
+                                if viewModel.localDiskURLs[unit] != nil {
+                                    Image(systemName: "doc.fill")
+                                        .foregroundColor(.blue)
+                                        .font(.caption)
+                                }
+                            }
 
-                    Picker("Disk 1", selection: $viewModel.selectedDisk1) {
-                        ForEach(viewModel.availableDisks) { disk in
-                            Text(disk.name).tag(disk as DiskOption?)
+                            Picker("", selection: $viewModel.selectedDisks[unit]) {
+                                ForEach(viewModel.availableDisks) { disk in
+                                    Text(disk.name).tag(disk as DiskOption?)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+
+                            HStack(spacing: 12) {
+                                Button("Open File...") {
+                                    viewModel.openLocalDisk(unit: unit)
+                                }
+                                .font(.caption)
+
+                                Button("Create New...") {
+                                    viewModel.createLocalDisk(unit: unit)
+                                }
+                                .font(.caption)
+
+                                if viewModel.localDiskURLs[unit] != nil {
+                                    Button("Save") {
+                                        viewModel.saveDiskToFile(unit: unit)
+                                    }
+                                    .font(.caption)
+                                }
+                            }
+                            .buttonStyle(.borderless)
                         }
+                        .padding(.vertical, 2)
                     }
-                    .pickerStyle(.menu)
+
+                    Text("Max disk size: 8MB")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
 
                 // Boot Section
@@ -255,7 +289,39 @@ struct SettingsView: View {
                     }
                 }
             }
+            .fileImporter(
+                isPresented: $viewModel.showingOpenDisk,
+                allowedContentTypes: [.data, .item],
+                allowsMultipleSelection: false
+            ) { result in
+                viewModel.handleOpenDiskResult(result)
+            }
+            .fileExporter(
+                isPresented: $viewModel.showingCreateDisk,
+                document: EmptyDiskDocument(),
+                contentType: .data,
+                defaultFilename: "newdisk.img"
+            ) { result in
+                if case .success(let url) = result {
+                    viewModel.createNewDisk(at: url)
+                }
+            }
         }
+    }
+}
+
+// Empty disk document for creating new disk files
+struct EmptyDiskDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.data] }
+
+    init() {}
+
+    init(configuration: ReadConfiguration) throws {}
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        // Create 8MB empty disk filled with 0xE5 (CP/M format)
+        let data = Data(repeating: 0xE5, count: 8 * 1024 * 1024)
+        return FileWrapper(regularFileWithContents: data)
     }
 }
 

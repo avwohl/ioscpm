@@ -132,20 +132,23 @@ class TerminalUIView: UIView, UIKeyInput {
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
 
-        // Calculate scaling to fit view
         let viewWidth = bounds.width
         let viewHeight = bounds.height
+
+        // Terminal size based on current font
         let terminalWidth = CGFloat(cols) * charWidth
         let terminalHeight = CGFloat(rows) * charHeight
 
+        // Scale to fit view, but cap scale at 1.0 so larger fonts show larger
+        // (smaller fonts will scale up to fit, larger fonts stay at their size or scale down minimally)
         let scaleX = viewWidth / terminalWidth
         let scaleY = viewHeight / terminalHeight
-        let scale = min(scaleX, scaleY)
+        let scale = min(scaleX, scaleY, 1.0)  // Cap at 1.0 - never scale up
 
         let scaledWidth = terminalWidth * scale
         let scaledHeight = terminalHeight * scale
         let offsetX = (viewWidth - scaledWidth) / 2
-        let offsetY = (viewHeight - scaledHeight) / 2
+        let offsetY = max(0, (viewHeight - scaledHeight) / 2)  // Align to top if overflow
 
         context.saveGState()
         context.translateBy(x: offsetX, y: offsetY)
@@ -156,11 +159,6 @@ class TerminalUIView: UIView, UIKeyInput {
         context.fill(CGRect(x: 0, y: 0, width: terminalWidth, height: terminalHeight))
 
         // Draw cells
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: UIColor.green
-        ]
-
         for row in 0..<min(rows, cells.count) {
             for col in 0..<min(cols, cells[row].count) {
                 let cell = cells[row][col]
@@ -238,7 +236,7 @@ class TerminalUIView: UIView, UIKeyInput {
 
         // Add Ctrl+key commands for common CP/M usage
         for char in "abcdefghijklmnopqrstuvwxyz" {
-            if let input = char.asciiValue {
+            if char.asciiValue != nil {
                 commands.append(UIKeyCommand(input: String(char), modifierFlags: .control, action: #selector(ctrlKeyPressed(_:))))
             }
         }

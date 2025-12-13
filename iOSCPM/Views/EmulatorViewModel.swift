@@ -38,9 +38,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
         ROMOption(name: "EMU RCZ80", filename: "emu_rcz80.rom"),
     ]
 
-    // Disk selection for slots 0 and 1
-    @Published var selectedDisk0: DiskOption?
-    @Published var selectedDisk1: DiskOption?
+    // Disk selection for slots 0-3 (OS slots) and data drives
+    @Published var selectedDisks: [DiskOption?] = Array(repeating: nil, count: 4)
     let availableDisks: [DiskOption] = [
         DiskOption(name: "None", filename: ""),
         DiskOption(name: "CP/M 2.2", filename: "cpm_wbw.img"),
@@ -49,12 +48,27 @@ class EmulatorViewModel: NSObject, ObservableObject {
         DiskOption(name: "Drive A Data", filename: "drivea.img"),
     ]
 
+    // Disk slot labels
+    let diskLabels = ["Disk 0 (OS)", "Disk 1 (OS)", "Disk 2 (OS)", "Disk 3 (Data)"]
+
     // Boot string for auto-boot
     @Published var bootString: String = ""
 
     // Current disk unit being imported/exported
     var currentDiskUnit: Int = 0
     var exportDocument: DiskImageDocument?
+
+    // Local disk file URLs (for file-backed disks)
+    @Published var localDiskURLs: [URL?] = Array(repeating: nil, count: 4)
+
+    // For creating new disk files
+    @Published var showingCreateDisk: Bool = false
+    @Published var showingOpenDisk: Bool = false
+    var diskUnitForFileOp: Int = 0
+
+    // Maximum disk size (8MB due to 8-bit OS addressing limits)
+    static let maxDiskSize = 8 * 1024 * 1024  // 8MB
+    static let defaultDiskSize = 8 * 1024 * 1024  // 8MB default for new disks
 
     // VDA terminal state (25x80 character cells)
     @Published var terminalCells: [[TerminalCell]] = []
@@ -107,8 +121,10 @@ class EmulatorViewModel: NSObject, ObservableObject {
     func loadBundledResources() {
         // Set default selections
         selectedROM = availableROMs.first
-        selectedDisk0 = availableDisks.first { $0.filename == "cpm_wbw.img" }
-        selectedDisk1 = availableDisks.first { $0.filename == "" }  // None
+        selectedDisks[0] = availableDisks.first { $0.filename == "cpm_wbw.img" }
+        selectedDisks[1] = availableDisks.first { $0.filename == "zsys_wbw.img" }
+        selectedDisks[2] = availableDisks.first { $0.filename == "qpm_wbw.img" }
+        selectedDisks[3] = availableDisks.first { $0.filename == "drivea.img" }
 
         statusText = "Ready - Select ROM and disks, then Start"
     }
@@ -122,22 +138,122 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
         statusText = "ROM loaded: \(selectedROM?.name ?? romFile)"
 
-        // Load selected disk 0
-        if let disk0 = selectedDisk0, !disk0.filename.isEmpty {
-            if emulator?.loadDisk(0, fromBundle: disk0.filename) == true {
-                statusText = "Loaded: \(disk0.name) to Disk 0"
+        // Load selected disks
+        for unit in 0..<selectedDisks.count {
+            // First check if there's a local file URL for this unit
+            if let url = localDiskURLs[unit] {
+                if loadLocalDisk(unit: unit, from: url) {
+                    statusText = "Loaded local file to \(diskLabels[unit])"
+                    continue
+                }
             }
-        }
 
-        // Load selected disk 1
-        if let disk1 = selectedDisk1, !disk1.filename.isEmpty {
-            if emulator?.loadDisk(1, fromBundle: disk1.filename) == true {
-                statusText = "Loaded: \(disk1.name) to Disk 1"
+            // Otherwise load from bundled disk
+            if let disk = selectedDisks[unit], !disk.filename.isEmpty {
+                if emulator?.loadDisk(Int32(unit), fromBundle: disk.filename) == true {
+                    statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
+                }
             }
         }
 
         // Set boot string
         emulator?.setBootString(bootString)
+    }
+
+    // MARK: - Local Disk File Management
+
+    func openLocalDisk(unit: Int) {
+        diskUnitForFileOp = unit
+        showingOpenDisk = true
+    }
+
+    func createLocalDisk(unit: Int) {
+        diskUnitForFileOp = unit
+        showingCreateDisk = true
+    }
+
+    func loadLocalDisk(unit: Int, from url: URL) -> Bool {
+        guard url.startAccessingSecurityScopedResource() else {
+            showError("Cannot access file: \(url.lastPathComponent)")
+            return false
+        }
+        defer { url.stopAccessingSecurityScopedResource() }
+
+        do {
+            let data = try Data(contentsOf: url)
+            if data.count > Self.maxDiskSize {
+                showError("Disk file too large (max 8MB)")
+                return false
+            }
+            if emulator?.loadDisk(Int32(unit), from: data) == true {
+                localDiskURLs[unit] = url
+                selectedDisks[unit] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "")
+                return true
+            }
+        } catch {
+            showError("Failed to load disk: \(error.localizedDescription)")
+        }
+        return false
+    }
+
+    func handleOpenDiskResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            if loadLocalDisk(unit: diskUnitForFileOp, from: url) {
+                statusText = "Loaded: \(url.lastPathComponent) to \(diskLabels[diskUnitForFileOp])"
+            }
+        case .failure(let error):
+            showError("Open failed: \(error.localizedDescription)")
+        }
+    }
+
+    func createNewDisk(at url: URL, size: Int = defaultDiskSize) {
+        guard url.startAccessingSecurityScopedResource() else {
+            showError("Cannot access location")
+            return
+        }
+        defer { url.stopAccessingSecurityScopedResource() }
+
+        // Create empty disk image (filled with 0xE5 like formatted CP/M disk)
+        let data = Data(repeating: 0xE5, count: min(size, Self.maxDiskSize))
+
+        do {
+            try data.write(to: url)
+            if emulator?.loadDisk(Int32(diskUnitForFileOp), from: data) == true {
+                localDiskURLs[diskUnitForFileOp] = url
+                selectedDisks[diskUnitForFileOp] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "")
+                statusText = "Created: \(url.lastPathComponent)"
+            }
+        } catch {
+            showError("Failed to create disk: \(error.localizedDescription)")
+        }
+    }
+
+    func saveDiskToFile(unit: Int) {
+        guard let url = localDiskURLs[unit] else {
+            // If no local URL, use the regular export dialog
+            saveDisk(unit)
+            return
+        }
+
+        guard let data = emulator?.getDiskData(Int32(unit)) else {
+            showError("No data in disk unit \(unit)")
+            return
+        }
+
+        guard url.startAccessingSecurityScopedResource() else {
+            showError("Cannot access file")
+            return
+        }
+        defer { url.stopAccessingSecurityScopedResource() }
+
+        do {
+            try data.write(to: url)
+            statusText = "Saved: \(url.lastPathComponent)"
+        } catch {
+            showError("Failed to save: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Emulation Control
