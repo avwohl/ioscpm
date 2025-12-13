@@ -1,40 +1,39 @@
-Since last we ran there was a mac os update,
- and a new xcode, and a new xcode command line tools
+iOS CP/M Emulator - Status
+===========================
 
-This project is to create a ui for ios and mac.
-It is for ../romwbw_emu. A z80 emulator
-that can boot many different z80 operating sytems.
+COMPLETED (Dec 2024):
 
-romwbw_emu recently spit off from cpmemu.  In our files there
-may be ties to files in either. If something is missing we use
-it will be in one of thoses.
-../cpmemu and ../romwbw_emu are sister directory project.
+1. Replaced duplicate sources with symlinks to sister directories
+   - qkz80 files now symlink to ../cpmemu/src/
+   - hbios_dispatch, emu_io.h, romwbw_mem.h symlink to ../romwbw_emu/src/
+   - Kept iOS-specific: emu_io_ios.mm, hbios_core.cc/h
 
-It looks like we have a copy in Core/ of hbios_dispatch, and qkz80
-that is wrong, we should compile them out if the sister directories
-not keep private copies.
+2. Added critical HBIOS fixes from IOS_PORTING.md
+   - APITYPE patching at ROM offset 0x0112 (set to 0x00 for HBIOS)
+   - HBIOS ident signatures at 0xFF00 and 0xFE00 in common area
+   - SYSRESET callback for REBOOT command support
 
-hbios* files got a major rewrite since we last where built I think.
-There are two exsting working romwbwb_emu systems:
- - rombwb - linux command line emulator
- - rombwb_emu/web - the shared hbios compiled to web assembly
-This two used to each have their how hbios.  But most of it was the same or supposed to be.
-The common part is now shared.
-Update our system :
- - delete all qkz80 files in this ioscpm
- - delete the hbios files in this tree that we should use the ones
+3. Added ROM/Disk selection UI (matching web version)
+   - 4 ROM options: SBC_simh_std, emu_romwbw, RCZ80_std, emu_rcz80
+   - 4 Disk slots with bundled options: CP/M 2.2, ZSDOS, QPM, Drive A
+   - Boot string text field for auto-boot commands
+   - Settings sheet accessible via gear icon
 
-In hbios_dispatch are many declarations of names like HBF_VDAINIT 0x40.
-A few of were wrong in the web assemble code that had thier own defines.
+4. Fixed font size not working
+   - Capped scale at 1.0 so larger fonts display larger
 
-Review all the code in this project.  Any constants should be checked.
+5. Added local disk file support
+   - Open existing .img files from device
+   - Create new 8MB disk images
+   - Save changes back to file-backed disks
+   - 8MB max size (8-bit OS addressing limit)
 
-In debugging remember the CLI and web versions work.
+SISTER PROJECTS:
+- ../cpmemu - Z80 CPU emulator (qkz80)
+- ../romwbw_emu - RomWBW HBIOS emulation
+  - romwbw_emu/web - WebAssembly version (reference implementation)
+  - romwbw_emu/docs/IOS_PORTING.md - porting notes
 
-The lower levl (romwbw_emu and cpmemu (for qkz)) seem stable now.
-Get our sources in alignment with those libraries.
-Get this working again
-romwbw_emu/docs/IOS_PORTING.md has notes on the library changes that session thought you should know bout
-
-
-
+BUILD:
+- Builds successfully for Mac Catalyst
+- Code signing may need keychain access for device builds
