@@ -193,6 +193,12 @@ void HBIOSEmulator::start() {
   // Set Z80 mode
   cpu.set_cpu_mode(qkz80::MODE_Z80);
 
+  // Enable banking
+  memory.enable_banking();
+
+  // Reset HBIOS state for new ROM (like web version does)
+  hbios.reset();
+
   // Register reset callback for SYSRESET (REBOOT command)
   hbios.setResetCallback([this](uint8_t reset_type) {
     emu_log("[SYSRESET] %s boot - restarting\n",
@@ -203,8 +209,12 @@ void HBIOSEmulator::start() {
     cpu.regs.PC.set_pair16(0x0000);
   });
 
-  // Reset CPU to start at address 0
-  cpu.regs.PC.set_pair16(0x0000);
+  // Reset all CPU registers (like web version does)
+  cpu.regs.AF.set_pair16(0);
+  cpu.regs.BC.set_pair16(0);
+  cpu.regs.DE.set_pair16(0);
+  cpu.regs.HL.set_pair16(0);
+  cpu.regs.PC.set_pair16(0x0000);  // Start at ROM address 0
   cpu.regs.SP.set_pair16(0x0000);
 
   // Select ROM bank 0

@@ -24,6 +24,7 @@ struct ContentView: View {
                 ) { char in
                     viewModel.sendKey(char)
                 }
+                .id(fontSize)  // Force view recreation when font size changes
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 // Status bar
