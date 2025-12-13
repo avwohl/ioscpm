@@ -367,25 +367,23 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // MARK: - Sound Generation
 
     private func playBeep(durationMs: Int) {
-        guard let engine = audioEngine, let player = tonePlayer else { return }
+        guard let player = tonePlayer else { return }
 
         let sampleRate: Double = 44100
         let frequency: Double = 800  // 800 Hz beep
         let duration = Double(durationMs) / 1000.0
         let frameCount = AVAudioFrameCount(sampleRate * duration)
 
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: engine.mainMixerNode.outputFormat(forBus: 0),
-                                            frameCapacity: frameCount) else { return }
+        // Use mono format matching setupAudio()
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
         buffer.frameLength = frameCount
 
-        let channels = Int(buffer.format.channelCount)
-        for ch in 0..<channels {
-            guard let channelData = buffer.floatChannelData?[ch] else { continue }
-            for frame in 0..<Int(frameCount) {
-                let phase = Double(frame) / sampleRate * frequency * 2.0 * .pi
-                // Square wave
-                channelData[frame] = sin(phase) > 0 ? 0.3 : -0.3
-            }
+        guard let channelData = buffer.floatChannelData?[0] else { return }
+        for frame in 0..<Int(frameCount) {
+            let phase = Double(frame) / sampleRate * frequency * 2.0 * .pi
+            // Square wave
+            channelData[frame] = sin(phase) > 0 ? 0.3 : -0.3
         }
 
         player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
