@@ -81,6 +81,7 @@ extern "C" void emu_io_set_delegate(id delegate);
   dispatch_queue_t _emulatorQueue;
   RomWBWEmulatorInternal* _internal;
   BOOL _shouldRun;
+  BOOL _debug;
 }
 
 - (instancetype)init {
@@ -109,7 +110,7 @@ extern "C" void emu_io_set_delegate(id delegate);
 //=============================================================================
 
 - (BOOL)loadROMFromBundle:(NSString*)filename {
-  NSLog(@"[RomWBW] Loading ROM from bundle: %@", filename);
+  if (_debug) NSLog(@"[RomWBW] Loading ROM from bundle: %@", filename);
   NSString* name = [filename stringByDeletingPathExtension];
   NSString* ext = [filename pathExtension];
   NSString* path = [[NSBundle mainBundle] pathForResource:name ofType:ext];
@@ -117,7 +118,7 @@ extern "C" void emu_io_set_delegate(id delegate);
     NSLog(@"[RomWBW] ROM not found in bundle: %@", filename);
     return NO;
   }
-  NSLog(@"[RomWBW] ROM path: %@", path);
+  if (_debug) NSLog(@"[RomWBW] ROM path: %@", path);
   return [self loadROMFromPath:path];
 }
 
@@ -127,13 +128,13 @@ extern "C" void emu_io_set_delegate(id delegate);
     NSLog(@"[RomWBW] Failed to read ROM file: %@", path);
     return NO;
   }
-  NSLog(@"[RomWBW] Read %lu bytes from ROM file", (unsigned long)data.length);
+  if (_debug) NSLog(@"[RomWBW] Read %lu bytes from ROM file", (unsigned long)data.length);
   return [self loadROMFromData:data];
 }
 
 - (BOOL)loadROMFromData:(NSData*)data {
   BOOL result = _emulator->loadROM((const uint8_t*)data.bytes, data.length);
-  NSLog(@"[RomWBW] loadROM returned: %@", result ? @"YES" : @"NO");
+  if (_debug) NSLog(@"[RomWBW] loadROM returned: %@", result ? @"YES" : @"NO");
   return result;
 }
 
@@ -146,7 +147,7 @@ extern "C" void emu_io_set_delegate(id delegate);
   NSString* ext = [filename pathExtension];
   NSString* path = [[NSBundle mainBundle] pathForResource:name ofType:ext];
   if (!path) {
-    NSLog(@"Disk not found in bundle: %@", filename);
+    NSLog(@"[RomWBW] Disk not found in bundle: %@", filename);
     return NO;
   }
   return [self loadDisk:unit fromPath:path];
@@ -155,7 +156,7 @@ extern "C" void emu_io_set_delegate(id delegate);
 - (BOOL)loadDisk:(int)unit fromPath:(NSString*)path {
   NSData* data = [NSData dataWithContentsOfFile:path];
   if (!data) {
-    NSLog(@"Failed to read disk file: %@", path);
+    NSLog(@"[RomWBW] Failed to read disk file: %@", path);
     return NO;
   }
   return [self loadDisk:unit fromData:data];
@@ -173,7 +174,7 @@ static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
     memset(paddedData.mutableBytes, 0xE5, DISK_SIZE_8MB);
     // Copy actual data at the beginning
     memcpy(paddedData.mutableBytes, data.bytes, data.length);
-    NSLog(@"[RomWBW] Padded disk %d from %lu to %zu bytes", unit, (unsigned long)data.length, DISK_SIZE_8MB);
+    if (_debug) NSLog(@"[RomWBW] Padded disk %d from %lu to %zu bytes", unit, (unsigned long)data.length, DISK_SIZE_8MB);
     return _emulator->loadDisk(unit, (const uint8_t*)paddedData.bytes, paddedData.length);
   }
   return _emulator->loadDisk(unit, (const uint8_t*)data.bytes, data.length);
@@ -217,16 +218,16 @@ static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
 }
 
 - (void)start {
-  NSLog(@"[RomWBW] start called");
+  if (_debug) NSLog(@"[RomWBW] start called");
   _shouldRun = YES;
   _emulator->start();
-  NSLog(@"[RomWBW] emulator started, isRunning=%d", _emulator->isRunning());
+  if (_debug) NSLog(@"[RomWBW] emulator started, isRunning=%d", _emulator->isRunning());
 
   // Start emulation loop on background queue
   dispatch_async(_emulatorQueue, ^{
-    NSLog(@"[RomWBW] entering runLoop");
+    if (self->_debug) NSLog(@"[RomWBW] entering runLoop");
     [self runLoop];
-    NSLog(@"[RomWBW] exited runLoop");
+    if (self->_debug) NSLog(@"[RomWBW] exited runLoop");
   });
 }
 
@@ -247,8 +248,8 @@ static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
     _emulator->runBatch(10000);
     loopCount++;
 
-    // Log progress every 1000 batches
-    if (loopCount % 1000 == 0) {
+    // Log progress every 1000 batches (only in debug mode)
+    if (_debug && (loopCount % 1000 == 0)) {
       NSLog(@"[RomWBW] runLoop: %d batches, PC=0x%04X, instructions=%lld",
             loopCount, _emulator->getPC(), _emulator->getInstructionCount());
     }
@@ -268,7 +269,7 @@ static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
       [NSThread sleepForTimeInterval:0.0001];
     }
   }
-  NSLog(@"[RomWBW] runLoop ended: shouldRun=%d, isRunning=%d", _shouldRun, _emulator->isRunning());
+  if (_debug) NSLog(@"[RomWBW] runLoop ended: shouldRun=%d, isRunning=%d", _shouldRun, _emulator->isRunning());
 }
 
 //=============================================================================

@@ -135,19 +135,28 @@ class TerminalUIView: UIView, UIKeyInput {
         let viewWidth = bounds.width
         let viewHeight = bounds.height
 
-        // Terminal size based on current font (no scaling - font size directly affects visual size)
+        // Terminal size based on current font
         let terminalWidth = CGFloat(cols) * charWidth
         let terminalHeight = CGFloat(rows) * charHeight
 
-        // Center terminal in view (or align to top-left if larger than view)
-        let offsetX = max(0, (viewWidth - terminalWidth) / 2)
-        let offsetY = max(0, (viewHeight - terminalHeight) / 2)
+        // Scale to fill view (uniform scaling to maintain aspect ratio)
+        let scaleX = viewWidth / terminalWidth
+        let scaleY = viewHeight / terminalHeight
+        let scale = min(scaleX, scaleY)
+
+        let scaledWidth = terminalWidth * scale
+        let scaledHeight = terminalHeight * scale
+        let offsetX = (viewWidth - scaledWidth) / 2
+        let offsetY = (viewHeight - scaledHeight) / 2
 
         context.saveGState()
         context.translateBy(x: offsetX, y: offsetY)
+        context.scaleBy(x: scale, y: scale)
 
-        // Draw background
+        // Draw background (fill entire view first, then terminal area)
         UIColor.black.setFill()
+        context.fill(CGRect(x: -offsetX/scale, y: -offsetY/scale,
+                           width: viewWidth/scale, height: viewHeight/scale))
         context.fill(CGRect(x: 0, y: 0, width: terminalWidth, height: terminalHeight))
 
         // Draw cells
