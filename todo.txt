@@ -1,23 +1,40 @@
-Create an IOS app from an existing project.
-The existing project we wrote is ~/src/cpmemu.
-It is underoing major changes in anouther claude session
-so keep any changes you might want in the project to merge in later.
-Write an IOS app to run Z80/8080 operating systems/roms.
-The current cpmemu is targeted at the CP/M os but it is getting
-RomWBW support right now to run MP/M and many other OSes.
-In the cpmemu sources there is a build to webassembly.  So the core
-is designed to be veyr portable.  Hopefully you can build a native IOS
-app to integrate the existinng emulator code.
+Since last we ran there was a mac os update,
+ and a new xcode, and a new xcode command line tools
 
-Each emulator window would run a cpmemu instance.  Mainly its just
-character io like the webassembly version.  disk IO should go to disk
-images we supply or the user can make a file of there own. Don't worry
-too much about disk format for now the current cpmemu work will take care of
-disk formats.  Id start with a tradtional floppy image like cpmenu defaults to.
+This project is to create a ui for ios and mac.
+It is for ../romwbw_emu. A z80 emulator
+that can boot many different z80 operating sytems.
 
-xcode is installed with the IOS emulator.
-I installed and setup the xcode command line tools
-I have an new ipad air to test with.
-I did not setup with testflight or whatever its caleld to get apps into it yet.
-I do have an apple developer account
+romwbw_emu recently spit off from cpmemu.  In our files there
+may be ties to files in either. If something is missing we use
+it will be in one of thoses.
+../cpmemu and ../romwbw_emu are sister directory project.
+
+It looks like we have a copy in Core/ of hbios_dispatch, and qkz80
+that is wrong, we should compile them out if the sister directories
+not keep private copies.
+
+hbios* files got a major rewrite since we last where built I think.
+There are two exsting working romwbwb_emu systems:
+ - rombwb - linux command line emulator
+ - rombwb_emu/web - the shared hbios compiled to web assembly
+This two used to each have their how hbios.  But most of it was the same or supposed to be.
+The common part is now shared.
+Update our system :
+ - delete all qkz80 files in this ioscpm
+ - delete the hbios files in this tree that we should use the ones
+
+In hbios_dispatch are many declarations of names like HBF_VDAINIT 0x40.
+A few of were wrong in the web assemble code that had thier own defines.
+
+Review all the code in this project.  Any constants should be checked.
+
+In debugging remember the CLI and web versions work.
+
+The lower levl (romwbw_emu and cpmemu (for qkz)) seem stable now.
+Get our sources in alignment with those libraries.
+Get this working again
+romwbw_emu/docs/IOS_PORTING.md has notes on the library changes that session thought you should know bout
+
+
 
