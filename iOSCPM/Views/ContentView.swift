@@ -6,7 +6,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 // Version for tracking updates
-let appVersion = "0.2.7"
+let appVersion = "0.2.8"
 
 struct ContentView: View {
     @StateObject private var viewModel = EmulatorViewModel()
@@ -156,6 +156,7 @@ struct ContentView: View {
                 )
             }
         }
+        .navigationViewStyle(.stack)  // Force single column on Mac
         .onAppear {
             viewModel.loadBundledResources()
         }
