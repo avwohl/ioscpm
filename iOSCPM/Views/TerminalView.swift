@@ -107,10 +107,15 @@ class TerminalUIView: UIView, UIKeyInput {
     }
 
     func updateFontSize(_ newSize: CGFloat) {
-        guard newSize != currentFontSize else { return }
+        print("[TerminalView] updateFontSize called: \(newSize) (current: \(currentFontSize))")
+        guard newSize != currentFontSize else {
+            print("[TerminalView] Font size unchanged, skipping")
+            return
+        }
         currentFontSize = newSize
         font = UIFont.monospacedSystemFont(ofSize: newSize, weight: .regular)
         updateCharDimensions()
+        print("[TerminalView] Font updated to \(newSize)pt, charWidth=\(charWidth), charHeight=\(charHeight)")
         setNeedsDisplay()
     }
 

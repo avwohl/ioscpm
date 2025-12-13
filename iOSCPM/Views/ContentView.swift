@@ -5,6 +5,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// Version for tracking updates
+let appVersion = "0.2.0"
+
 struct ContentView: View {
     @StateObject private var viewModel = EmulatorViewModel()
     @AppStorage("terminalFontSize") private var fontSize: Double = 20
@@ -55,7 +58,7 @@ struct ContentView: View {
                 .padding(.vertical, 4)
                 .background(Color(.systemGray6))
             }
-            .navigationTitle("RomWBW")
+            .navigationTitle("RomWBW v\(appVersion)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -92,6 +95,7 @@ struct ContentView: View {
                     Menu {
                         ForEach([12, 14, 16, 18, 20, 24, 28, 32], id: \.self) { size in
                             Button {
+                                print("[ContentView] Font size changed to \(size)")
                                 fontSize = Double(size)
                             } label: {
                                 HStack {
@@ -103,7 +107,7 @@ struct ContentView: View {
                             }
                         }
                     } label: {
-                        Label("Font Size", systemImage: "textformat.size")
+                        Label("Font Size (\(Int(fontSize)))", systemImage: "textformat.size")
                     }
 
                     Button {
