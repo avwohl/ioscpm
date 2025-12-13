@@ -161,7 +161,21 @@ extern "C" void emu_io_set_delegate(id delegate);
   return [self loadDisk:unit fromData:data];
 }
 
+// Standard disk size for CP/M hard disk (8MB)
+static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
+
 - (BOOL)loadDisk:(int)unit fromData:(NSData*)data {
+  // Pad small disk images to 8MB with 0xE5 (empty formatted sectors)
+  // This prevents garbage when CP/M reads beyond the actual data
+  if (data.length < DISK_SIZE_8MB) {
+    NSMutableData* paddedData = [NSMutableData dataWithLength:DISK_SIZE_8MB];
+    // Fill with 0xE5 (CP/M empty/formatted disk pattern)
+    memset(paddedData.mutableBytes, 0xE5, DISK_SIZE_8MB);
+    // Copy actual data at the beginning
+    memcpy(paddedData.mutableBytes, data.bytes, data.length);
+    NSLog(@"[RomWBW] Padded disk %d from %lu to %zu bytes", unit, (unsigned long)data.length, DISK_SIZE_8MB);
+    return _emulator->loadDisk(unit, (const uint8_t*)paddedData.bytes, paddedData.length);
+  }
   return _emulator->loadDisk(unit, (const uint8_t*)data.bytes, data.length);
 }
 
