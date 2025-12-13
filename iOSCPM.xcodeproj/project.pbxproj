@@ -32,6 +32,10 @@
 		A1000033 /* cpm_wbw.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000033; };
 		A1000034 /* zsys_wbw.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000034; };
 		A1000035 /* qpm_wbw.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000035; };
+		A1000036 /* SBC_simh_std.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000036; };
+		A1000037 /* emu_romwbw.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000037; };
+		A1000038 /* RCZ80_std.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000038; };
+		A1000039 /* emu_rcz80.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000039; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -77,6 +81,10 @@
 		B1000033 /* cpm_wbw.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = cpm_wbw.img; sourceTree = "<group>"; };
 		B1000034 /* zsys_wbw.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = zsys_wbw.img; sourceTree = "<group>"; };
 		B1000035 /* qpm_wbw.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = qpm_wbw.img; sourceTree = "<group>"; };
+		B1000036 /* SBC_simh_std.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = SBC_simh_std.rom; sourceTree = "<group>"; };
+		B1000037 /* emu_romwbw.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_romwbw.rom; sourceTree = "<group>"; };
+		B1000038 /* RCZ80_std.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = RCZ80_std.rom; sourceTree = "<group>"; };
+		B1000039 /* emu_rcz80.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_rcz80.rom; sourceTree = "<group>"; };
 
 		/* Other files */
 		B1000050 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -173,6 +181,10 @@
 			isa = PBXGroup;
 			children = (
 				B1000031 /* emu_hbios.bin */,
+				B1000036 /* SBC_simh_std.rom */,
+				B1000037 /* emu_romwbw.rom */,
+				B1000038 /* RCZ80_std.rom */,
+				B1000039 /* emu_rcz80.rom */,
 				B1000033 /* cpm_wbw.img */,
 				B1000034 /* zsys_wbw.img */,
 				B1000035 /* qpm_wbw.img */,
@@ -242,6 +254,10 @@
 			files = (
 				A1000030 /* Assets.xcassets in Resources */,
 				A1000031 /* emu_hbios.bin in Resources */,
+				A1000036 /* SBC_simh_std.rom in Resources */,
+				A1000037 /* emu_romwbw.rom in Resources */,
+				A1000038 /* RCZ80_std.rom in Resources */,
+				A1000039 /* emu_rcz80.rom in Resources */,
 				A1000032 /* drivea.img in Resources */,
 				A1000033 /* cpm_wbw.img in Resources */,
 				A1000034 /* zsys_wbw.img in Resources */,

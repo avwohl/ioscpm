@@ -6,6 +6,20 @@ import SwiftUI
 import Combine
 import AVFoundation
 
+// ROM option with name and filename
+struct ROMOption: Identifiable, Hashable {
+    let id = UUID()
+    let name: String
+    let filename: String
+}
+
+// Disk option with name and filename
+struct DiskOption: Identifiable, Hashable {
+    let id = UUID()
+    let name: String
+    let filename: String
+}
+
 class EmulatorViewModel: NSObject, ObservableObject {
     @Published var statusText: String = "Ready"
     @Published var isRunning: Bool = false
@@ -14,6 +28,29 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var showingDiskExporter: Bool = false
     @Published var showingError: Bool = false
     @Published var errorMessage: String = ""
+
+    // ROM selection
+    @Published var selectedROM: ROMOption?
+    let availableROMs: [ROMOption] = [
+        ROMOption(name: "SBC SIMH (Default)", filename: "SBC_simh_std.rom"),
+        ROMOption(name: "EMU RomWBW", filename: "emu_romwbw.rom"),
+        ROMOption(name: "RCZ80", filename: "RCZ80_std.rom"),
+        ROMOption(name: "EMU RCZ80", filename: "emu_rcz80.rom"),
+    ]
+
+    // Disk selection for slots 0 and 1
+    @Published var selectedDisk0: DiskOption?
+    @Published var selectedDisk1: DiskOption?
+    let availableDisks: [DiskOption] = [
+        DiskOption(name: "None", filename: ""),
+        DiskOption(name: "CP/M 2.2", filename: "cpm_wbw.img"),
+        DiskOption(name: "ZSDOS", filename: "zsys_wbw.img"),
+        DiskOption(name: "QPM", filename: "qpm_wbw.img"),
+        DiskOption(name: "Drive A Data", filename: "drivea.img"),
+    ]
+
+    // Boot string for auto-boot
+    @Published var bootString: String = ""
 
     // Current disk unit being imported/exported
     var currentDiskUnit: Int = 0
@@ -68,40 +105,49 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // MARK: - Resource Loading
 
     func loadBundledResources() {
-        // Load RomWBW boot ROM
-        guard emulator?.loadROM(fromBundle: "emu_hbios.bin") == true else {
-            statusText = "Error: emu_hbios.bin not found"
+        // Set default selections
+        selectedROM = availableROMs.first
+        selectedDisk0 = availableDisks.first { $0.filename == "cpm_wbw.img" }
+        selectedDisk1 = availableDisks.first { $0.filename == "" }  // None
+
+        statusText = "Ready - Select ROM and disks, then Start"
+    }
+
+    func loadSelectedResources() {
+        // Load selected ROM
+        let romFile = selectedROM?.filename ?? "SBC_simh_std.rom"
+        guard emulator?.loadROM(fromBundle: romFile) == true else {
+            statusText = "Error: \(romFile) not found"
             return
         }
+        statusText = "ROM loaded: \(selectedROM?.name ?? romFile)"
 
-        // Load CP/M OS image to disk unit 0
-        guard emulator?.loadDisk(0, fromBundle: "cpm_wbw.img") == true else {
-            statusText = "Error: cpm_wbw.img not found"
-            return
+        // Load selected disk 0
+        if let disk0 = selectedDisk0, !disk0.filename.isEmpty {
+            if emulator?.loadDisk(0, fromBundle: disk0.filename) == true {
+                statusText = "Loaded: \(disk0.name) to Disk 0"
+            }
         }
 
-        // Load ZSDOS to disk unit 1
-        _ = emulator?.loadDisk(1, fromBundle: "zsys_wbw.img")
+        // Load selected disk 1
+        if let disk1 = selectedDisk1, !disk1.filename.isEmpty {
+            if emulator?.loadDisk(1, fromBundle: disk1.filename) == true {
+                statusText = "Loaded: \(disk1.name) to Disk 1"
+            }
+        }
 
-        // Load QPM to disk unit 2
-        _ = emulator?.loadDisk(2, fromBundle: "qpm_wbw.img")
-
-        // Load sample drive A to disk unit 3
-        _ = emulator?.loadDisk(3, fromBundle: "drivea.img")
-
-        // Set boot string to auto-boot CP/M (option 0)
-        // User can change OS at boot menu
-        emulator?.setBootString("")
-
-        // Auto-start
-        start()
+        // Set boot string
+        emulator?.setBootString(bootString)
     }
 
     // MARK: - Emulation Control
 
     func start() {
+        // Load selected ROM and disks before starting
+        loadSelectedResources()
         emulator?.start()
         isRunning = emulator?.isRunning ?? false
+        statusText = "Running"
     }
 
     func stop() {

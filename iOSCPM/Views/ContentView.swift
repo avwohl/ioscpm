@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @StateObject private var viewModel = EmulatorViewModel()
     @AppStorage("terminalFontSize") private var fontSize: Double = 20
+    @State private var showingSettings = false
 
     var body: some View {
         NavigationView {
@@ -57,42 +58,31 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
+                    // Settings button (ROM, Disk, Boot)
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .disabled(viewModel.isRunning)
+
                     Menu {
-                        // OS Images
-                        Button("Load OS to Slot 0...") {
+                        // Load from file
+                        Button("Load Disk 0 from File...") {
                             viewModel.loadDisk(0)
                         }
-                        Button("Load OS to Slot 1...") {
+                        Button("Load Disk 1 from File...") {
                             viewModel.loadDisk(1)
-                        }
-                        Button("Load OS to Slot 2...") {
-                            viewModel.loadDisk(2)
-                        }
-
-                        Divider()
-
-                        // Data Disks
-                        Button("Load Drive A (Slot 3)...") {
-                            viewModel.loadDisk(3)
-                        }
-                        Button("Load Drive B (Slot 4)...") {
-                            viewModel.loadDisk(4)
-                        }
-                        Button("Load Drive C (Slot 5)...") {
-                            viewModel.loadDisk(5)
-                        }
-                        Button("Load Drive D (Slot 6)...") {
-                            viewModel.loadDisk(6)
                         }
 
                         Divider()
 
                         // Save Disks
-                        Button("Save Drive A (Slot 3)...") {
-                            viewModel.saveDisk(3)
+                        Button("Save Disk 0...") {
+                            viewModel.saveDisk(0)
                         }
-                        Button("Save Drive B (Slot 4)...") {
-                            viewModel.saveDisk(4)
+                        Button("Save Disk 1...") {
+                            viewModel.saveDisk(1)
                         }
                     } label: {
                         Label("Disks", systemImage: "opticaldiscdrive")
@@ -131,6 +121,9 @@ struct ContentView: View {
                         Image(systemName: "arrow.counterclockwise")
                     }
                 }
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView(viewModel: viewModel)
             }
             .fileImporter(
                 isPresented: $viewModel.showingDiskPicker,
@@ -177,6 +170,92 @@ struct DiskImageDocument: FileDocument {
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: data)
+    }
+}
+
+// MARK: - Settings View
+
+struct SettingsView: View {
+    @ObservedObject var viewModel: EmulatorViewModel
+    @Environment(\.presentationMode) private var presentationMode
+
+    var body: some View {
+        NavigationView {
+            Form {
+                // ROM Section
+                Section(header: Text("ROM Image")) {
+                    Picker("ROM", selection: $viewModel.selectedROM) {
+                        ForEach(viewModel.availableROMs) { rom in
+                            Text(rom.name).tag(rom as ROMOption?)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                // Disk Section
+                Section(header: Text("Disk Images")) {
+                    Picker("Disk 0", selection: $viewModel.selectedDisk0) {
+                        ForEach(viewModel.availableDisks) { disk in
+                            Text(disk.name).tag(disk as DiskOption?)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Picker("Disk 1", selection: $viewModel.selectedDisk1) {
+                        ForEach(viewModel.availableDisks) { disk in
+                            Text(disk.name).tag(disk as DiskOption?)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                // Boot Section
+                Section(header: Text("Boot Options")) {
+                    HStack {
+                        Text("Boot String")
+                        Spacer()
+                        TextField("e.g., 0, C", text: $viewModel.bootString)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    Text("Enter a command to auto-send at boot (e.g., '0' to boot CP/M)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                // Quick Start Help
+                Section(header: Text("Quick Start")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("1. Select a ROM image")
+                        Text("2. Select disk images for Disk 0/1")
+                        Text("3. Optionally set a boot string")
+                        Text("4. Tap Start to boot")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Boot Menu Keys:").fontWeight(.medium)
+                        Text("h - Help")
+                        Text("l - List ROM apps")
+                        Text("d - List devices")
+                        Text("0-9 - Boot from device")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
+        }
     }
 }
 
