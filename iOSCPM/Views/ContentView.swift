@@ -6,7 +6,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 // Version for tracking updates
-let appVersion = "0.2.0"
+let appVersion = "0.2.1"
 
 struct ContentView: View {
     @StateObject private var viewModel = EmulatorViewModel()

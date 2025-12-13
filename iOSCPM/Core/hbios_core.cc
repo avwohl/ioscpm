@@ -260,11 +260,8 @@ void HBIOSEmulator::runBatch(int count) {
       if (!hbios.handleCall(trap_type)) {
         emu_error("[HBIOS] Failed to handle trap at 0x%04X\n", pc);
       }
-      // Check if dispatch is waiting for input
-      if (hbios.isWaitingForInput()) {
-        waiting_for_input = true;
-        break;  // Stop execution until input arrives
-      }
+      // Note: Don't check isWaitingForInput here - let the I/O port handler
+      // manage input waiting (matching web version behavior)
       instruction_count++;
       continue;
     }
