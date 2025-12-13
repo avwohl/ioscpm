@@ -32,14 +32,12 @@ struct TerminalView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> TerminalUIView {
-        print("[TerminalView] makeUIView called with fontSize: \(fontSize)")
         let view = TerminalUIView(rows: rows, cols: cols, fontSize: fontSize)
         view.onKeyInput = onKeyInput
         return view
     }
 
     func updateUIView(_ uiView: TerminalUIView, context: Context) {
-        print("[TerminalView] updateUIView called with fontSize: \(fontSize)")
         uiView.updateFontSize(fontSize)
         uiView.updateCells(cells, cursorRow: cursorRow, cursorCol: cursorCol)
     }
@@ -109,15 +107,10 @@ class TerminalUIView: UIView, UIKeyInput {
     }
 
     func updateFontSize(_ newSize: CGFloat) {
-        print("[TerminalView] updateFontSize called: \(newSize) (current: \(currentFontSize))")
-        guard newSize != currentFontSize else {
-            print("[TerminalView] Font size unchanged, skipping")
-            return
-        }
+        guard newSize != currentFontSize else { return }
         currentFontSize = newSize
         font = UIFont.monospacedSystemFont(ofSize: newSize, weight: .regular)
         updateCharDimensions()
-        print("[TerminalView] Font updated to \(newSize)pt, charWidth=\(charWidth), charHeight=\(charHeight)")
         setNeedsDisplay()
     }
 
@@ -142,24 +135,16 @@ class TerminalUIView: UIView, UIKeyInput {
         let viewWidth = bounds.width
         let viewHeight = bounds.height
 
-        // Terminal size based on current font
+        // Terminal size based on current font (no scaling - font size directly affects visual size)
         let terminalWidth = CGFloat(cols) * charWidth
         let terminalHeight = CGFloat(rows) * charHeight
 
-        // Scale to fit view, but cap scale at 1.0 so larger fonts show larger
-        // (smaller fonts will scale up to fit, larger fonts stay at their size or scale down minimally)
-        let scaleX = viewWidth / terminalWidth
-        let scaleY = viewHeight / terminalHeight
-        let scale = min(scaleX, scaleY, 1.0)  // Cap at 1.0 - never scale up
-
-        let scaledWidth = terminalWidth * scale
-        let scaledHeight = terminalHeight * scale
-        let offsetX = (viewWidth - scaledWidth) / 2
-        let offsetY = max(0, (viewHeight - scaledHeight) / 2)  // Align to top if overflow
+        // Center terminal in view (or align to top-left if larger than view)
+        let offsetX = max(0, (viewWidth - terminalWidth) / 2)
+        let offsetY = max(0, (viewHeight - terminalHeight) / 2)
 
         context.saveGState()
         context.translateBy(x: offsetX, y: offsetY)
-        context.scaleBy(x: scale, y: scale)
 
         // Draw background
         UIColor.black.setFill()

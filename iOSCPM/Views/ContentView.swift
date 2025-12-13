@@ -6,7 +6,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 // Version for tracking updates
-let appVersion = "0.2.3"
+let appVersion = "0.2.4"
 
 struct ContentView: View {
     @StateObject private var viewModel = EmulatorViewModel()
@@ -95,7 +95,6 @@ struct ContentView: View {
                     Menu {
                         ForEach([12, 14, 16, 18, 20, 24, 28, 32], id: \.self) { size in
                             Button {
-                                print("[ContentView] Font size changed to \(size)")
                                 fontSize = Double(size)
                             } label: {
                                 HStack {
@@ -259,6 +258,14 @@ struct SettingsView: View {
                             .multilineTextAlignment(.trailing)
                     }
                     Text("Enter a command to auto-send at boot (e.g., '0' to boot CP/M)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                // Debug Section
+                Section(header: Text("Debug")) {
+                    Toggle("Debug Mode", isOn: $viewModel.debugMode)
+                    Text("Enable verbose logging to console")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

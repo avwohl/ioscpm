@@ -20,9 +20,14 @@ COMPLETED (Dec 2024):
    - Settings sheet accessible via gear icon
 
 4. Fixed font size not working
-   - Capped scale at 1.0 so larger fonts display larger
+   - Removed terminal scaling - font size now directly affects text size
+   - Larger fonts = larger text, smaller fonts = smaller text
 
-5. Added local disk file support
+5. Added debug toggle in Settings
+   - Reduces console spam when disabled (off by default)
+   - Removed TerminalView debug print statements
+
+6. Added local disk file support
    - Open existing .img files from device
    - Create new 8MB disk images
    - Save changes back to file-backed disks

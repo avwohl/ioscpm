@@ -54,6 +54,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // Boot string for auto-boot
     @Published var bootString: String = ""
 
+    // Debug mode (reduces console spam when off)
+    @Published var debugMode: Bool = false {
+        didSet {
+            emulator?.setDebug(debugMode)
+        }
+    }
+
     // Current disk unit being imported/exported
     var currentDiskUnit: Int = 0
     var exportDocument: DiskImageDocument?
