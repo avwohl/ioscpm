@@ -132,10 +132,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
     func loadSelectedResources() {
         // Load selected ROM
         let romFile = selectedROM?.filename ?? "SBC_simh_std.rom"
+        print("[EmulatorVM] Loading ROM: \(romFile)")
         guard emulator?.loadROM(fromBundle: romFile) == true else {
+            print("[EmulatorVM] ERROR: Failed to load ROM: \(romFile)")
             statusText = "Error: \(romFile) not found"
             return
         }
+        print("[EmulatorVM] ROM loaded successfully: \(romFile)")
         statusText = "ROM loaded: \(selectedROM?.name ?? romFile)"
 
         // Load selected disks
