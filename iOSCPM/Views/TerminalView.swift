@@ -32,12 +32,14 @@ struct TerminalView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> TerminalUIView {
+        print("[TerminalView] makeUIView called with fontSize: \(fontSize)")
         let view = TerminalUIView(rows: rows, cols: cols, fontSize: fontSize)
         view.onKeyInput = onKeyInput
         return view
     }
 
     func updateUIView(_ uiView: TerminalUIView, context: Context) {
+        print("[TerminalView] updateUIView called with fontSize: \(fontSize)")
         uiView.updateFontSize(fontSize)
         uiView.updateCells(cells, cursorRow: cursorRow, cursorCol: cursorCol)
     }
