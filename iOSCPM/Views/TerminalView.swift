@@ -93,10 +93,17 @@ class TerminalUIView: UIView, UIKeyInput {
         cells = Array(repeating: Array(repeating: TerminalCell(), count: cols), count: rows)
 
         backgroundColor = .black
+        contentMode = .redraw  // Redraw when bounds change
+        autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
         // Add tap gesture to become first responder
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
         addGestureRecognizer(tap)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        setNeedsDisplay()  // Redraw when layout changes
     }
 
     private func updateCharDimensions() {
@@ -132,6 +139,10 @@ class TerminalUIView: UIView, UIKeyInput {
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
 
+        // Fill entire view with black first
+        UIColor.black.setFill()
+        context.fill(bounds)
+
         let viewWidth = bounds.width
         let viewHeight = bounds.height
 
@@ -152,12 +163,6 @@ class TerminalUIView: UIView, UIKeyInput {
         context.saveGState()
         context.translateBy(x: offsetX, y: offsetY)
         context.scaleBy(x: scale, y: scale)
-
-        // Draw background (fill entire view first, then terminal area)
-        UIColor.black.setFill()
-        context.fill(CGRect(x: -offsetX/scale, y: -offsetY/scale,
-                           width: viewWidth/scale, height: viewHeight/scale))
-        context.fill(CGRect(x: 0, y: 0, width: terminalWidth, height: terminalHeight))
 
         // Draw cells
         for row in 0..<min(rows, cells.count) {
