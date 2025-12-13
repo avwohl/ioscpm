@@ -70,9 +70,7 @@ bool HBIOSDispatch::loadDisk(int unit, const uint8_t* data, size_t size) {
   disks[unit].file_backed = false;
   disks[unit].handle = nullptr;
 
-  if (debug) {
-    emu_log("[HBIOS] Loaded disk %d: %zu bytes (in-memory)\n", unit, size);
-  }
+  emu_log("[HBIOS] Loaded disk %d: %zu bytes (in-memory)\n", unit, size);
   return true;
 }
 
@@ -374,6 +372,7 @@ void HBIOSDispatch::handleCIO() {
         return;  // Don't fall through to doRet()
       }
       int ch = emu_console_read_char();
+      emu_log("[CIOIN] Read char: '%c' (0x%02X)\n", (ch >= 0x20 && ch < 0x7F) ? ch : '.', ch);
       cpu->regs.DE.set_low(ch & 0xFF);
       break;
     }
@@ -472,6 +471,7 @@ void HBIOSDispatch::handleDIO() {
       // Let's use a simpler approach: count in D, LBA in E (for <256 sectors)
 
       if (unit >= 16 || !disks[unit].is_open) {
+        emu_log("[DIOREAD] FAILED: unit=%d not loaded\n", unit);
         result = HBR_FAILED;
         break;
       }
@@ -487,10 +487,8 @@ void HBIOSDispatch::handleDIO() {
       size_t offset = lba * 512;
       size_t bytes = count * 512;
 
-      if (debug) {
-        emu_log("[HBIOS DIO READ] unit=%d lba=%u count=%d buf=0x%04X\n",
-                unit, (unsigned)lba, count, buffer);
-      }
+      emu_log("[DIOREAD] unit=%d lba=%u count=%d buf=0x%04X\n",
+              unit, (unsigned)lba, count, buffer);
 
       if (disks[unit].file_backed && disks[unit].handle) {
         // Read from file
@@ -806,18 +804,20 @@ void HBIOSDispatch::handleSYS() {
       }
       cmd_str[i] = '\0';
 
-      if (debug) {
-        emu_log("[SYSBOOT] Command string: '%s'\n", cmd_str);
-      }
+      emu_log("[SYSBOOT] Command string: '%s' from addr 0x%04X\n", cmd_str, cmd_addr);
 
       // Skip leading whitespace
       char* p = cmd_str;
       while (*p == ' ') p++;
 
-      // Try to boot
-      if (!bootFromDevice(p)) {
-        result = HBR_FAILED;
+      // Try to boot - if successful, bootFromDevice sets PC to entry point
+      // and we should NOT call doRet() as that would overwrite PC
+      if (bootFromDevice(p)) {
+        emu_log("[SYSBOOT] Boot successful, jumping to loaded code\n");
+        return;  // Don't call doRet() - PC is already set to entry point
       }
+      emu_log("[SYSBOOT] Boot failed for: '%s'\n", p);
+      result = HBR_FAILED;
       break;
     }
 
@@ -944,6 +944,7 @@ void HBIOSDispatch::handleVDA() {
         return;  // Don't fall through to doRet()
       }
       int ch = emu_console_read_char();
+      emu_log("[VDAKRD] Read char: '%c' (0x%02X)\n", (ch >= 0x20 && ch < 0x7F) ? ch : '.', ch);
       cpu->regs.DE.set_low(ch & 0xFF);
       break;
     }
@@ -1052,8 +1053,11 @@ bool HBIOSDispatch::bootFromDevice(const char* cmd_str) {
   // Skip leading whitespace
   while (*cmd_str == ' ') cmd_str++;
 
+  emu_log("[bootFromDevice] Processing: '%s'\n", cmd_str);
+
   // Check for ROM application boot (single letter)
   if (cmd_str[0] != '\0' && cmd_str[1] == '\0' && isalpha(cmd_str[0])) {
+    emu_log("[bootFromDevice] Checking ROM app for key '%c'\n", cmd_str[0]);
     int app_idx = findRomApp(cmd_str[0]);
     if (app_idx >= 0) {
       // Load and boot ROM application
@@ -1109,15 +1113,22 @@ bool HBIOSDispatch::bootFromDevice(const char* cmd_str) {
     if (colon) {
       boot_slice = atoi(colon + 1);
     }
+    emu_log("[bootFromDevice] Parsed HD/MD format: unit=%d slice=%d\n", boot_unit, boot_slice);
   } else if (isdigit(cmd_str[0])) {
     // Just a number - use as unit
     boot_unit = atoi(cmd_str);
+    emu_log("[bootFromDevice] Parsed digit format: unit=%d\n", boot_unit);
+  } else {
+    emu_log("[bootFromDevice] Unrecognized format: '%s'\n", cmd_str);
   }
 
   if (boot_unit < 0 || boot_unit >= 16 || !disks[boot_unit].is_open) {
-    emu_error("[SYSBOOT] Invalid disk unit %d\n", boot_unit);
+    emu_log("[bootFromDevice] Invalid/not-loaded disk unit %d (is_open=%d)\n",
+            boot_unit, (boot_unit >= 0 && boot_unit < 16) ? disks[boot_unit].is_open : 0);
     return false;
   }
+
+  emu_log("[bootFromDevice] Booting from disk %d (size=%zu)\n", boot_unit, disks[boot_unit].size);
 
   if (debug) {
     emu_log("[SYSBOOT] Booting from disk %d slice %d\n", boot_unit, boot_slice);
@@ -1135,22 +1146,22 @@ bool HBIOSDispatch::bootFromDevice(const char* cmd_str) {
   }
 
   if (meta_read < 32) {
-    emu_error("[SYSBOOT] Cannot read disk metadata\n");
+    emu_log("[bootFromDevice] Cannot read disk metadata (got %zu bytes)\n", meta_read);
     return false;
   }
 
   // Parse metadata (little-endian)
-  // Offset 26-27: PR_LOAD (load address)
-  // Offset 28-29: PR_END (end address)
-  // Offset 30-31: PR_ENTRY (entry point)
-  uint16_t load_addr = meta_buf[26] | (meta_buf[27] << 8);
-  uint16_t end_addr = meta_buf[28] | (meta_buf[29] << 8);
-  uint16_t entry_addr = meta_buf[30] | (meta_buf[31] << 8);
+  // RomWBW .SYS format: metadata at 0x5E0, with:
+  //   0x5EA-0x5EB: PR_LOAD (load address)
+  //   0x5EC-0x5ED: PR_END (end address)
+  //   0x5EE-0x5EF: PR_ENTRY (entry point)
+  // Since meta_buf starts at 0x5E0, offsets are 0x0A, 0x0C, 0x0E
+  uint16_t load_addr = meta_buf[0x0A] | (meta_buf[0x0B] << 8);
+  uint16_t end_addr = meta_buf[0x0C] | (meta_buf[0x0D] << 8);
+  uint16_t entry_addr = meta_buf[0x0E] | (meta_buf[0x0F] << 8);
 
-  if (debug) {
-    emu_log("[SYSBOOT] Load: 0x%04X-0x%04X Entry: 0x%04X\n",
-            load_addr, end_addr, entry_addr);
-  }
+  emu_log("[bootFromDevice] Metadata: load=0x%04X end=0x%04X entry=0x%04X\n",
+          load_addr, end_addr, entry_addr);
 
   // Load sectors starting from sector 3 (offset 0x600)
   size_t load_size = end_addr - load_addr;
@@ -1177,10 +1188,8 @@ bool HBIOSDispatch::bootFromDevice(const char* cmd_str) {
     }
   }
 
-  if (debug) {
-    emu_log("[SYSBOOT] Loaded %d bytes, jumping to 0x%04X\n",
-            (int)(addr - load_addr), entry_addr);
-  }
+  emu_log("[bootFromDevice] Loaded %d bytes to 0x%04X-0x%04X, jumping to 0x%04X\n",
+          (int)(addr - load_addr), load_addr, addr, entry_addr);
 
   // Set up boot registers
   cpu->regs.DE.set_high(boot_unit);
@@ -1189,5 +1198,6 @@ bool HBIOSDispatch::bootFromDevice(const char* cmd_str) {
   // Jump to entry point
   cpu->regs.PC.set_pair16(entry_addr);
   cpu->regs.AF.set_high(HBR_SUCCESS);
+  emu_log("[bootFromDevice] PC set to 0x%04X, boot complete\n", entry_addr);
   return true;
 }

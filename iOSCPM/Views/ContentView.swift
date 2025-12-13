@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var viewModel = EmulatorViewModel()
+    @AppStorage("terminalFontSize") private var fontSize: Double = 20
 
     var body: some View {
         NavigationView {
@@ -17,7 +18,8 @@ struct ContentView: View {
                     cursorRow: $viewModel.cursorRow,
                     cursorCol: $viewModel.cursorCol,
                     rows: viewModel.terminalRows,
-                    cols: viewModel.terminalCols
+                    cols: viewModel.terminalCols,
+                    fontSize: CGFloat(fontSize)
                 ) { char in
                     viewModel.sendKey(char)
                 }
@@ -94,6 +96,23 @@ struct ContentView: View {
                         }
                     } label: {
                         Label("Disks", systemImage: "opticaldiscdrive")
+                    }
+
+                    Menu {
+                        ForEach([12, 14, 16, 18, 20, 24, 28, 32], id: \.self) { size in
+                            Button {
+                                fontSize = Double(size)
+                            } label: {
+                                HStack {
+                                    Text("\(size) pt")
+                                    if Int(fontSize) == size {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Font Size", systemImage: "textformat.size")
                     }
 
                     Button {

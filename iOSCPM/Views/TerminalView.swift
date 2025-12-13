@@ -13,28 +13,32 @@ struct TerminalView: UIViewRepresentable {
 
     let rows: Int
     let cols: Int
+    let fontSize: CGFloat
 
     init(cells: Binding<[[TerminalCell]]>,
          cursorRow: Binding<Int>,
          cursorCol: Binding<Int>,
          rows: Int = 25,
          cols: Int = 80,
+         fontSize: CGFloat = 20,
          onKeyInput: ((Character) -> Void)? = nil) {
         self._cells = cells
         self._cursorRow = cursorRow
         self._cursorCol = cursorCol
         self.rows = rows
         self.cols = cols
+        self.fontSize = fontSize
         self.onKeyInput = onKeyInput
     }
 
     func makeUIView(context: Context) -> TerminalUIView {
-        let view = TerminalUIView(rows: rows, cols: cols)
+        let view = TerminalUIView(rows: rows, cols: cols, fontSize: fontSize)
         view.onKeyInput = onKeyInput
         return view
     }
 
     func updateUIView(_ uiView: TerminalUIView, context: Context) {
+        uiView.updateFontSize(fontSize)
         uiView.updateCells(cells, cursorRow: cursorRow, cursorCol: cursorCol)
     }
 }
@@ -51,7 +55,8 @@ class TerminalUIView: UIView, UIKeyInput {
 
     private var charWidth: CGFloat = 0
     private var charHeight: CGFloat = 0
-    private let font: UIFont
+    private var font: UIFont
+    private var currentFontSize: CGFloat
 
     // CGA color palette
     private let cgaColors: [UIColor] = [
@@ -73,24 +78,16 @@ class TerminalUIView: UIView, UIKeyInput {
         UIColor(red: 255/255, green: 255/255, blue: 255/255, alpha: 1)  // 15: White
     ]
 
-    init(rows: Int, cols: Int) {
+    init(rows: Int, cols: Int, fontSize: CGFloat = 20) {
         self.rows = rows
         self.cols = cols
-
-        // Use a monospace font that scales well
-        #if targetEnvironment(macCatalyst)
-        self.font = UIFont.monospacedSystemFont(ofSize: 18, weight: .regular)
-        #else
-        self.font = UIFont.monospacedSystemFont(ofSize: 16, weight: .regular)
-        #endif
+        self.currentFontSize = fontSize
+        self.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
 
         super.init(frame: .zero)
 
         // Calculate character dimensions
-        let testString = "M" as NSString
-        let size = testString.size(withAttributes: [.font: font])
-        charWidth = size.width
-        charHeight = size.height
+        updateCharDimensions()
 
         // Initialize cells
         cells = Array(repeating: Array(repeating: TerminalCell(), count: cols), count: rows)
@@ -100,6 +97,21 @@ class TerminalUIView: UIView, UIKeyInput {
         // Add tap gesture to become first responder
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
         addGestureRecognizer(tap)
+    }
+
+    private func updateCharDimensions() {
+        let testString = "M" as NSString
+        let size = testString.size(withAttributes: [.font: font])
+        charWidth = size.width
+        charHeight = size.height
+    }
+
+    func updateFontSize(_ newSize: CGFloat) {
+        guard newSize != currentFontSize else { return }
+        currentFontSize = newSize
+        font = UIFont.monospacedSystemFont(ofSize: newSize, weight: .regular)
+        updateCharDimensions()
+        setNeedsDisplay()
     }
 
     required init?(coder: NSCoder) {
