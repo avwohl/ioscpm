@@ -139,9 +139,6 @@ class TerminalUIView: UIView, UIKeyInput {
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
 
-        // Debug: print bounds
-        print("[TerminalView] draw: bounds=\(bounds), rect=\(rect), frame=\(frame)")
-
         // Fill entire view with black first
         UIColor.black.setFill()
         context.fill(bounds)
