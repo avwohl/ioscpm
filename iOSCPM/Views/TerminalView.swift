@@ -237,7 +237,10 @@ class TerminalUIView: UIView, UIKeyInput {
             UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(upArrowPressed)),
             UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(downArrowPressed)),
             UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(leftArrowPressed)),
-            UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(rightArrowPressed))
+            UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(rightArrowPressed)),
+            // Copy/Paste support
+            UIKeyCommand(input: "c", modifierFlags: .command, action: #selector(copyText)),
+            UIKeyCommand(input: "v", modifierFlags: .command, action: #selector(pasteText))
         ]
 
         // Add Ctrl+key commands for common CP/M usage
@@ -248,6 +251,38 @@ class TerminalUIView: UIView, UIKeyInput {
         }
 
         return commands
+    }
+
+    @objc private func copyText() {
+        // Copy all terminal content to clipboard
+        var text = ""
+        for row in cells {
+            var line = ""
+            for cell in row {
+                line.append(cell.character)
+            }
+            // Trim trailing spaces
+            line = String(line.reversed().drop(while: { $0 == " " }).reversed())
+            text += line + "\n"
+        }
+        // Remove trailing empty lines
+        while text.hasSuffix("\n\n") {
+            text.removeLast()
+        }
+        UIPasteboard.general.string = text
+    }
+
+    @objc private func pasteText() {
+        // Paste clipboard content as keyboard input
+        guard let text = UIPasteboard.general.string else { return }
+        for char in text {
+            // Convert newlines to carriage return for CP/M
+            if char == "\n" {
+                onKeyInput?(Character("\r"))
+            } else {
+                onKeyInput?(char)
+            }
+        }
     }
 
     @objc private func enterPressed() {

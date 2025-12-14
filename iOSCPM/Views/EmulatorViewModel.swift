@@ -34,6 +34,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
     let availableROMs: [ROMOption] = [
         ROMOption(name: "SBC SIMH (Default)", filename: "SBC_simh_std.rom"),
         ROMOption(name: "EMU RomWBW", filename: "emu_romwbw.rom"),
+        ROMOption(name: "EMU RCZ80", filename: "emu_rcz80.rom"),
     ]
 
     // Disk selection for slots 0-3 (OS slots) and data drives
