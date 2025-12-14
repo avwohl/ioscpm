@@ -71,8 +71,9 @@ void HBIOSEmulator::reset() {
   instruction_count = 0;
   boot_string_pos = 0;
 
-  // Clear input queue
+  // Clear input queues (both internal and global)
   while (!input_queue.empty()) input_queue.pop();
+  emu_console_clear_queue();
 
   // Reset HBIOS dispatcher
   hbios.reset();
@@ -104,6 +105,10 @@ bool HBIOSEmulator::loadROM(const uint8_t* data, size_t size) {
     emu_error("[HBIOS] ROM memory not allocated\n");
     return false;
   }
+
+  // Clear RAM for clean state when loading a new ROM
+  // (following porting notes: ensures stop/start behaves identically to fresh app launch)
+  memory.clear_ram();
 
   // Copy ROM data (up to 512KB)
   size_t copy_size = (size > 512 * 1024) ? 512 * 1024 : size;

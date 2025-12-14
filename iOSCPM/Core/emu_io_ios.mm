@@ -99,6 +99,11 @@ void emu_console_queue_char(int ch) {
   g_input_queue.push(ch);
 }
 
+void emu_console_clear_queue() {
+  std::lock_guard<std::mutex> lock(g_input_mutex);
+  while (!g_input_queue.empty()) g_input_queue.pop();
+}
+
 static int g_char_count = 0;
 
 void emu_console_write_char(uint8_t ch) {
