@@ -34,8 +34,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
     let availableROMs: [ROMOption] = [
         ROMOption(name: "SBC SIMH (Default)", filename: "SBC_simh_std.rom"),
         ROMOption(name: "EMU RomWBW", filename: "emu_romwbw.rom"),
-        ROMOption(name: "RCZ80", filename: "RCZ80_std.rom"),
-        ROMOption(name: "EMU RCZ80", filename: "emu_rcz80.rom"),
     ]
 
     // Disk selection for slots 0-3 (OS slots) and data drives
@@ -98,10 +96,23 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // Initialize terminal cells
         terminalCells = Array(repeating: Array(repeating: TerminalCell(), count: terminalCols), count: terminalRows)
 
+        // Show startup message in terminal
+        showStartupMessage()
+
         emulator = RomWBWEmulator()
         emulator?.delegate = self
 
         setupAudio()
+    }
+
+    private func showStartupMessage() {
+        let message = "Press Play to start"
+        let startCol = (terminalCols - message.count) / 2
+        let startRow = terminalRows / 2
+
+        for (i, char) in message.enumerated() {
+            terminalCells[startRow][startCol + i].character = char
+        }
     }
 
     // MARK: - Audio Setup
