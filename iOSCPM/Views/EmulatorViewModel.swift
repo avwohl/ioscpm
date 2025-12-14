@@ -23,6 +23,7 @@ struct DiskOption: Identifiable, Hashable {
 class EmulatorViewModel: NSObject, ObservableObject {
     @Published var statusText: String = "Ready"
     @Published var isRunning: Bool = false
+    @Published var terminalShouldFocus: Bool = false
 
     @Published var showingDiskPicker: Bool = false
     @Published var showingDiskExporter: Bool = false
@@ -32,7 +33,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // ROM selection
     @Published var selectedROM: ROMOption?
     let availableROMs: [ROMOption] = [
-        ROMOption(name: "SBC SIMH (Default)", filename: "SBC_simh_std.rom"),
+        ROMOption(name: "SBC SIMH", filename: "SBC_simh_std.rom"),
         ROMOption(name: "EMU RomWBW", filename: "emu_romwbw.rom"),
         ROMOption(name: "EMU RCZ80", filename: "emu_rcz80.rom"),
     ]
@@ -41,10 +42,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var selectedDisks: [DiskOption?] = Array(repeating: nil, count: 4)
     let availableDisks: [DiskOption] = [
         DiskOption(name: "None", filename: ""),
-        DiskOption(name: "CP/M 2.2", filename: "cpm_wbw.img"),
-        DiskOption(name: "ZSDOS", filename: "zsys_wbw.img"),
-        DiskOption(name: "QPM", filename: "qpm_wbw.img"),
-        DiskOption(name: "Drive A Data", filename: "drivea.img"),
+        DiskOption(name: "CP/M 2.2 (hd512)", filename: "hd512_cpm22.img"),
+        DiskOption(name: "Games (hd512)", filename: "hd512_games.img"),
     ]
 
     // Disk slot labels
@@ -138,12 +137,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // MARK: - Resource Loading
 
     func loadBundledResources() {
-        // Set default selections
-        selectedROM = availableROMs.first
-        selectedDisks[0] = availableDisks.first { $0.filename == "cpm_wbw.img" }
-        selectedDisks[1] = availableDisks.first { $0.filename == "zsys_wbw.img" }
-        selectedDisks[2] = availableDisks.first { $0.filename == "qpm_wbw.img" }
-        selectedDisks[3] = availableDisks.first { $0.filename == "drivea.img" }
+        // Set default selections only if not already set
+        if selectedROM == nil {
+            selectedROM = availableROMs.first
+        }
+        if selectedDisks[0] == nil {
+            selectedDisks[0] = availableDisks.first { $0.filename == "hd512_cpm22.img" }
+        }
+        if selectedDisks[1] == nil {
+            selectedDisks[1] = availableDisks.first { $0.filename == "hd512_games.img" }
+        }
 
         statusText = "Ready - Select ROM and disks, then Start"
     }
@@ -162,9 +165,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         // Load selected disks
         for unit in 0..<selectedDisks.count {
+            print("[EmulatorVM] Loading disk unit \(unit): \(selectedDisks[unit]?.filename ?? "none")")
+
             // First check if there's a local file URL for this unit
             if let url = localDiskURLs[unit] {
                 if loadLocalDisk(unit: unit, from: url) {
+                    print("[EmulatorVM] Loaded local disk to unit \(unit)")
                     statusText = "Loaded local file to \(diskLabels[unit])"
                     continue
                 }
@@ -172,8 +178,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
             // Otherwise load from bundled disk
             if let disk = selectedDisks[unit], !disk.filename.isEmpty {
-                if emulator?.loadDisk(Int32(unit), fromBundle: disk.filename) == true {
+                let success = emulator?.loadDisk(Int32(unit), fromBundle: disk.filename) == true
+                print("[EmulatorVM] loadDisk(\(unit), \(disk.filename)) = \(success)")
+                if success {
                     statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
+                } else {
+                    print("[EmulatorVM] ERROR: Failed to load \(disk.filename) to unit \(unit)")
                 }
             }
         }
@@ -281,11 +291,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // MARK: - Emulation Control
 
     func start() {
+        // Clear terminal before starting (removes "Press Play" message)
+        clearTerminal()
         // Load selected ROM and disks before starting
         loadSelectedResources()
         emulator?.start()
         isRunning = emulator?.isRunning ?? false
         statusText = "Running"
+        terminalShouldFocus = true  // Auto-focus terminal
     }
 
     func stop() {
@@ -301,7 +314,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
     }
 
     func sendKey(_ char: Character) {
-        let code = char.asciiValue ?? UInt8(char.utf16.first ?? 0)
+        // Only send ASCII characters (0-127) to CP/M
+        guard let code = char.asciiValue else { return }
         emulator?.sendCharacter(unichar(code))
     }
 
@@ -388,7 +402,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         // Use mono format matching setupAudio()
         guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
-              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
+    
+                let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
         buffer.frameLength = frameCount
 
         guard let channelData = buffer.floatChannelData?[0] else { return }

@@ -326,6 +326,9 @@ uint8_t HBIOSEmulator::handle_in(uint8_t port) {
     case 0x7C:
       return memory.get_current_bank();
 
+    case 0xFE:  // Sense switches (front panel) - match CLI
+      return 0x00;
+
     default:
       return 0xFF;
   }

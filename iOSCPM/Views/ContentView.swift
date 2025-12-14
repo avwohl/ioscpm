@@ -5,8 +5,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-// Version for tracking updates
-let appVersion = "0.2.9"
+// Read version from bundle Info.plist
+let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
 
 struct ContentView: View {
     @StateObject private var viewModel = EmulatorViewModel()
@@ -23,7 +23,8 @@ struct ContentView: View {
                     cursorCol: $viewModel.cursorCol,
                     rows: viewModel.terminalRows,
                     cols: viewModel.terminalCols,
-                    fontSize: CGFloat(fontSize)
+                    fontSize: CGFloat(fontSize),
+                    shouldFocus: $viewModel.terminalShouldFocus
                 ) { char in
                     viewModel.sendKey(char)
                 }
@@ -295,6 +296,29 @@ struct SettingsView: View {
                     }
                     .font(.caption)
                     .foregroundColor(.secondary)
+                }
+
+                // About Section
+                Section(header: Text("About")) {
+                    HStack {
+                        Text("Version")
+                        Spacer()
+                        Text(appVersion)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Link(destination: URL(string: "https://github.com/avwohl/ioscpm")!) {
+                        HStack {
+                            Text("Source Code")
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Text("RomWBW CP/M emulator for iOS and macOS")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
             .navigationTitle("Settings")

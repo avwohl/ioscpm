@@ -28,10 +28,8 @@
 		/* Resources */
 		A1000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000030; };
 		A1000031 /* emu_hbios.bin in Resources */ = {isa = PBXBuildFile; fileRef = B1000031; };
-		A1000032 /* drivea.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000032; };
-		A1000033 /* cpm_wbw.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000033; };
-		A1000034 /* zsys_wbw.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000034; };
-		A1000035 /* qpm_wbw.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000035; };
+		A1000032 /* hd512_cpm22.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000032; };
+		A1000033 /* hd512_games.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000033; };
 		A1000036 /* SBC_simh_std.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000036; };
 		A1000037 /* emu_romwbw.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000037; };
 		A1000038 /* RCZ80_std.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000038; };
@@ -77,10 +75,8 @@
 		/* Resources */
 		B1000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B1000031 /* emu_hbios.bin */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_hbios.bin; sourceTree = "<group>"; };
-		B1000032 /* drivea.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = drivea.img; sourceTree = "<group>"; };
-		B1000033 /* cpm_wbw.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = cpm_wbw.img; sourceTree = "<group>"; };
-		B1000034 /* zsys_wbw.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = zsys_wbw.img; sourceTree = "<group>"; };
-		B1000035 /* qpm_wbw.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = qpm_wbw.img; sourceTree = "<group>"; };
+		B1000032 /* hd512_cpm22.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = hd512_cpm22.img; sourceTree = "<group>"; };
+		B1000033 /* hd512_games.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = hd512_games.img; sourceTree = "<group>"; };
 		B1000036 /* SBC_simh_std.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = SBC_simh_std.rom; sourceTree = "<group>"; };
 		B1000037 /* emu_romwbw.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_romwbw.rom; sourceTree = "<group>"; };
 		B1000038 /* RCZ80_std.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = RCZ80_std.rom; sourceTree = "<group>"; };
@@ -185,10 +181,8 @@
 				B1000037 /* emu_romwbw.rom */,
 				B1000038 /* RCZ80_std.rom */,
 				B1000039 /* emu_rcz80.rom */,
-				B1000033 /* cpm_wbw.img */,
-				B1000034 /* zsys_wbw.img */,
-				B1000035 /* qpm_wbw.img */,
-				B1000032 /* drivea.img */,
+				B1000032 /* hd512_cpm22.img */,
+				B1000033 /* hd512_games.img */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -258,10 +252,8 @@
 				A1000037 /* emu_romwbw.rom in Resources */,
 				A1000038 /* RCZ80_std.rom in Resources */,
 				A1000039 /* emu_rcz80.rom in Resources */,
-				A1000032 /* drivea.img in Resources */,
-				A1000033 /* cpm_wbw.img in Resources */,
-				A1000034 /* zsys_wbw.img in Resources */,
-				A1000035 /* qpm_wbw.img in Resources */,
+				A1000032 /* hd512_cpm22.img in Resources */,
+				A1000033 /* hd512_games.img in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

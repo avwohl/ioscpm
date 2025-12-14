@@ -9,6 +9,7 @@ struct TerminalView: UIViewRepresentable {
     @Binding var cells: [[TerminalCell]]
     @Binding var cursorRow: Int
     @Binding var cursorCol: Int
+    @Binding var shouldFocus: Bool
     var onKeyInput: ((Character) -> Void)?
 
     let rows: Int
@@ -21,10 +22,12 @@ struct TerminalView: UIViewRepresentable {
          rows: Int = 25,
          cols: Int = 80,
          fontSize: CGFloat = 20,
+         shouldFocus: Binding<Bool> = .constant(false),
          onKeyInput: ((Character) -> Void)? = nil) {
         self._cells = cells
         self._cursorRow = cursorRow
         self._cursorCol = cursorCol
+        self._shouldFocus = shouldFocus
         self.rows = rows
         self.cols = cols
         self.fontSize = fontSize
@@ -40,6 +43,13 @@ struct TerminalView: UIViewRepresentable {
     func updateUIView(_ uiView: TerminalUIView, context: Context) {
         uiView.updateFontSize(fontSize)
         uiView.updateCells(cells, cursorRow: cursorRow, cursorCol: cursorCol)
+
+        // Auto-focus when shouldFocus becomes true
+        if shouldFocus && !uiView.isFirstResponder {
+            DispatchQueue.main.async {
+                uiView.becomeFirstResponder()
+            }
+        }
     }
 }
 
@@ -99,6 +109,10 @@ class TerminalUIView: UIView, UIKeyInput {
         // Add tap gesture to become first responder
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
         addGestureRecognizer(tap)
+
+        // Add long press gesture for copy menu
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        addGestureRecognizer(longPress)
     }
 
     override func layoutSubviews() {
@@ -129,6 +143,32 @@ class TerminalUIView: UIView, UIKeyInput {
         becomeFirstResponder()
     }
 
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        becomeFirstResponder()
+
+        let menuController = UIMenuController.shared
+        let copyItem = UIMenuItem(title: "Copy All", action: #selector(copyText))
+        menuController.menuItems = [copyItem]
+
+        let location = gesture.location(in: self)
+        let menuRect = CGRect(x: location.x, y: location.y, width: 1, height: 1)
+        menuController.showMenu(from: self, rect: menuRect)
+    }
+
+    override var canBecomeFirstResponder: Bool { true }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(copyText) || action == #selector(copy(_:)) {
+            return true
+        }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    @objc override func copy(_ sender: Any?) {
+        copyText()
+    }
+
     func updateCells(_ newCells: [[TerminalCell]], cursorRow: Int, cursorCol: Int) {
         self.cells = newCells
         self.cursorRow = cursorRow
@@ -157,7 +197,7 @@ class TerminalUIView: UIView, UIKeyInput {
 
         let scaledWidth = terminalWidth * scale
         let scaledHeight = terminalHeight * scale
-        let offsetX = (viewWidth - scaledWidth) / 2
+        let offsetX = (viewWidth - scaledWidth) / 2 + 2  // Padding from left edge
         let offsetY = (viewHeight - scaledHeight) / 2
 
         context.saveGState()
@@ -226,9 +266,7 @@ class TerminalUIView: UIView, UIKeyInput {
         onKeyInput?(Character(UnicodeScalar(8)))
     }
 
-    // MARK: - UIResponder
-
-    override var canBecomeFirstResponder: Bool { true }
+    // MARK: - Key Commands
 
     override var keyCommands: [UIKeyCommand]? {
         var commands = [

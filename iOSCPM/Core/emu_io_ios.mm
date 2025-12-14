@@ -157,6 +157,18 @@ void emu_error(const char* fmt, ...) {
   NSLog(@"[EMU ERROR] %s", buf);
 }
 
+void emu_fatal(const char* fmt, ...) {
+  NSLog(@"*** FATAL ERROR ***");
+  va_list args;
+  va_start(args, fmt);
+  char buf[1024];
+  vsnprintf(buf, sizeof(buf), fmt, args);
+  va_end(args);
+  NSLog(@"[EMU FATAL] %s", buf);
+  NSLog(@"*** ABORTING ***");
+  abort();
+}
+
 void emu_status(const char* fmt, ...) {
   va_list args;
   va_start(args, fmt);
