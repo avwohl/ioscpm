@@ -172,7 +172,6 @@ bool HBIOSEmulator::isDiskLoaded(int unit) const {
 
 void HBIOSEmulator::queueInput(int ch) {
   if (ch == '\n') ch = '\r';  // LF -> CR for CP/M
-  emu_log("[INPUT] Queued char: '%c' (0x%02X)\n", (ch >= 0x20 && ch < 0x7F) ? ch : '.', ch);
   input_queue.push(ch);
   emu_console_queue_char(ch);
   waiting_for_input = false;

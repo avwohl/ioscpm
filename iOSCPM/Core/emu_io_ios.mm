@@ -104,19 +104,7 @@ void emu_console_clear_queue() {
   while (!g_input_queue.empty()) g_input_queue.pop();
 }
 
-static int g_char_count = 0;
-
 void emu_console_write_char(uint8_t ch) {
-  g_char_count++;
-  // Log first 100 chars to see output
-  if (g_char_count <= 100) {
-    if (ch >= 0x20 && ch < 0x7F) {
-      NSLog(@"[EMU] Console output #%d: '%c' (0x%02X)", g_char_count, ch, ch);
-    } else {
-      NSLog(@"[EMU] Console output #%d: 0x%02X", g_char_count, ch);
-    }
-  }
-
   id<EMUIODelegate> delegate = g_delegate;
   if (delegate && [delegate respondsToSelector:@selector(emuConsoleOutput:)]) {
     dispatch_async(dispatch_get_main_queue(), ^{
