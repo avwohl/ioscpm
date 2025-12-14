@@ -203,6 +203,9 @@ void HBIOSEmulator::start() {
   // Reset HBIOS state for new ROM (like web version does)
   hbios.reset();
 
+  // Initialize memory disks (MD0=RAM, MD1=ROM) from HCB configuration
+  hbios.initMemoryDisks();
+
   // Register reset callback for SYSRESET (REBOOT command)
   hbios.setResetCallback([this](uint8_t reset_type) {
     emu_log("[SYSRESET] %s boot - restarting\n",
