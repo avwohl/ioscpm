@@ -94,16 +94,14 @@ struct ContentView: View {
                     }
 
                     Menu {
-                        Section("Font Size") {
-                            ForEach([14, 16, 18, 20, 24, 28], id: \.self) { size in
-                                Button {
-                                    fontSize = Double(size)
-                                } label: {
-                                    HStack {
-                                        Text("\(size) pt")
-                                        if Int(fontSize) == size {
-                                            Image(systemName: "checkmark")
-                                        }
+                        ForEach([14, 16, 18, 20, 24, 28], id: \.self) { size in
+                            Button {
+                                fontSize = Double(size)
+                            } label: {
+                                HStack {
+                                    Text("\(size) pt")
+                                    if Int(fontSize) == size {
+                                        Image(systemName: "checkmark")
                                     }
                                 }
                             }
@@ -111,19 +109,17 @@ struct ContentView: View {
 
                         Divider()
 
-                        Section("Disk Files") {
-                            Button("Load Disk 0...") {
-                                viewModel.loadDisk(0)
-                            }
-                            Button("Load Disk 1...") {
-                                viewModel.loadDisk(1)
-                            }
-                            Button("Save Disk 0...") {
-                                viewModel.saveDisk(0)
-                            }
-                            Button("Save Disk 1...") {
-                                viewModel.saveDisk(1)
-                            }
+                        Button("Load Disk 0...") {
+                            viewModel.loadDisk(0)
+                        }
+                        Button("Load Disk 1...") {
+                            viewModel.loadDisk(1)
+                        }
+                        Button("Save Disk 0...") {
+                            viewModel.saveDisk(0)
+                        }
+                        Button("Save Disk 1...") {
+                            viewModel.saveDisk(1)
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
