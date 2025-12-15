@@ -84,52 +84,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
         DiskOption(name: "None", filename: ""),
     ]
 
-    // Downloadable disk catalog - URLs for disk images users can download
-    // Hosted on GitHub releases: https://github.com/avwohl/ioscpm/releases
-    private static let releaseURL = "https://github.com/avwohl/ioscpm/releases/download/v1.0"
+    // Downloadable disk catalog - fetched from disks.xml in GitHub releases
+    private static let catalogURL = "https://github.com/avwohl/ioscpm/releases/latest/download/disks.xml"
+    private static let releaseBaseURL = "https://github.com/avwohl/ioscpm/releases/latest/download"
 
-    let diskCatalog: [DownloadableDisk] = [
-        DownloadableDisk(
-            filename: "hd1k_combo.img",
-            name: "Combo (Recommended)",
-            description: "49MB multi-slice disk with CP/M 2.2, games, and utilities. Best starter disk.",
-            url: "\(releaseURL)/hd1k_combo.img",
-            sizeBytes: 51_380_224,
-            license: "Mixed"
-        ),
-        DownloadableDisk(
-            filename: "hd1k_infocom.img",
-            name: "Infocom Games",
-            description: "Zork 1-3, Hitchhiker's Guide to the Galaxy, Enchanter trilogy, and more.",
-            url: "\(releaseURL)/hd1k_infocom.img",
-            sizeBytes: 8_388_608,
-            license: "Zork: MIT"
-        ),
-        DownloadableDisk(
-            filename: "hd1k_cpm22.img",
-            name: "CP/M 2.2",
-            description: "Digital Research CP/M 2.2 operating system. The classic 8-bit OS.",
-            url: "\(releaseURL)/hd1k_cpm22.img",
-            sizeBytes: 8_388_608,
-            license: "Free (Lineo)"
-        ),
-        DownloadableDisk(
-            filename: "hd1k_zsdos.img",
-            name: "ZSDOS",
-            description: "Z-System DOS - Enhanced CP/M compatible OS with date/time stamping.",
-            url: "\(releaseURL)/hd1k_zsdos.img",
-            sizeBytes: 8_388_608,
-            license: "Free"
-        ),
-        DownloadableDisk(
-            filename: "hd1k_zpm3.img",
-            name: "ZPM3",
-            description: "Z-System CP/M 3 - Enhanced CP/M Plus with ZCPR support.",
-            url: "\(releaseURL)/hd1k_zpm3.img",
-            sizeBytes: 8_388_608,
-            license: "Free"
-        ),
-    ]
+    @Published var diskCatalog: [DownloadableDisk] = []
+    @Published var catalogLoading: Bool = false
+    @Published var catalogError: String?
 
     // Download state tracking
     @Published var downloadStates: [String: DownloadState] = [:]
@@ -240,6 +201,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // MARK: - Resource Loading
 
     func loadBundledResources() {
+        // Fetch disk catalog from remote XML
+        fetchDiskCatalog()
+
         // Refresh list of downloaded disks
         refreshAvailableDisks()
 
@@ -553,6 +517,66 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private func showError(_ message: String) {
         errorMessage = message
         showingError = true
+    }
+
+    // MARK: - Disk Catalog Management
+
+    /// Fetch disk catalog from remote XML, falling back to cached version
+    func fetchDiskCatalog() {
+        catalogLoading = true
+        catalogError = nil
+
+        guard let url = URL(string: Self.catalogURL) else {
+            loadCachedCatalog()
+            return
+        }
+
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.catalogLoading = false
+
+                if let data = data, error == nil {
+                    // Parse and cache the new catalog
+                    let disks = self.parseDiskCatalogXML(data)
+                    if !disks.isEmpty {
+                        self.diskCatalog = disks
+                        self.saveCatalogToCache(data)
+                        self.refreshAvailableDisks()
+                        return
+                    }
+                }
+
+                // Fetch failed, try cached version
+                self.loadCachedCatalog()
+            }
+        }.resume()
+    }
+
+    /// Load catalog from local cache
+    private func loadCachedCatalog() {
+        let cacheURL = downloadsDirectory.appendingPathComponent("disks_catalog.xml")
+        if let data = try? Data(contentsOf: cacheURL) {
+            let disks = parseDiskCatalogXML(data)
+            if !disks.isEmpty {
+                diskCatalog = disks
+                refreshAvailableDisks()
+                return
+            }
+        }
+        catalogError = "No disk catalog available. Connect to internet to download."
+    }
+
+    /// Save catalog XML to local cache
+    private func saveCatalogToCache(_ data: Data) {
+        let cacheURL = downloadsDirectory.appendingPathComponent("disks_catalog.xml")
+        try? data.write(to: cacheURL)
+    }
+
+    /// Parse disks.xml into DownloadableDisk array
+    private func parseDiskCatalogXML(_ data: Data) -> [DownloadableDisk] {
+        let parser = DiskCatalogXMLParser()
+        return parser.parse(data: data, baseURL: Self.releaseBaseURL)
     }
 
     // MARK: - Disk Download Management
@@ -1081,6 +1105,76 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
     func emulatorBeep(_ durationMs: Int32) {
         DispatchQueue.main.async {
             self.playBeep(durationMs: Int(durationMs))
+        }
+    }
+}
+
+// MARK: - XML Parser for Disk Catalog
+
+class DiskCatalogXMLParser: NSObject, XMLParserDelegate {
+    private var disks: [DownloadableDisk] = []
+    private var currentElement = ""
+    private var currentDisk: [String: String] = [:]
+    private var currentText = ""
+    private var baseURL = ""
+
+    func parse(data: Data, baseURL: String) -> [DownloadableDisk] {
+        self.baseURL = baseURL
+        disks = []
+
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+
+        return disks
+    }
+
+    func parser(_ parser: XMLParser, didStartElement elementName: String,
+                namespaceURI: String?, qualifiedName qName: String?,
+                attributes attributeDict: [String: String] = [:]) {
+        currentElement = elementName
+        currentText = ""
+
+        if elementName == "disk" {
+            currentDisk = [:]
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        currentText += string
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String,
+                namespaceURI: String?, qualifiedName qName: String?) {
+        let trimmed = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch elementName {
+        case "filename":
+            currentDisk["filename"] = trimmed
+        case "name":
+            currentDisk["name"] = trimmed
+        case "description":
+            currentDisk["description"] = trimmed
+        case "size":
+            currentDisk["size"] = trimmed
+        case "license":
+            currentDisk["license"] = trimmed
+        case "disk":
+            // End of disk element - create DownloadableDisk
+            if let filename = currentDisk["filename"],
+               let name = currentDisk["name"] {
+                let disk = DownloadableDisk(
+                    filename: filename,
+                    name: name,
+                    description: currentDisk["description"] ?? "",
+                    url: "\(baseURL)/\(filename)",
+                    sizeBytes: Int64(currentDisk["size"] ?? "0") ?? 0,
+                    license: currentDisk["license"] ?? "Unknown"
+                )
+                disks.append(disk)
+            }
+        default:
+            break
         }
     }
 }

@@ -277,8 +277,35 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    ForEach(viewModel.diskCatalog) { disk in
-                        DiskDownloadRow(disk: disk, viewModel: viewModel)
+                    if viewModel.catalogLoading {
+                        HStack {
+                            ProgressView()
+                            Text("Loading disk catalog...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    } else if let error = viewModel.catalogError {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Button("Retry") {
+                            viewModel.fetchDiskCatalog()
+                        }
+                    } else {
+                        ForEach(viewModel.diskCatalog) { disk in
+                            DiskDownloadRow(disk: disk, viewModel: viewModel)
+                        }
+
+                        Button {
+                            viewModel.fetchDiskCatalog()
+                        } label: {
+                            Label("Refresh Catalog", systemImage: "arrow.clockwise")
+                        }
+                        .font(.caption)
                     }
                 }
 
