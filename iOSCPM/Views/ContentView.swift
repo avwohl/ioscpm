@@ -66,54 +66,17 @@ struct ContentView: View {
             .navigationTitle("RomWBW v\(appVersion)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    // Settings button (ROM, Disk, Boot)
+                ToolbarItem(placement: .navigationBarLeading) {
+                    // Settings button - always visible on left
                     Button {
                         showingSettings = true
                     } label: {
-                        Image(systemName: "gearshape")
+                        Image(systemName: "gearshape.fill")
                     }
                     .disabled(viewModel.isRunning)
+                }
 
-                    Menu {
-                        // Load from file
-                        Button("Load Disk 0 from File...") {
-                            viewModel.loadDisk(0)
-                        }
-                        Button("Load Disk 1 from File...") {
-                            viewModel.loadDisk(1)
-                        }
-
-                        Divider()
-
-                        // Save Disks
-                        Button("Save Disk 0...") {
-                            viewModel.saveDisk(0)
-                        }
-                        Button("Save Disk 1...") {
-                            viewModel.saveDisk(1)
-                        }
-                    } label: {
-                        Label("Disks", systemImage: "opticaldiscdrive")
-                    }
-
-                    Menu {
-                        ForEach([12, 14, 16, 18, 20, 24, 28, 32], id: \.self) { size in
-                            Button {
-                                fontSize = Double(size)
-                            } label: {
-                                HStack {
-                                    Text("\(size) pt")
-                                    if Int(fontSize) == size {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-                    } label: {
-                        Label("Font Size (\(Int(fontSize)))", systemImage: "textformat.size")
-                    }
-
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
                     Button {
                         if viewModel.isRunning {
                             viewModel.stop()
@@ -128,6 +91,42 @@ struct ContentView: View {
                         viewModel.reset()
                     } label: {
                         Image(systemName: "arrow.counterclockwise")
+                    }
+
+                    Menu {
+                        Section("Font Size") {
+                            ForEach([14, 16, 18, 20, 24, 28], id: \.self) { size in
+                                Button {
+                                    fontSize = Double(size)
+                                } label: {
+                                    HStack {
+                                        Text("\(size) pt")
+                                        if Int(fontSize) == size {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Divider()
+
+                        Section("Disk Files") {
+                            Button("Load Disk 0...") {
+                                viewModel.loadDisk(0)
+                            }
+                            Button("Load Disk 1...") {
+                                viewModel.loadDisk(1)
+                            }
+                            Button("Save Disk 0...") {
+                                viewModel.saveDisk(0)
+                            }
+                            Button("Save Disk 1...") {
+                                viewModel.saveDisk(1)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
                 }
             }
