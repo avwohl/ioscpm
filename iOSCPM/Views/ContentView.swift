@@ -469,6 +469,13 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
                 }
             }
+            .ifAvailable { view in
+                if #available(iOS 16.0, *) {
+                    view.scrollIndicators(.visible)
+                } else {
+                    view
+                }
+            }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -620,4 +627,13 @@ struct DiskDownloadRow: View {
 
 #Preview {
     ContentView()
+}
+
+// MARK: - View Extension for iOS version compatibility
+
+extension View {
+    @ViewBuilder
+    func ifAvailable<Content: View>(@ViewBuilder transform: (Self) -> Content) -> some View {
+        transform(self)
+    }
 }
