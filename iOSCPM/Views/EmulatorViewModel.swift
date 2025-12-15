@@ -59,7 +59,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var errorMessage: String = ""
 
     // ROM selection
-    @Published var selectedROM: ROMOption?
+    @Published var selectedROM: ROMOption? {
+        didSet {
+            if let rom = selectedROM {
+                UserDefaults.standard.set(rom.filename, forKey: "selectedROM")
+            }
+        }
+    }
     let availableROMs: [ROMOption] = [
         ROMOption(name: "EMU AVW (Recommended)", filename: "emu_avw.rom"),
         ROMOption(name: "EMU RomWBW", filename: "emu_romwbw.rom"),
@@ -67,7 +73,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
     ]
 
     // Disk selection for slots 0-3 (OS slots) and data drives
-    @Published var selectedDisks: [DiskOption?] = Array(repeating: nil, count: 4)
+    @Published var selectedDisks: [DiskOption?] = Array(repeating: nil, count: 4) {
+        didSet {
+            // Save selected disk filenames to UserDefaults
+            let filenames = selectedDisks.map { $0?.filename ?? "" }
+            UserDefaults.standard.set(filenames, forKey: "selectedDisks")
+        }
+    }
     @Published var availableDisks: [DiskOption] = [
         DiskOption(name: "None", filename: ""),
     ]
@@ -231,13 +243,26 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // Refresh list of downloaded disks
         refreshAvailableDisks()
 
-        // Set default selections only if not already set
+        // Restore saved ROM selection
+        if let savedROM = UserDefaults.standard.string(forKey: "selectedROM") {
+            selectedROM = availableROMs.first { $0.filename == savedROM }
+        }
         if selectedROM == nil {
             selectedROM = availableROMs.first
         }
-        if selectedDisks[0] == nil {
-            // Try to select CP/M 2.2 if downloaded, otherwise None
-            selectedDisks[0] = availableDisks.first { $0.filename == "hd1k_cpm22.img" }
+
+        // Restore saved disk selections
+        if let savedDisks = UserDefaults.standard.stringArray(forKey: "selectedDisks") {
+            for (index, filename) in savedDisks.enumerated() where index < 4 {
+                if !filename.isEmpty {
+                    selectedDisks[index] = availableDisks.first { $0.filename == filename }
+                }
+            }
+        }
+
+        // Default to first available disk if nothing selected for slot 0
+        if selectedDisks[0] == nil || selectedDisks[0]?.filename.isEmpty == true {
+            selectedDisks[0] = availableDisks.first { !$0.filename.isEmpty }
                 ?? availableDisks.first
         }
 
