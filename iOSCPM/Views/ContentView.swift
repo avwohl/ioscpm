@@ -248,7 +248,7 @@ struct SettingsView: View {
                         .padding(.vertical, 2)
                     }
 
-                    Text("Max disk size: 8MB")
+                    Text("Max disk size: 64MB (hd1k format)")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -266,6 +266,17 @@ struct SettingsView: View {
                     Text("Enter a command to auto-send at boot (e.g., '0' to boot CP/M)")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                }
+
+                // Download Disk Images Section
+                Section(header: Text("Download Disk Images")) {
+                    Text("Download CP/M disk images to use offline. Images are stored in the app's Documents folder.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    ForEach(viewModel.diskCatalog) { disk in
+                        DiskDownloadRow(disk: disk, viewModel: viewModel)
+                    }
                 }
 
                 // Debug Section
@@ -307,18 +318,33 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    Link(destination: URL(string: "https://github.com/avwohl/ioscpm")!) {
+                    Link(destination: URL(string: "https://github.com/wwarthen/RomWBW")!) {
                         HStack {
-                            Text("Source Code")
+                            Text("RomWBW Project")
                             Spacer()
                             Image(systemName: "arrow.up.right.square")
                                 .foregroundColor(.secondary)
                         }
                     }
 
-                    Text("RomWBW CP/M emulator for iOS and macOS")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Link(destination: URL(string: "https://github.com/avwohl/ioscpm")!) {
+                        HStack {
+                            Text("iOS/Mac Source Code")
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("RomWBW CP/M emulator for iOS and macOS")
+                            .font(.caption)
+                        Text("License: MIT")
+                            .font(.caption)
+                        Text("CP/M OS licensed by Lineo for non-commercial use")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.secondary)
                 }
             }
             .navigationTitle("Settings")
@@ -363,6 +389,109 @@ struct EmptyDiskDocument: FileDocument {
         // Create 8MB empty disk filled with 0xE5 (CP/M format)
         let data = Data(repeating: 0xE5, count: 8 * 1024 * 1024)
         return FileWrapper(regularFileWithContents: data)
+    }
+}
+
+// MARK: - Disk Download Row
+
+struct DiskDownloadRow: View {
+    let disk: DownloadableDisk
+    @ObservedObject var viewModel: EmulatorViewModel
+
+    var downloadState: DownloadState {
+        viewModel.downloadStates[disk.filename] ?? .notDownloaded
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(disk.name)
+                        .font(.headline)
+                    Text(disk.description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                    HStack(spacing: 8) {
+                        Text(disk.sizeDescription)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text("•")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text(disk.license)
+                            .font(.caption2)
+                            .foregroundColor(.blue)
+                    }
+                }
+
+                Spacer()
+
+                downloadButton
+            }
+
+            // Progress bar for downloading
+            if case .downloading(let progress) = downloadState {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+            }
+
+            // Error message
+            if case .error(let message) = downloadState {
+                Text(message)
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    var downloadButton: some View {
+        switch downloadState {
+        case .notDownloaded:
+            Button {
+                viewModel.downloadDisk(disk)
+            } label: {
+                Image(systemName: "arrow.down.circle")
+                    .font(.title2)
+            }
+            .buttonStyle(.borderless)
+
+        case .downloading:
+            Button {
+                viewModel.cancelDownload(disk.filename)
+            } label: {
+                Image(systemName: "xmark.circle")
+                    .font(.title2)
+                    .foregroundColor(.orange)
+            }
+            .buttonStyle(.borderless)
+
+        case .downloaded:
+            Menu {
+                Button {
+                    viewModel.deleteDownloadedDisk(disk.filename)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                        .foregroundColor(.red)
+                }
+            } label: {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.green)
+            }
+
+        case .error:
+            Button {
+                viewModel.downloadDisk(disk)
+            } label: {
+                Image(systemName: "arrow.clockwise.circle")
+                    .font(.title2)
+                    .foregroundColor(.red)
+            }
+            .buttonStyle(.borderless)
+        }
     }
 }
 

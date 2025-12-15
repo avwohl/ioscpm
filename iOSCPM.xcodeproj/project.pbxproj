@@ -28,12 +28,11 @@
 		/* Resources */
 		A1000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000030; };
 		A1000031 /* emu_hbios.bin in Resources */ = {isa = PBXBuildFile; fileRef = B1000031; };
-		A1000032 /* hd512_cpm22.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000032; };
-		A1000033 /* hd512_games.img in Resources */ = {isa = PBXBuildFile; fileRef = B1000033; };
 		A1000036 /* SBC_simh_std.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000036; };
 		A1000037 /* emu_romwbw.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000037; };
 		A1000038 /* RCZ80_std.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000038; };
 		A1000039 /* emu_rcz80.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000039; };
+		A1000060 /* emu_avw.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000060; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -75,12 +74,11 @@
 		/* Resources */
 		B1000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B1000031 /* emu_hbios.bin */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_hbios.bin; sourceTree = "<group>"; };
-		B1000032 /* hd512_cpm22.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = hd512_cpm22.img; sourceTree = "<group>"; };
-		B1000033 /* hd512_games.img */ = {isa = PBXFileReference; lastKnownFileType = file; path = hd512_games.img; sourceTree = "<group>"; };
 		B1000036 /* SBC_simh_std.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = SBC_simh_std.rom; sourceTree = "<group>"; };
 		B1000037 /* emu_romwbw.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_romwbw.rom; sourceTree = "<group>"; };
 		B1000038 /* RCZ80_std.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = RCZ80_std.rom; sourceTree = "<group>"; };
 		B1000039 /* emu_rcz80.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_rcz80.rom; sourceTree = "<group>"; };
+		B1000060 /* emu_avw.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_avw.rom; sourceTree = "<group>"; };
 
 		/* Other files */
 		B1000050 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -177,12 +175,11 @@
 			isa = PBXGroup;
 			children = (
 				B1000031 /* emu_hbios.bin */,
+				B1000060 /* emu_avw.rom */,
 				B1000036 /* SBC_simh_std.rom */,
 				B1000037 /* emu_romwbw.rom */,
 				B1000038 /* RCZ80_std.rom */,
 				B1000039 /* emu_rcz80.rom */,
-				B1000032 /* hd512_cpm22.img */,
-				B1000033 /* hd512_games.img */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -248,12 +245,11 @@
 			files = (
 				A1000030 /* Assets.xcassets in Resources */,
 				A1000031 /* emu_hbios.bin in Resources */,
+				A1000060 /* emu_avw.rom in Resources */,
 				A1000036 /* SBC_simh_std.rom in Resources */,
 				A1000037 /* emu_romwbw.rom in Resources */,
 				A1000038 /* RCZ80_std.rom in Resources */,
 				A1000039 /* emu_rcz80.rom in Resources */,
-				A1000032 /* hd512_cpm22.img in Resources */,
-				A1000033 /* hd512_games.img in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

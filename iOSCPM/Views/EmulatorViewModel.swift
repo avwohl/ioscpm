@@ -18,6 +18,34 @@ struct DiskOption: Identifiable, Hashable {
     let id = UUID()
     let name: String
     let filename: String
+    var isDownloaded: Bool = false  // true if available locally
+}
+
+// Downloadable disk image catalog entry
+struct DownloadableDisk: Identifiable, Codable {
+    var id: String { filename }
+    let filename: String
+    let name: String
+    let description: String
+    let url: String
+    let sizeBytes: Int64
+    let license: String  // "MIT", "Free", "User-provided", etc.
+
+    var sizeDescription: String {
+        if sizeBytes >= 1_000_000 {
+            return String(format: "%.1f MB", Double(sizeBytes) / 1_000_000)
+        } else {
+            return String(format: "%.0f KB", Double(sizeBytes) / 1_000)
+        }
+    }
+}
+
+// Download state for a disk
+enum DownloadState: Equatable {
+    case notDownloaded
+    case downloading(progress: Double)
+    case downloaded
+    case error(String)
 }
 
 class EmulatorViewModel: NSObject, ObservableObject {
@@ -33,18 +61,72 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // ROM selection
     @Published var selectedROM: ROMOption?
     let availableROMs: [ROMOption] = [
-        ROMOption(name: "SBC SIMH", filename: "SBC_simh_std.rom"),
+        ROMOption(name: "EMU AVW (Recommended)", filename: "emu_avw.rom"),
         ROMOption(name: "EMU RomWBW", filename: "emu_romwbw.rom"),
-        ROMOption(name: "EMU RCZ80", filename: "emu_rcz80.rom"),
+        ROMOption(name: "SBC SIMH", filename: "SBC_simh_std.rom"),
     ]
 
     // Disk selection for slots 0-3 (OS slots) and data drives
     @Published var selectedDisks: [DiskOption?] = Array(repeating: nil, count: 4)
-    let availableDisks: [DiskOption] = [
+    @Published var availableDisks: [DiskOption] = [
         DiskOption(name: "None", filename: ""),
-        DiskOption(name: "CP/M 2.2 (hd512)", filename: "hd512_cpm22.img"),
-        DiskOption(name: "Games (hd512)", filename: "hd512_games.img"),
     ]
+
+    // Downloadable disk catalog - URLs for disk images users can download
+    let diskCatalog: [DownloadableDisk] = [
+        DownloadableDisk(
+            filename: "hd1k_cpm22.img",
+            name: "CP/M 2.2",
+            description: "Digital Research CP/M 2.2 operating system. The classic 8-bit OS.",
+            url: "https://github.com/wwarthen/RomWBW/raw/dev/Binary/hd1k_cpm22.img",
+            sizeBytes: 8_388_608,
+            license: "Free (Lineo license)"
+        ),
+        DownloadableDisk(
+            filename: "hd1k_zsdos.img",
+            name: "ZSDOS",
+            description: "Z-System DOS - Enhanced CP/M compatible OS with date/time stamping.",
+            url: "https://github.com/wwarthen/RomWBW/raw/dev/Binary/hd1k_zsdos.img",
+            sizeBytes: 8_388_608,
+            license: "Free"
+        ),
+        DownloadableDisk(
+            filename: "hd1k_nzcom.img",
+            name: "NZCOM",
+            description: "ZCPR3 environment with enhanced command processor.",
+            url: "https://github.com/wwarthen/RomWBW/raw/dev/Binary/hd1k_nzcom.img",
+            sizeBytes: 8_388_608,
+            license: "Free"
+        ),
+        DownloadableDisk(
+            filename: "hd1k_cpm3.img",
+            name: "CP/M 3 (Plus)",
+            description: "Digital Research CP/M Plus with banked memory support.",
+            url: "https://github.com/wwarthen/RomWBW/raw/dev/Binary/hd1k_cpm3.img",
+            sizeBytes: 8_388_608,
+            license: "Free"
+        ),
+        DownloadableDisk(
+            filename: "hd1k_zpm3.img",
+            name: "ZPM3",
+            description: "Z-System CP/M 3 - Enhanced CP/M Plus with ZCPR support.",
+            url: "https://github.com/wwarthen/RomWBW/raw/dev/Binary/hd1k_zpm3.img",
+            sizeBytes: 8_388_608,
+            license: "Free"
+        ),
+        DownloadableDisk(
+            filename: "hd1k_ws4.img",
+            name: "WordStar 4",
+            description: "WordStar 4 word processor - the legendary CP/M application.",
+            url: "https://github.com/wwarthen/RomWBW/raw/dev/Binary/hd1k_ws4.img",
+            sizeBytes: 8_388_608,
+            license: "Abandonware"
+        ),
+    ]
+
+    // Download state tracking
+    @Published var downloadStates: [String: DownloadState] = [:]
+    private var downloadTasks: [String: URLSessionDownloadTask] = [:]
 
     // Disk slot labels
     let diskLabels = ["Disk 0 (OS)", "Disk 1 (OS)", "Disk 2 (OS)", "Disk 3 (Data)"]
@@ -71,8 +153,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var showingOpenDisk: Bool = false
     var diskUnitForFileOp: Int = 0
 
-    // Maximum disk size (8MB due to 8-bit OS addressing limits)
-    static let maxDiskSize = 8 * 1024 * 1024  // 8MB
+    // Maximum disk size (64MB for hd1k format with multiple slices)
+    static let maxDiskSize = 64 * 1024 * 1024  // 64MB max
     static let defaultDiskSize = 8 * 1024 * 1024  // 8MB default for new disks
 
     // VDA terminal state (25x80 character cells)
@@ -89,6 +171,20 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // Terminal dimensions
     let terminalRows = 25
     let terminalCols = 80
+
+    // VT100/ANSI escape sequence parser state
+    private enum EscapeState {
+        case normal
+        case escape          // Received ESC
+        case csi             // Received ESC [
+        case csiParam        // Collecting CSI parameters
+    }
+    private var escapeState: EscapeState = .normal
+    private var escapeParams: [Int] = []
+    private var escapeCurrentParam: String = ""
+    private var savedCursorRow: Int = 0
+    private var savedCursorCol: Int = 0
+    private var currentAttr: UInt8 = 0x07  // Default: white on black
 
     override init() {
         super.init()
@@ -137,23 +233,29 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // MARK: - Resource Loading
 
     func loadBundledResources() {
+        // Refresh list of downloaded disks
+        refreshAvailableDisks()
+
         // Set default selections only if not already set
         if selectedROM == nil {
             selectedROM = availableROMs.first
         }
         if selectedDisks[0] == nil {
-            selectedDisks[0] = availableDisks.first { $0.filename == "hd512_cpm22.img" }
-        }
-        if selectedDisks[1] == nil {
-            selectedDisks[1] = availableDisks.first { $0.filename == "hd512_games.img" }
+            // Try to select CP/M 2.2 if downloaded, otherwise None
+            selectedDisks[0] = availableDisks.first { $0.filename == "hd1k_cpm22.img" }
+                ?? availableDisks.first
         }
 
-        statusText = "Ready - Select ROM and disks, then Start"
+        if availableDisks.count <= 1 {
+            statusText = "Download disk images in Settings to get started"
+        } else {
+            statusText = "Ready - Select ROM and disks, then Start"
+        }
     }
 
     func loadSelectedResources() {
         // Load selected ROM
-        let romFile = selectedROM?.filename ?? "SBC_simh_std.rom"
+        let romFile = selectedROM?.filename ?? "emu_avw.rom"
         print("[EmulatorVM] Loading ROM: \(romFile)")
         guard emulator?.loadROM(fromBundle: romFile) == true else {
             print("[EmulatorVM] ERROR: Failed to load ROM: \(romFile)")
@@ -176,8 +278,18 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 }
             }
 
-            // Otherwise load from bundled disk
+            // Check for downloaded disk
             if let disk = selectedDisks[unit], !disk.filename.isEmpty {
+                if disk.isDownloaded {
+                    // Load from downloads directory
+                    if loadDownloadedDisk(unit: unit, filename: disk.filename) {
+                        print("[EmulatorVM] Loaded downloaded disk \(disk.filename) to unit \(unit)")
+                        statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
+                        continue
+                    }
+                }
+
+                // Try loading from bundle as fallback
                 let success = emulator?.loadDisk(Int32(unit), fromBundle: disk.filename) == true
                 print("[EmulatorVM] loadDisk(\(unit), \(disk.filename)) = \(success)")
                 if success {
@@ -390,6 +502,157 @@ class EmulatorViewModel: NSObject, ObservableObject {
         showingError = true
     }
 
+    // MARK: - Disk Download Management
+
+    /// Directory where downloaded disk images are stored
+    var downloadsDirectory: URL {
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let disks = docs.appendingPathComponent("Disks", isDirectory: true)
+        if !fm.fileExists(atPath: disks.path) {
+            try? fm.createDirectory(at: disks, withIntermediateDirectories: true)
+        }
+        return disks
+    }
+
+    /// Check if a disk image is already downloaded
+    func isDiskDownloaded(_ filename: String) -> Bool {
+        let path = downloadsDirectory.appendingPathComponent(filename)
+        return FileManager.default.fileExists(atPath: path.path)
+    }
+
+    /// Get the local path for a downloaded disk
+    func downloadedDiskPath(_ filename: String) -> URL {
+        return downloadsDirectory.appendingPathComponent(filename)
+    }
+
+    /// Refresh the list of available disks (bundled + downloaded)
+    func refreshAvailableDisks() {
+        var disks: [DiskOption] = [DiskOption(name: "None", filename: "")]
+
+        // Add downloaded disks
+        for catalog in diskCatalog {
+            if isDiskDownloaded(catalog.filename) {
+                disks.append(DiskOption(
+                    name: catalog.name,
+                    filename: catalog.filename,
+                    isDownloaded: true
+                ))
+                downloadStates[catalog.filename] = .downloaded
+            } else if downloadStates[catalog.filename] == nil {
+                downloadStates[catalog.filename] = .notDownloaded
+            }
+        }
+
+        // Check for any other .img files in downloads directory
+        if let contents = try? FileManager.default.contentsOfDirectory(
+            at: downloadsDirectory,
+            includingPropertiesForKeys: nil
+        ) {
+            for url in contents where url.pathExtension == "img" {
+                let filename = url.lastPathComponent
+                if !disks.contains(where: { $0.filename == filename }) {
+                    disks.append(DiskOption(
+                        name: filename,
+                        filename: filename,
+                        isDownloaded: true
+                    ))
+                }
+            }
+        }
+
+        availableDisks = disks
+    }
+
+    /// Download a disk image from the catalog
+    func downloadDisk(_ disk: DownloadableDisk) {
+        guard let url = URL(string: disk.url) else {
+            downloadStates[disk.filename] = .error("Invalid URL")
+            return
+        }
+
+        downloadStates[disk.filename] = .downloading(progress: 0)
+
+        let task = URLSession.shared.downloadTask(with: url) { [weak self] tempURL, response, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+
+                if let error = error {
+                    self.downloadStates[disk.filename] = .error(error.localizedDescription)
+                    return
+                }
+
+                guard let tempURL = tempURL else {
+                    self.downloadStates[disk.filename] = .error("Download failed")
+                    return
+                }
+
+                // Move to downloads directory
+                let destURL = self.downloadsDirectory.appendingPathComponent(disk.filename)
+                do {
+                    // Remove existing file if any
+                    try? FileManager.default.removeItem(at: destURL)
+                    try FileManager.default.moveItem(at: tempURL, to: destURL)
+                    self.downloadStates[disk.filename] = .downloaded
+                    self.refreshAvailableDisks()
+                    self.statusText = "Downloaded: \(disk.name)"
+                } catch {
+                    self.downloadStates[disk.filename] = .error(error.localizedDescription)
+                }
+            }
+        }
+
+        // Track progress via observation
+        let observation = task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+            DispatchQueue.main.async {
+                self?.downloadStates[disk.filename] = .downloading(progress: progress.fractionCompleted)
+            }
+        }
+        // Store observation to keep it alive (simplified - in production use proper storage)
+        objc_setAssociatedObject(task, "progressObservation", observation, .OBJC_ASSOCIATION_RETAIN)
+
+        downloadTasks[disk.filename] = task
+        task.resume()
+    }
+
+    /// Cancel a download in progress
+    func cancelDownload(_ filename: String) {
+        downloadTasks[filename]?.cancel()
+        downloadTasks.removeValue(forKey: filename)
+        downloadStates[filename] = .notDownloaded
+    }
+
+    /// Delete a downloaded disk image
+    func deleteDownloadedDisk(_ filename: String) {
+        let path = downloadsDirectory.appendingPathComponent(filename)
+        try? FileManager.default.removeItem(at: path)
+        downloadStates[filename] = .notDownloaded
+        refreshAvailableDisks()
+
+        // Clear selection if this disk was selected
+        for i in 0..<selectedDisks.count {
+            if selectedDisks[i]?.filename == filename {
+                selectedDisks[i] = availableDisks.first
+            }
+        }
+    }
+
+    /// Load a downloaded disk into the emulator
+    func loadDownloadedDisk(unit: Int, filename: String) -> Bool {
+        let path = downloadsDirectory.appendingPathComponent(filename)
+        guard FileManager.default.fileExists(atPath: path.path) else { return false }
+
+        do {
+            let data = try Data(contentsOf: path)
+            if emulator?.loadDisk(Int32(unit), from: data) == true {
+                return true
+            }
+        } catch {
+            showError("Failed to load disk: \(error.localizedDescription)")
+        }
+        return false
+    }
+
     // MARK: - Sound Generation
 
     private func playBeep(durationMs: Int) {
@@ -463,53 +726,277 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
     func emulatorVDAWriteChar(_ ch: unichar) {
         DispatchQueue.main.async {
-            let char = Character(UnicodeScalar(ch) ?? UnicodeScalar(32))
+            self.processCharacter(ch)
+        }
+    }
 
-            // Handle control characters
-            switch ch {
-            case 0x07: // Bell
-                self.playBeep(durationMs: 100)
-                return
+    /// Process a character through the VT100/ANSI escape sequence parser
+    private func processCharacter(_ ch: unichar) {
+        switch escapeState {
+        case .normal:
+            processNormalChar(ch)
 
-            case 0x08: // Backspace
-                if self.cursorCol > 0 {
-                    self.cursorCol -= 1
+        case .escape:
+            processEscapeChar(ch)
+
+        case .csi, .csiParam:
+            processCSIChar(ch)
+        }
+    }
+
+    /// Process character in normal (non-escape) state
+    private func processNormalChar(_ ch: unichar) {
+        switch ch {
+        case 0x07: // Bell
+            playBeep(durationMs: 100)
+
+        case 0x08: // Backspace
+            if cursorCol > 0 {
+                cursorCol -= 1
+            }
+
+        case 0x09: // Tab
+            cursorCol = min((cursorCol + 8) & ~7, terminalCols - 1)
+
+        case 0x0A: // Line feed
+            cursorRow += 1
+            if cursorRow >= terminalRows {
+                scrollUp(1)
+                cursorRow = terminalRows - 1
+            }
+
+        case 0x0D: // Carriage return
+            cursorCol = 0
+
+        case 0x1B: // ESC - start escape sequence
+            escapeState = .escape
+            escapeParams = []
+            escapeCurrentParam = ""
+
+        default:
+            // Printable character
+            if ch >= 0x20 && ch <= 0x7E {
+                let char = Character(UnicodeScalar(ch) ?? UnicodeScalar(32))
+                terminalCells[cursorRow][cursorCol].character = char
+                terminalCells[cursorRow][cursorCol].foreground = currentAttr & 0x0F
+                terminalCells[cursorRow][cursorCol].background = (currentAttr >> 4) & 0x07
+                cursorCol += 1
+                if cursorCol >= terminalCols {
+                    cursorCol = 0
+                    cursorRow += 1
+                    if cursorRow >= terminalRows {
+                        scrollUp(1)
+                        cursorRow = terminalRows - 1
+                    }
                 }
-                return
+            }
+        }
+    }
 
-            case 0x09: // Tab
-                self.cursorCol = min((self.cursorCol + 8) & ~7, self.terminalCols - 1)
-                return
+    /// Process character after ESC received
+    private func processEscapeChar(_ ch: unichar) {
+        switch ch {
+        case 0x5B: // '[' - CSI (Control Sequence Introducer)
+            escapeState = .csi
 
-            case 0x0A: // Line feed
-                self.cursorRow += 1
-                if self.cursorRow >= self.terminalRows {
-                    self.scrollUp(1)
-                    self.cursorRow = self.terminalRows - 1
-                }
-                return
+        case 0x37: // '7' - DECSC (Save Cursor)
+            savedCursorRow = cursorRow
+            savedCursorCol = cursorCol
+            escapeState = .normal
 
-            case 0x0D: // Carriage return
-                self.cursorCol = 0
-                return
+        case 0x38: // '8' - DECRC (Restore Cursor)
+            cursorRow = savedCursorRow
+            cursorCol = savedCursorCol
+            escapeState = .normal
 
+        case 0x44: // 'D' - Index (move cursor down, scroll if needed)
+            cursorRow += 1
+            if cursorRow >= terminalRows {
+                scrollUp(1)
+                cursorRow = terminalRows - 1
+            }
+            escapeState = .normal
+
+        case 0x4D: // 'M' - Reverse Index (move cursor up, scroll if needed)
+            if cursorRow > 0 {
+                cursorRow -= 1
+            }
+            escapeState = .normal
+
+        case 0x45: // 'E' - Next Line
+            cursorCol = 0
+            cursorRow += 1
+            if cursorRow >= terminalRows {
+                scrollUp(1)
+                cursorRow = terminalRows - 1
+            }
+            escapeState = .normal
+
+        default:
+            // Unknown escape sequence, return to normal
+            escapeState = .normal
+        }
+    }
+
+    /// Process character in CSI sequence
+    private func processCSIChar(_ ch: unichar) {
+        // Check if it's a parameter digit or separator
+        if ch >= 0x30 && ch <= 0x39 { // '0'-'9'
+            escapeCurrentParam.append(Character(UnicodeScalar(ch)!))
+            escapeState = .csiParam
+            return
+        }
+
+        if ch == 0x3B { // ';' - parameter separator
+            escapeParams.append(Int(escapeCurrentParam) ?? 0)
+            escapeCurrentParam = ""
+            escapeState = .csiParam
+            return
+        }
+
+        // Final character - execute the sequence
+        if !escapeCurrentParam.isEmpty {
+            escapeParams.append(Int(escapeCurrentParam) ?? 0)
+        }
+
+        executeCSI(ch)
+        escapeState = .normal
+    }
+
+    /// Execute a CSI sequence
+    private func executeCSI(_ finalChar: unichar) {
+        let p1 = escapeParams.count > 0 ? escapeParams[0] : 0
+        let p2 = escapeParams.count > 1 ? escapeParams[1] : 0
+
+        switch finalChar {
+        case 0x41: // 'A' - Cursor Up
+            let n = max(p1, 1)
+            cursorRow = max(cursorRow - n, 0)
+
+        case 0x42: // 'B' - Cursor Down
+            let n = max(p1, 1)
+            cursorRow = min(cursorRow + n, terminalRows - 1)
+
+        case 0x43: // 'C' - Cursor Forward
+            let n = max(p1, 1)
+            cursorCol = min(cursorCol + n, terminalCols - 1)
+
+        case 0x44: // 'D' - Cursor Back
+            let n = max(p1, 1)
+            cursorCol = max(cursorCol - n, 0)
+
+        case 0x48, 0x66: // 'H' or 'f' - Cursor Position
+            let row = max(p1, 1) - 1  // 1-based to 0-based
+            let col = max(p2, 1) - 1
+            cursorRow = min(max(row, 0), terminalRows - 1)
+            cursorCol = min(max(col, 0), terminalCols - 1)
+
+        case 0x4A: // 'J' - Erase in Display
+            switch p1 {
+            case 0: // Clear from cursor to end of screen
+                clearFromCursor()
+            case 1: // Clear from beginning to cursor
+                clearToCursor()
+            case 2: // Clear entire screen
+                clearTerminal()
             default:
                 break
             }
 
-            // Printable character
-            if ch >= 0x20 && ch <= 0x7E {
-                self.terminalCells[self.cursorRow][self.cursorCol].character = char
-                self.cursorCol += 1
-                if self.cursorCol >= self.terminalCols {
-                    self.cursorCol = 0
-                    self.cursorRow += 1
-                    if self.cursorRow >= self.terminalRows {
-                        self.scrollUp(1)
-                        self.cursorRow = self.terminalRows - 1
-                    }
+        case 0x4B: // 'K' - Erase in Line
+            switch p1 {
+            case 0: // Clear from cursor to end of line
+                for col in cursorCol..<terminalCols {
+                    terminalCells[cursorRow][col] = TerminalCell()
+                }
+            case 1: // Clear from beginning to cursor
+                for col in 0...cursorCol {
+                    terminalCells[cursorRow][col] = TerminalCell()
+                }
+            case 2: // Clear entire line
+                for col in 0..<terminalCols {
+                    terminalCells[cursorRow][col] = TerminalCell()
+                }
+            default:
+                break
+            }
+
+        case 0x6D: // 'm' - SGR (Select Graphic Rendition)
+            if escapeParams.isEmpty {
+                // ESC[m = reset
+                currentAttr = 0x07
+            } else {
+                for param in escapeParams {
+                    applySGR(param)
                 }
             }
+
+        case 0x73: // 's' - Save cursor position (SCO)
+            savedCursorRow = cursorRow
+            savedCursorCol = cursorCol
+
+        case 0x75: // 'u' - Restore cursor position (SCO)
+            cursorRow = savedCursorRow
+            cursorCol = savedCursorCol
+
+        case 0x72: // 'r' - Set scrolling region (ignore for now)
+            break
+
+        default:
+            // Unknown CSI sequence, ignore
+            break
+        }
+    }
+
+    /// Apply SGR (Select Graphic Rendition) parameter
+    private func applySGR(_ param: Int) {
+        switch param {
+        case 0: // Reset
+            currentAttr = 0x07
+        case 1: // Bold (use bright colors)
+            currentAttr |= 0x08
+        case 7: // Reverse video
+            let fg = currentAttr & 0x0F
+            let bg = (currentAttr >> 4) & 0x07
+            currentAttr = (fg << 4) | bg
+        case 27: // Reverse off
+            currentAttr = 0x07
+        case 30...37: // Foreground colors
+            let color = UInt8(param - 30)
+            currentAttr = (currentAttr & 0xF0) | color
+        case 40...47: // Background colors
+            let color = UInt8(param - 40)
+            currentAttr = (currentAttr & 0x0F) | (color << 4)
+        default:
+            break
+        }
+    }
+
+    /// Clear from cursor to end of screen
+    private func clearFromCursor() {
+        // Clear rest of current line
+        for col in cursorCol..<terminalCols {
+            terminalCells[cursorRow][col] = TerminalCell()
+        }
+        // Clear remaining lines
+        for row in (cursorRow + 1)..<terminalRows {
+            for col in 0..<terminalCols {
+                terminalCells[row][col] = TerminalCell()
+            }
+        }
+    }
+
+    /// Clear from beginning to cursor
+    private func clearToCursor() {
+        // Clear lines before current
+        for row in 0..<cursorRow {
+            for col in 0..<terminalCols {
+                terminalCells[row][col] = TerminalCell()
+            }
+        }
+        // Clear current line up to cursor
+        for col in 0...cursorCol {
+            terminalCells[cursorRow][col] = TerminalCell()
         }
     }
 

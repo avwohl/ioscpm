@@ -312,16 +312,6 @@ void HBIOSEmulator::runBatch(int count) {
 
 uint8_t HBIOSEmulator::handle_in(uint8_t port) {
   switch (port) {
-    case 0x68:  // UART data
-      if (emu_console_has_input()) {
-        return emu_console_read_char() & 0xFF;
-      }
-      return 0;
-
-    case 0x6D:  // UART status (SSER)
-      // Bit 0: RX ready, Bit 5: TX empty
-      return (emu_console_has_input() ? 0x01 : 0x00) | 0x20;
-
     case 0x78:  // Bank register
     case 0x7C:
       return memory.get_current_bank();
@@ -336,10 +326,6 @@ uint8_t HBIOSEmulator::handle_in(uint8_t port) {
 
 void HBIOSEmulator::handle_out(uint8_t port, uint8_t value) {
   switch (port) {
-    case 0x68:  // UART data
-      emu_console_write_char(value);
-      break;
-
     case 0x78:  // RAM bank
     case 0x7C:  // ROM bank
       memory.select_bank(value);
