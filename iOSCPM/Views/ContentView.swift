@@ -12,6 +12,7 @@ struct ContentView: View {
     @StateObject private var viewModel = EmulatorViewModel()
     @AppStorage("terminalFontSize") private var fontSize: Double = 20
     @State private var showingSettings = false
+    @State private var showingAbout = false
 
     var body: some View {
         NavigationView {
@@ -129,6 +130,14 @@ struct ContentView: View {
                         Button("Export Disk 1...") {
                             viewModel.saveDisk(1)
                         }
+
+                        Divider()
+
+                        Button {
+                            showingAbout = true
+                        } label: {
+                            Label("About", systemImage: "info.circle")
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -159,10 +168,81 @@ struct ContentView: View {
                     dismissButton: .default(Text("OK"))
                 )
             }
+            .sheet(isPresented: $showingAbout) {
+                AboutView()
+            }
         }
         .navigationViewStyle(.stack)  // Force single column on Mac
         .onAppear {
             viewModel.loadBundledResources()
+        }
+    }
+}
+
+// MARK: - About View
+
+struct AboutView: View {
+    @Environment(\.presentationMode) private var presentationMode
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: 60))
+                    .foregroundColor(.blue)
+
+                Text("RomWBW CP/M")
+                    .font(.title)
+                    .fontWeight(.bold)
+
+                Text("Version \(appVersion)")
+                    .foregroundColor(.secondary)
+
+                Text("Z80/CP/M emulator for iOS and macOS")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Divider()
+                    .padding(.horizontal, 40)
+
+                VStack(spacing: 12) {
+                    Link(destination: URL(string: "https://github.com/wwarthen/RomWBW")!) {
+                        HStack {
+                            Image(systemName: "link")
+                            Text("RomWBW Project")
+                        }
+                    }
+
+                    Link(destination: URL(string: "https://github.com/avwohl/ioscpm")!) {
+                        HStack {
+                            Image(systemName: "link")
+                            Text("iOS/Mac Source Code")
+                        }
+                    }
+                }
+
+                Spacer()
+
+                VStack(spacing: 4) {
+                    Text("License: MIT")
+                        .font(.caption)
+                    Text("CP/M OS licensed by Lineo for non-commercial use")
+                        .font(.caption)
+                }
+                .foregroundColor(.secondary)
+                .padding(.bottom, 20)
+            }
+            .padding()
+            .navigationTitle("About")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
         }
     }
 }
