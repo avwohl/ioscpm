@@ -94,6 +94,14 @@ struct ContentView: View {
                     }
 
                     Menu {
+                        Button {
+                            viewModel.saveAllDisks()
+                        } label: {
+                            Label("Save All Disks", systemImage: "square.and.arrow.down")
+                        }
+
+                        Divider()
+
                         ForEach([14, 16, 18, 20, 24, 28], id: \.self) { size in
                             Button {
                                 fontSize = Double(size)
@@ -115,10 +123,10 @@ struct ContentView: View {
                         Button("Load Disk 1...") {
                             viewModel.loadDisk(1)
                         }
-                        Button("Save Disk 0...") {
+                        Button("Export Disk 0...") {
                             viewModel.saveDisk(0)
                         }
-                        Button("Save Disk 1...") {
+                        Button("Export Disk 1...") {
                             viewModel.saveDisk(1)
                         }
                     } label: {

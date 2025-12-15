@@ -442,6 +442,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
         statusText = "Stopped - disk changes saved"
     }
 
+    /// Public method to save all disk images (called from UI menu)
+    func saveAllDisks() {
+        saveDownloadedDisks()
+        statusText = "All disks saved"
+    }
+
     /// Save downloaded disk images back to Documents/Disks
     private func saveDownloadedDisks() {
         for unit in 0..<4 {
