@@ -1,0 +1,75 @@
+App Store Listing for RomWBW CP/M
+==================================
+
+PROMOTIONAL TEXT (max 170 characters)
+-------------------------------------
+Run classic CP/M software on your iPhone, iPad, or Mac. Experience WordStar, Zork, Turbo Pascal, and more with authentic Z80 emulation.
+
+
+DESCRIPTION (max 4000 characters)
+---------------------------------
+RomWBW CP/M brings the classic CP/M operating system to your iPhone, iPad, and Mac with a full Z80 processor emulator.
+
+FEATURES
+
+• Full Z80 Emulation - Accurate instruction emulation runs authentic CP/M software
+• VT100 Terminal - ANSI escape sequence support for text adventures and productivity apps
+• Multiple Disk Support - Mount up to 4 disk images simultaneously
+• Download Disk Images - Fetch CP/M disk images directly from the RomWBW project
+• Works Offline - Downloaded disk images are stored locally
+• Native Mac Support - Runs natively on macOS via Mac Catalyst
+
+CLASSIC SOFTWARE
+
+Run the software that defined personal computing:
+• Operating Systems: CP/M 2.2, CP/M 3, ZSDOS, NZCOM, ZPM3
+• Word Processing: WordStar
+• Programming: Turbo Pascal, Microsoft BASIC
+• Text Adventures: Zork, Adventure, Hitchhiker's Guide to the Galaxy
+• Databases: dBASE II
+• And thousands more CP/M programs
+
+GETTING STARTED
+
+1. Open Settings and download a disk image (CP/M 2.2 recommended)
+2. Select the disk image for Unit 0
+3. Press Play to start the emulator
+4. Press 0 at the boot menu to boot from disk
+
+BUILT ON ROMWBW
+
+This emulator is built on the RomWBW HBIOS platform, the same firmware used by real retro Z80 hardware projects. Disk images are downloaded from the official RomWBW project and include freely distributable CP/M software.
+
+TECHNICAL DETAILS
+
+• 80x25 character terminal display
+• hd1k disk format (8MB per slice, 64MB per disk)
+• Hardware keyboard support
+• Portrait and landscape orientation
+
+Perfect for retrocomputing enthusiasts, computer history education, or anyone who wants to experience the operating system that launched the personal computer revolution.
+
+
+KEYWORDS (max 100 characters)
+-----------------------------
+cpm,cp/m,z80,emulator,retro,vintage,terminal,8-bit,zork,wordstar,retrocomputing,romwbw
+
+
+SUBTITLE (max 30 characters)
+----------------------------
+Classic Z80 Emulator
+
+
+CATEGORY
+--------
+Utilities
+
+
+SUPPORT URL
+-----------
+https://github.com/avwohl/ioscpm
+
+
+COPYRIGHT
+---------
+2025 Andrew Wohl
