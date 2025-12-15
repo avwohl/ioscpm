@@ -434,15 +434,42 @@ class EmulatorViewModel: NSObject, ObservableObject {
     }
 
     func stop() {
+        // Auto-save any modified downloaded disks
+        saveDownloadedDisks()
+
         emulator?.stop()
         isRunning = false
+        statusText = "Stopped - disk changes saved"
+    }
+
+    /// Save downloaded disk images back to Documents/Disks
+    private func saveDownloadedDisks() {
+        for unit in 0..<4 {
+            guard let disk = selectedDisks[unit],
+                  disk.isDownloaded,
+                  !disk.filename.isEmpty else { continue }
+
+            guard let data = emulator?.getDiskData(Int32(unit)),
+                  data.count > 0 else { continue }
+
+            let path = downloadsDirectory.appendingPathComponent(disk.filename)
+            do {
+                try data.write(to: path)
+                print("[EmulatorVM] Saved disk \(unit) to \(disk.filename)")
+            } catch {
+                print("[EmulatorVM] Failed to save disk \(unit): \(error)")
+            }
+        }
     }
 
     func reset() {
+        // Save disks before reset
+        saveDownloadedDisks()
+
         emulator?.reset()
         clearTerminal()
         isRunning = false
-        statusText = "Reset - Press Play to start"
+        statusText = "Reset - disk changes saved"
     }
 
     func sendKey(_ char: Character) {
