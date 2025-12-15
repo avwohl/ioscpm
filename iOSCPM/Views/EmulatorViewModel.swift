@@ -73,36 +73,39 @@ class EmulatorViewModel: NSObject, ObservableObject {
     ]
 
     // Downloadable disk catalog - URLs for disk images users can download
+    // Hosted on GitHub releases: https://github.com/avwohl/ioscpm/releases
+    private static let releaseURL = "https://github.com/avwohl/ioscpm/releases/download/v1.0"
+
     let diskCatalog: [DownloadableDisk] = [
+        DownloadableDisk(
+            filename: "hd1k_combo.img",
+            name: "Combo (Recommended)",
+            description: "49MB multi-slice disk with CP/M 2.2, games, and utilities. Best starter disk.",
+            url: "\(releaseURL)/hd1k_combo.img",
+            sizeBytes: 51_380_224,
+            license: "Mixed"
+        ),
+        DownloadableDisk(
+            filename: "hd1k_infocom.img",
+            name: "Infocom Games",
+            description: "Zork 1-3, Hitchhiker's Guide to the Galaxy, Enchanter trilogy, and more.",
+            url: "\(releaseURL)/hd1k_infocom.img",
+            sizeBytes: 8_388_608,
+            license: "Zork: MIT"
+        ),
         DownloadableDisk(
             filename: "hd1k_cpm22.img",
             name: "CP/M 2.2",
             description: "Digital Research CP/M 2.2 operating system. The classic 8-bit OS.",
-            url: "https://github.com/wwarthen/RomWBW/raw/dev/Binary/hd1k_cpm22.img",
+            url: "\(releaseURL)/hd1k_cpm22.img",
             sizeBytes: 8_388_608,
-            license: "Free (Lineo license)"
+            license: "Free (Lineo)"
         ),
         DownloadableDisk(
             filename: "hd1k_zsdos.img",
             name: "ZSDOS",
             description: "Z-System DOS - Enhanced CP/M compatible OS with date/time stamping.",
-            url: "https://github.com/wwarthen/RomWBW/raw/dev/Binary/hd1k_zsdos.img",
-            sizeBytes: 8_388_608,
-            license: "Free"
-        ),
-        DownloadableDisk(
-            filename: "hd1k_nzcom.img",
-            name: "NZCOM",
-            description: "ZCPR3 environment with enhanced command processor.",
-            url: "https://github.com/wwarthen/RomWBW/raw/dev/Binary/hd1k_nzcom.img",
-            sizeBytes: 8_388_608,
-            license: "Free"
-        ),
-        DownloadableDisk(
-            filename: "hd1k_cpm3.img",
-            name: "CP/M 3 (Plus)",
-            description: "Digital Research CP/M Plus with banked memory support.",
-            url: "https://github.com/wwarthen/RomWBW/raw/dev/Binary/hd1k_cpm3.img",
+            url: "\(releaseURL)/hd1k_zsdos.img",
             sizeBytes: 8_388_608,
             license: "Free"
         ),
@@ -110,17 +113,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
             filename: "hd1k_zpm3.img",
             name: "ZPM3",
             description: "Z-System CP/M 3 - Enhanced CP/M Plus with ZCPR support.",
-            url: "https://github.com/wwarthen/RomWBW/raw/dev/Binary/hd1k_zpm3.img",
+            url: "\(releaseURL)/hd1k_zpm3.img",
             sizeBytes: 8_388_608,
             license: "Free"
-        ),
-        DownloadableDisk(
-            filename: "hd1k_ws4.img",
-            name: "WordStar 4",
-            description: "WordStar 4 word processor - the legendary CP/M application.",
-            url: "https://github.com/wwarthen/RomWBW/raw/dev/Binary/hd1k_ws4.img",
-            sizeBytes: 8_388_608,
-            license: "Abandonware"
         ),
     ]
 
