@@ -275,6 +275,18 @@ struct SettingsView: View {
     var body: some View {
         NavigationView {
             Form {
+                // Scroll hint
+                Section {
+                    HStack {
+                        Spacer()
+                        Text("↓ Scroll for more options")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                }
+                .listRowBackground(Color.clear)
+
                 // ROM Section
                 Section(header: Text("ROM Image")) {
                     Picker("ROM", selection: $viewModel.selectedROM) {
