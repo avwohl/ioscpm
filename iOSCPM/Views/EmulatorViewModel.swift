@@ -201,13 +201,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // MARK: - Resource Loading
 
     func loadBundledResources() {
-        // Fetch disk catalog from remote XML
-        fetchDiskCatalog()
-
-        // Refresh list of downloaded disks
-        refreshAvailableDisks()
-
-        // Restore saved ROM selection
+        // Restore saved ROM selection (sync - ROMs are bundled)
         if let savedROM = UserDefaults.standard.string(forKey: "selectedROM") {
             selectedROM = availableROMs.first { $0.filename == savedROM }
         }
@@ -215,7 +209,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
             selectedROM = availableROMs.first
         }
 
-        // Restore saved disk selections
+        // Fetch disk catalog from remote XML (async - will call restoreDiskSelections when done)
+        fetchDiskCatalog()
+    }
+
+    /// Restore saved disk selections from UserDefaults
+    private func restoreDiskSelections() {
         if let savedDisks = UserDefaults.standard.stringArray(forKey: "selectedDisks") {
             for (index, filename) in savedDisks.enumerated() where index < 4 {
                 if !filename.isEmpty {
@@ -543,6 +542,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
                         self.diskCatalog = disks
                         self.saveCatalogToCache(data)
                         self.refreshAvailableDisks()
+                        self.restoreDiskSelections()
                         return
                     }
                 }
@@ -555,12 +555,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// Load catalog from local cache
     private func loadCachedCatalog() {
+        catalogLoading = false
         let cacheURL = downloadsDirectory.appendingPathComponent("disks_catalog.xml")
         if let data = try? Data(contentsOf: cacheURL) {
             let disks = parseDiskCatalogXML(data)
             if !disks.isEmpty {
                 diskCatalog = disks
                 refreshAvailableDisks()
+                restoreDiskSelections()
                 return
             }
         }
