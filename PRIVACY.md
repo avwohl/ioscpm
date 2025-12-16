@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**RomWBW CP/M** is an open source CP/M emulator for iOS and macOS.
+**Z80CPM** is an open source CP/M emulator for iOS and macOS.
 
 ## Data Collection
 

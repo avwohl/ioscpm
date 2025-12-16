@@ -1,5 +1,5 @@
-App Store Listing for RomWBW CP/M
-==================================
+App Store Listing for Z80CPM
+============================
 
 PROMOTIONAL TEXT (max 170 characters)
 -------------------------------------
@@ -8,7 +8,7 @@ Run classic CP/M software on your iPhone, iPad, or Mac. Experience WordStar, Zor
 
 DESCRIPTION (max 4000 characters)
 ---------------------------------
-RomWBW CP/M brings the classic CP/M operating system to your iPhone, iPad, and Mac with a full Z80 processor emulator.
+Z80CPM brings the classic CP/M operating system to your iPhone, iPad, and Mac with a full Z80 processor emulator.
 
 FEATURES
 

@@ -8,6 +8,13 @@
         <license>Mixed</license>
     </disk>
     <disk>
+        <filename>hd1k_utils.img</filename>
+        <name>Host Utils (R8/W8)</name>
+        <description>R8.COM and W8.COM utilities for transferring files between CP/M and the host OS.</description>
+        <size>8388608</size>
+        <license>Free</license>
+    </disk>
+    <disk>
         <filename>hd1k_cpm22.img</filename>
         <name>CP/M 2.2</name>
         <description>Digital Research CP/M 2.2 operating system. The classic 8-bit OS.</description>

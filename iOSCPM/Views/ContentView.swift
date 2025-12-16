@@ -64,7 +64,7 @@ struct ContentView: View {
                 .padding(.vertical, 4)
                 .background(Color(.systemGray6))
             }
-            .navigationTitle("RomWBW v\(appVersion)")
+            .navigationTitle("Z80CPM v\(appVersion)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -191,7 +191,7 @@ struct AboutView: View {
                     .font(.system(size: 60))
                     .foregroundColor(.blue)
 
-                Text("RomWBW CP/M")
+                Text("Z80CPM")
                     .font(.title)
                     .fontWeight(.bold)
 
@@ -459,7 +459,9 @@ struct SettingsView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("RomWBW CP/M emulator for iOS and macOS")
+                        Text("Z80CPM - a CP/M emulator for iOS and macOS")
+                            .font(.caption)
+                        Text("Built on the RomWBW HBIOS platform")
                             .font(.caption)
                         Text("License: MIT")
                             .font(.caption)
