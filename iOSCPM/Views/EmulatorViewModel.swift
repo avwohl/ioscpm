@@ -586,9 +586,15 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
     }
 
-    /// Download a disk image with completion callback
+    /// Download a disk image with completion callback (with automatic retry)
     private func downloadDiskWithCompletion(_ disk: DownloadableDisk, completion: @escaping (Bool) -> Void) {
-        debugPrint("[Download] Starting download of '\(disk.filename)' from \(disk.url)")
+        downloadDiskWithRetry(disk, attemptsRemaining: 3, completion: completion)
+    }
+
+    /// Internal download with retry logic
+    private func downloadDiskWithRetry(_ disk: DownloadableDisk, attemptsRemaining: Int, completion: @escaping (Bool) -> Void) {
+        let attempt = 4 - attemptsRemaining
+        debugPrint("[Download] Starting download of '\(disk.filename)' (attempt \(attempt)/3) from \(disk.url)")
 
         guard let url = URL(string: disk.url) else {
             debugPrint("[Download] ERROR: Invalid URL: \(disk.url)")
@@ -609,8 +615,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
                     self.debugPrint("[Download] HTTP status: \(httpResponse.statusCode)")
                 }
 
+                // Check for errors - retry if attempts remaining
                 if let error = error {
                     self.debugPrint("[Download] ERROR: \(error.localizedDescription)")
+                    if attemptsRemaining > 1 {
+                        self.debugPrint("[Download] Retrying in 1 second... (\(attemptsRemaining - 1) attempts left)")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            self.downloadDiskWithRetry(disk, attemptsRemaining: attemptsRemaining - 1, completion: completion)
+                        }
+                        return
+                    }
                     self.downloadStates[disk.filename] = .error(error.localizedDescription)
                     completion(false)
                     return
@@ -618,6 +632,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
                 if tempURL == nil {
                     self.debugPrint("[Download] ERROR: No temp file received")
+                    if attemptsRemaining > 1 {
+                        self.debugPrint("[Download] Retrying in 1 second... (\(attemptsRemaining - 1) attempts left)")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            self.downloadDiskWithRetry(disk, attemptsRemaining: attemptsRemaining - 1, completion: completion)
+                        }
+                        return
+                    }
                     self.downloadStates[disk.filename] = .error("Download failed - no data")
                     completion(false)
                     return
@@ -964,8 +985,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
         availableDisks = disks
     }
 
-    /// Download a disk image from the catalog
+    /// Download a disk image from the catalog (with automatic retry)
     func downloadDisk(_ disk: DownloadableDisk) {
+        downloadDiskFromSettings(disk, attemptsRemaining: 3)
+    }
+
+    /// Internal settings download with retry logic
+    private func downloadDiskFromSettings(_ disk: DownloadableDisk, attemptsRemaining: Int) {
+        let attempt = 4 - attemptsRemaining
+        debugPrint("[Settings Download] '\(disk.filename)' attempt \(attempt)/3")
+
         guard let url = URL(string: disk.url) else {
             downloadStates[disk.filename] = .error("Invalid URL")
             return
@@ -978,11 +1007,27 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 guard let self = self else { return }
 
                 if let error = error {
+                    self.debugPrint("[Settings Download] ERROR: \(error.localizedDescription)")
+                    if attemptsRemaining > 1 {
+                        self.debugPrint("[Settings Download] Retrying in 1 second...")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1)
+                        }
+                        return
+                    }
                     self.downloadStates[disk.filename] = .error(error.localizedDescription)
                     return
                 }
 
                 guard let tempURL = tempURL else {
+                    self.debugPrint("[Settings Download] ERROR: No temp file")
+                    if attemptsRemaining > 1 {
+                        self.debugPrint("[Settings Download] Retrying in 1 second...")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1)
+                        }
+                        return
+                    }
                     self.downloadStates[disk.filename] = .error("Download failed")
                     return
                 }
