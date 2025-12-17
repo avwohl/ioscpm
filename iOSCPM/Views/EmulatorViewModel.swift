@@ -171,9 +171,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private var escapeState: EscapeState = .normal
     private var escapeParams: [Int] = []
     private var escapeCurrentParam: String = ""
+    private var escapePrivateMode: Bool = false  // True if '?' prefix (DEC private mode)
     private var savedCursorRow: Int = 0
     private var savedCursorCol: Int = 0
     private var currentAttr: UInt8 = 0x07  // Default: white on black
+    private var scrollTop: Int = 0         // Top of scrolling region (0-based)
+    private var scrollBottom: Int = 24     // Bottom of scrolling region (0-based, inclusive)
 
     override init() {
         super.init()
@@ -718,6 +721,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
         cursorRow = 0
         cursorCol = 0
+        scrollTop = 0
+        scrollBottom = terminalRows - 1
     }
 
     // MARK: - Disk Management
@@ -1108,12 +1113,20 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         case 0x09: // Tab
             cursorCol = min((cursorCol + 8) & ~7, terminalCols - 1)
 
-        case 0x0A: // Line feed
-            cursorRow += 1
-            if cursorRow >= terminalRows {
-                scrollUp(1)
-                cursorRow = terminalRows - 1
+        case 0x0A: // Line feed (with implicit CR for compatibility)
+            cursorCol = 0  // Reset column for Unix-style LF-only files
+            if cursorRow < scrollTop {
+                // Above scrolling region - just move down
+                cursorRow += 1
+            } else if cursorRow < scrollBottom {
+                // Within scrolling region but not at bottom - move down
+                cursorRow += 1
+            } else if cursorRow == scrollBottom {
+                // At bottom of scrolling region - scroll the region
+                scrollRegion(scrollTop, scrollBottom, 1)
+                // cursorRow stays at scrollBottom
             }
+            // If cursorRow > scrollBottom (below region), do nothing
 
         case 0x0D: // Carriage return
             cursorCol = 0
@@ -1122,6 +1135,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             escapeState = .escape
             escapeParams = []
             escapeCurrentParam = ""
+            escapePrivateMode = false
 
         default:
             // Printable character
@@ -1183,13 +1197,31 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             escapeState = .normal
 
         default:
-            // Unknown escape sequence, return to normal
+            // Unknown escape sequence - return to normal
             escapeState = .normal
+            // Only process control characters, discard unknown printable chars
+            if ch < 0x20 {
+                processNormalChar(ch)
+            }
         }
     }
 
     /// Process character in CSI sequence
     private func processCSIChar(_ ch: unichar) {
+        // Control characters abort the sequence and are processed normally
+        if ch < 0x20 {
+            escapeState = .normal
+            processNormalChar(ch)
+            return
+        }
+
+        // Check for '?' prefix (DEC private mode)
+        if ch == 0x3F { // '?'
+            escapePrivateMode = true
+            escapeState = .csiParam
+            return
+        }
+
         // Check if it's a parameter digit or separator
         if ch >= 0x30 && ch <= 0x39 { // '0'-'9'
             escapeCurrentParam.append(Character(UnicodeScalar(ch)!))
@@ -1271,6 +1303,40 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
                 break
             }
 
+        case 0x4D: // 'M' - DL (Delete Line) - delete lines at cursor, scroll up
+            let n = max(p1, 1)
+            // Delete n lines starting at cursor row, scroll remaining lines up
+            let startRow = cursorRow
+            let endRow = scrollBottom  // Use scrolling region bottom, or terminalRows-1 if no region
+            if startRow <= endRow {
+                for row in startRow..<(endRow - n + 1) {
+                    if row + n <= endRow {
+                        terminalCells[row] = terminalCells[row + n]
+                    }
+                }
+                // Clear the bottom n lines
+                for row in max(endRow - n + 1, startRow)...endRow {
+                    terminalCells[row] = Array(repeating: TerminalCell(), count: terminalCols)
+                }
+            }
+
+        case 0x4C: // 'L' - IL (Insert Line) - insert lines at cursor, scroll down
+            let n = max(p1, 1)
+            // Insert n blank lines at cursor row, scroll remaining lines down
+            let startRow = cursorRow
+            let endRow = scrollBottom
+            if startRow <= endRow {
+                for row in stride(from: endRow, through: startRow + n, by: -1) {
+                    if row - n >= startRow {
+                        terminalCells[row] = terminalCells[row - n]
+                    }
+                }
+                // Clear the top n lines (at cursor position)
+                for row in startRow..<min(startRow + n, endRow + 1) {
+                    terminalCells[row] = Array(repeating: TerminalCell(), count: terminalCols)
+                }
+            }
+
         case 0x6D: // 'm' - SGR (Select Graphic Rendition)
             if escapeParams.isEmpty {
                 // ESC[m = reset
@@ -1289,7 +1355,31 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             cursorRow = savedCursorRow
             cursorCol = savedCursorCol
 
-        case 0x72: // 'r' - Set scrolling region (ignore for now)
+        case 0x72: // 'r' - Set scrolling region (DECSTBM)
+            // ESC[top;bottomr - set scrolling region (1-based)
+            // ESC[r - reset to full screen
+            let top = (escapeParams.count > 0 && escapeParams[0] > 0) ? escapeParams[0] - 1 : 0
+            let bottom = (escapeParams.count > 1 && escapeParams[1] > 0) ? escapeParams[1] - 1 : terminalRows - 1
+            if top < bottom && bottom < terminalRows {
+                scrollTop = top
+                scrollBottom = bottom
+                // Cursor moves to home position after setting region
+                cursorRow = 0
+                cursorCol = 0
+            }
+
+        case 0x68: // 'h' - Set Mode
+            if escapePrivateMode {
+                // DEC Private Mode Set (e.g., ESC[?7h = enable line wrap)
+                // We acknowledge these but don't change behavior
+            }
+            break
+
+        case 0x6C: // 'l' - Reset Mode
+            if escapePrivateMode {
+                // DEC Private Mode Reset (e.g., ESC[?7l = disable line wrap)
+                // We acknowledge these but don't change behavior
+            }
             break
 
         default:
@@ -1369,6 +1459,19 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             terminalCells[row] = terminalCells[row + lines]
         }
         for row in (terminalRows - lines)..<terminalRows {
+            terminalCells[row] = Array(repeating: TerminalCell(), count: terminalCols)
+        }
+    }
+
+    private func scrollRegion(_ top: Int, _ bottom: Int, _ lines: Int) {
+        guard lines > 0 && top >= 0 && bottom < terminalRows && top < bottom else { return }
+
+        // Scroll lines within the region [top, bottom]
+        for row in top..<(bottom - lines + 1) {
+            terminalCells[row] = terminalCells[row + lines]
+        }
+        // Clear the bottom lines of the region
+        for row in (bottom - lines + 1)...bottom {
             terminalCells[row] = Array(repeating: TerminalCell(), count: terminalCols)
         }
     }
