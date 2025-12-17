@@ -166,6 +166,10 @@ bool HBIOSEmulator::isDiskLoaded(int unit) const {
   return hbios.isDiskLoaded(unit);
 }
 
+void HBIOSEmulator::closeAllDisks() {
+  hbios.closeAllDisks();
+}
+
 //=============================================================================
 // Input Queue
 //=============================================================================

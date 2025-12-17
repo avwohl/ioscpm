@@ -29,6 +29,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Input request
 - (void)emulatorDidRequestInput;
+
+// Host file transfer (R8/W8 utilities)
+- (void)emulatorHostFileRequestRead:(NSString*)suggestedFilename;
+- (void)emulatorHostFileDownload:(NSString*)filename data:(NSData*)data;
 @end
 
 @interface RomWBWEmulator : NSObject
@@ -52,6 +56,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable NSData*)getDiskData:(int)unit;
 - (BOOL)saveDisk:(int)unit toPath:(NSString*)path;
 - (BOOL)isDiskLoaded:(int)unit;
+- (void)closeAllDisks;  // Close all disks before reconfiguring
 
 // Boot string (auto-type at boot menu)
 - (void)setBootString:(NSString*)bootString;

@@ -33,6 +33,7 @@ public:
   // Disk management
   bool loadDisk(int unit, const uint8_t* data, size_t size);
   bool loadDiskFromFile(int unit, const std::string& path);
+  void closeAllDisks();  // Close all disks before reconfiguring
   const uint8_t* getDiskData(int unit) const;
   size_t getDiskSize(int unit) const;
   bool isDiskLoaded(int unit) const;

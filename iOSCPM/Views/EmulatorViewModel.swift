@@ -14,11 +14,21 @@ struct ROMOption: Identifiable, Hashable {
 }
 
 // Disk option with name and filename
-struct DiskOption: Identifiable, Hashable {
-    let id = UUID()
+struct DiskOption: Identifiable, Hashable, Equatable {
+    var id: String { filename.isEmpty ? "_none_" : filename }  // Use filename as stable ID
     let name: String
     let filename: String
     var isDownloaded: Bool = false  // true if available locally
+
+    // Equatable based on filename (the unique identifier)
+    static func == (lhs: DiskOption, rhs: DiskOption) -> Bool {
+        lhs.filename == rhs.filename
+    }
+
+    // Hashable based on filename
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(filename)
+    }
 }
 
 // Downloadable disk image catalog entry
@@ -57,6 +67,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var showingDiskExporter: Bool = false
     @Published var showingError: Bool = false
     @Published var errorMessage: String = ""
+
+    // Host file transfer (R8/W8 utilities)
+    @Published var showingHostFileImporter: Bool = false
+    @Published var showingHostFileExporter: Bool = false
+    @Published var hostFileExportData: Data?
+    @Published var hostFileExportFilename: String = "download.bin"
 
     // ROM selection
     @Published var selectedROM: ROMOption? {
@@ -213,40 +229,71 @@ class EmulatorViewModel: NSObject, ObservableObject {
         fetchDiskCatalog()
     }
 
-    /// Restore saved disk selections from UserDefaults
+    /// Restore saved disk selections from UserDefaults, or set defaults
     private func restoreDiskSelections() {
-        if let savedDisks = UserDefaults.standard.stringArray(forKey: "selectedDisks") {
-            for (index, filename) in savedDisks.enumerated() where index < 4 {
-                if !filename.isEmpty {
-                    selectedDisks[index] = availableDisks.first { $0.filename == filename }
-                }
-            }
+        // Check if user has saved selections
+        let hasSavedSelections = UserDefaults.standard.stringArray(forKey: "selectedDisks") != nil
+        print("[RestoreDisks] hasSavedSelections=\(hasSavedSelections)")
+        print("[RestoreDisks] availableDisks has \(availableDisks.count) entries:")
+        for disk in availableDisks {
+            print("[RestoreDisks]   - '\(disk.filename)' isDownloaded=\(disk.isDownloaded)")
         }
 
-        // Default to first available disk if nothing selected for slot 0
+        if hasSavedSelections {
+            if let savedDisks = UserDefaults.standard.stringArray(forKey: "selectedDisks") {
+                print("[RestoreDisks] Saved filenames: \(savedDisks)")
+                for (index, filename) in savedDisks.enumerated() where index < 4 {
+                    if !filename.isEmpty {
+                        let found = availableDisks.first { $0.filename == filename }
+                        print("[RestoreDisks] Disk \(index): '\(filename)' -> \(found != nil ? "found, isDownloaded=\(found!.isDownloaded)" : "NOT FOUND")")
+                        selectedDisks[index] = found
+                    }
+                }
+            }
+        } else {
+            // First launch defaults: Combo for disk 0, Infocom for disk 1
+            print("[RestoreDisks] First launch - setting defaults")
+            selectedDisks[0] = availableDisks.first { $0.filename == "hd1k_combo.img" }
+            selectedDisks[1] = availableDisks.first { $0.filename == "hd1k_infocom.img" }
+        }
+
+        // Ensure disk 0 has something selected
         if selectedDisks[0] == nil || selectedDisks[0]?.filename.isEmpty == true {
-            selectedDisks[0] = availableDisks.first { !$0.filename.isEmpty }
+            selectedDisks[0] = availableDisks.first { $0.filename == "hd1k_combo.img" }
+                ?? availableDisks.first { !$0.filename.isEmpty }
                 ?? availableDisks.first
         }
 
-        if availableDisks.count <= 1 {
-            statusText = "Download disk images in Settings to get started"
-        } else {
-            statusText = "Ready - Select ROM and disks, then Start"
+        print("[RestoreDisks] Final selections:")
+        for (i, disk) in selectedDisks.enumerated() {
+            if let d = disk {
+                print("[RestoreDisks]   Disk \(i): '\(d.filename)' isDownloaded=\(d.isDownloaded)")
+            } else {
+                print("[RestoreDisks]   Disk \(i): nil")
+            }
         }
+
+        statusText = "Ready - Press Play to start"
     }
 
     func loadSelectedResources() {
+        // Close all existing disks before loading new configuration
+        // This prevents old disks from persisting when user reduces disk count
+        emulator?.closeAllDisks()
+
         // Load selected ROM
         let romFile = selectedROM?.filename ?? "emu_avw.rom"
         print("[EmulatorVM] Loading ROM: \(romFile)")
         guard emulator?.loadROM(fromBundle: romFile) == true else {
             print("[EmulatorVM] ERROR: Failed to load ROM: \(romFile)")
+            showError("Failed to load ROM: \(romFile)")
             statusText = "Error: \(romFile) not found"
             return
         }
         print("[EmulatorVM] ROM loaded successfully: \(romFile)")
         statusText = "ROM loaded: \(selectedROM?.name ?? romFile)"
+
+        var diskLoadErrors: [String] = []
 
         // Load selected disks
         for unit in 0..<selectedDisks.count {
@@ -261,26 +308,41 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 }
             }
 
-            // Check for downloaded disk
+            // Check for selected disk
             if let disk = selectedDisks[unit], !disk.filename.isEmpty {
-                if disk.isDownloaded {
+                // Always check actual file existence, not just isDownloaded flag
+                let diskPath = downloadsDirectory.appendingPathComponent(disk.filename)
+                let fileExists = FileManager.default.fileExists(atPath: diskPath.path)
+                print("[EmulatorVM] Disk \(unit) '\(disk.filename)': isDownloaded=\(disk.isDownloaded), fileExists=\(fileExists)")
+
+                if fileExists {
                     // Load from downloads directory
                     if loadDownloadedDisk(unit: unit, filename: disk.filename) {
                         print("[EmulatorVM] Loaded downloaded disk \(disk.filename) to unit \(unit)")
                         statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
+                        continue
+                    } else {
+                        print("[EmulatorVM] ERROR: File exists but failed to load \(disk.filename)")
+                        diskLoadErrors.append("\(disk.filename) (corrupted?)")
                         continue
                     }
                 }
 
                 // Try loading from bundle as fallback
                 let success = emulator?.loadDisk(Int32(unit), fromBundle: disk.filename) == true
-                print("[EmulatorVM] loadDisk(\(unit), \(disk.filename)) = \(success)")
+                print("[EmulatorVM] loadDisk(\(unit), \(disk.filename)) from bundle = \(success)")
                 if success {
                     statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
                 } else {
-                    print("[EmulatorVM] ERROR: Failed to load \(disk.filename) to unit \(unit)")
+                    print("[EmulatorVM] ERROR: Failed to load \(disk.filename) to unit \(unit) - not in downloads or bundle")
+                    diskLoadErrors.append(disk.filename)
                 }
             }
+        }
+
+        // Show error if any disks failed to load
+        if !diskLoadErrors.isEmpty {
+            showError("Failed to load disks: \(diskLoadErrors.joined(separator: ", ")). Try re-downloading from Settings.")
         }
 
         // Set boot string
@@ -386,6 +448,180 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // MARK: - Emulation Control
 
     func start() {
+        statusText = "Checking disks..."
+
+        // Check if catalog is loaded
+        if diskCatalog.isEmpty {
+            showError("Disk catalog not loaded. Please wait for catalog to load or check internet connection.")
+            statusText = "Error: No disk catalog"
+            return
+        }
+
+        // Check if any disk is selected
+        let hasSelectedDisk = selectedDisks.contains { $0 != nil && !($0?.filename.isEmpty ?? true) }
+        if !hasSelectedDisk {
+            showError("No disk selected. Please select at least one disk in Settings.")
+            statusText = "Error: No disk selected"
+            return
+        }
+
+        // Debug logging
+        print("[Start] diskCatalog has \(diskCatalog.count) entries")
+        print("[Start] Downloads directory: \(downloadsDirectory.path)")
+
+        // Collect disks that need downloading
+        var neededDownloads: [DownloadableDisk] = []
+        var missingFromCatalog: [String] = []
+        var alreadyDownloaded: [String] = []
+
+        for (i, diskOpt) in selectedDisks.enumerated() {
+            guard let disk = diskOpt, !disk.filename.isEmpty else {
+                print("[Start] Disk \(i): (none)")
+                continue
+            }
+
+            // Check actual file existence
+            let fileExists = isDiskDownloaded(disk.filename)
+            print("[Start] Disk \(i): '\(disk.filename)' fileExists=\(fileExists)")
+
+            if fileExists {
+                alreadyDownloaded.append(disk.filename)
+                continue
+            }
+
+            // Need to download - look up in catalog
+            if let catalogEntry = diskCatalog.first(where: { $0.filename == disk.filename }) {
+                print("[Start] Need download: '\(disk.filename)'")
+                neededDownloads.append(catalogEntry)
+            } else {
+                print("[Start] ERROR: '\(disk.filename)' NOT in catalog!")
+                missingFromCatalog.append(disk.filename)
+            }
+        }
+
+        print("[Start] Already downloaded: \(alreadyDownloaded.count), need download: \(neededDownloads.count), missing: \(missingFromCatalog.count)")
+
+        // Error if any selected disks aren't in catalog
+        if !missingFromCatalog.isEmpty {
+            showError("Cannot find disk(s) in catalog: \(missingFromCatalog.joined(separator: ", ")). The catalog may be outdated.")
+            statusText = "Error: Disk not in catalog"
+            return
+        }
+
+        // Download if needed, otherwise start
+        if !neededDownloads.isEmpty {
+            statusText = "Downloading \(neededDownloads.count) disk(s)..."
+            downloadDisksAndStart(neededDownloads)
+        } else if alreadyDownloaded.isEmpty {
+            // Nothing selected or all slots empty
+            showError("No disks available to load. Please download disks in Settings first.")
+            statusText = "Error: No disks"
+        } else {
+            // All disks ready
+            print("[Start] All disks ready, starting emulator")
+            startEmulator()
+        }
+    }
+
+    /// Download multiple disks sequentially, then start emulator
+    private func downloadDisksAndStart(_ disks: [DownloadableDisk]) {
+        guard !disks.isEmpty else {
+            startEmulator()
+            return
+        }
+
+        var remaining = disks
+        let current = remaining.removeFirst()
+        statusText = "Downloading \(current.name)..."
+
+        downloadDiskWithCompletion(current) { [weak self] success in
+            guard let self = self else { return }
+            if success {
+                // Continue with remaining downloads
+                self.downloadDisksAndStart(remaining)
+            } else {
+                self.showError("Failed to download \(current.name)")
+            }
+        }
+    }
+
+    /// Download a disk image with completion callback
+    private func downloadDiskWithCompletion(_ disk: DownloadableDisk, completion: @escaping (Bool) -> Void) {
+        print("[Download] Starting download of '\(disk.filename)' from \(disk.url)")
+
+        guard let url = URL(string: disk.url) else {
+            print("[Download] ERROR: Invalid URL: \(disk.url)")
+            completion(false)
+            return
+        }
+
+        downloadStates[disk.filename] = .downloading(progress: 0)
+
+        let task = URLSession.shared.downloadTask(with: url) { [weak self] tempURL, response, error in
+            DispatchQueue.main.async {
+                guard let self = self else {
+                    print("[Download] ERROR: self is nil")
+                    completion(false)
+                    return
+                }
+
+                if let httpResponse = response as? HTTPURLResponse {
+                    print("[Download] HTTP status: \(httpResponse.statusCode)")
+                }
+
+                if let error = error {
+                    print("[Download] ERROR: \(error.localizedDescription)")
+                    self.downloadStates[disk.filename] = .error(error.localizedDescription)
+                    completion(false)
+                    return
+                }
+
+                if tempURL == nil {
+                    print("[Download] ERROR: No temp file received")
+                    self.downloadStates[disk.filename] = .error("Download failed - no data")
+                    completion(false)
+                    return
+                }
+
+                let destURL = self.downloadsDirectory.appendingPathComponent(disk.filename)
+                print("[Download] Moving temp file to \(destURL.path)")
+                do {
+                    try? FileManager.default.removeItem(at: destURL)
+                    try FileManager.default.moveItem(at: tempURL!, to: destURL)
+
+                    // Verify the file exists
+                    let fileExists = FileManager.default.fileExists(atPath: destURL.path)
+                    print("[Download] SUCCESS: '\(disk.filename)' saved, fileExists=\(fileExists)")
+
+                    self.downloadStates[disk.filename] = .downloaded
+                    self.refreshAvailableDisks()
+                    // Update the selected disk to mark it as downloaded
+                    for i in 0..<self.selectedDisks.count {
+                        if self.selectedDisks[i]?.filename == disk.filename {
+                            self.selectedDisks[i] = self.availableDisks.first { $0.filename == disk.filename }
+                            print("[Download] Updated selectedDisks[\(i)] isDownloaded=\(self.selectedDisks[i]?.isDownloaded ?? false)")
+                        }
+                    }
+                    completion(true)
+                } catch {
+                    print("[Download] ERROR moving file: \(error.localizedDescription)")
+                    self.downloadStates[disk.filename] = .error(error.localizedDescription)
+                    completion(false)
+                }
+            }
+        }
+
+        let observation = task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+            DispatchQueue.main.async {
+                self?.downloadStates[disk.filename] = .downloading(progress: progress.fractionCompleted)
+            }
+        }
+        objc_setAssociatedObject(task, "progressObservation", observation, .OBJC_ASSOCIATION_RETAIN)
+        task.resume()
+    }
+
+    /// Actually start the emulator after all disks are ready
+    private func startEmulator() {
         // Clear terminal before starting (removes "Press Play" message)
         clearTerminal()
         // Load selected ROM and disks before starting
@@ -526,18 +762,34 @@ class EmulatorViewModel: NSObject, ObservableObject {
         catalogError = nil
 
         guard let url = URL(string: Self.catalogURL) else {
+            print("[Catalog] Invalid catalog URL")
             loadCachedCatalog()
             return
         }
+
+        print("[Catalog] Fetching from: \(Self.catalogURL)")
 
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 self.catalogLoading = false
 
+                if let error = error {
+                    print("[Catalog] Fetch error: \(error.localizedDescription)")
+                }
+
+                if let httpResponse = response as? HTTPURLResponse {
+                    print("[Catalog] HTTP status: \(httpResponse.statusCode)")
+                }
+
                 if let data = data, error == nil {
+                    print("[Catalog] Received \(data.count) bytes")
                     // Parse and cache the new catalog
                     let disks = self.parseDiskCatalogXML(data)
+                    print("[Catalog] Parsed \(disks.count) disks:")
+                    for disk in disks {
+                        print("[Catalog]   - '\(disk.filename)' (\(disk.name))")
+                    }
                     if !disks.isEmpty {
                         self.diskCatalog = disks
                         self.saveCatalogToCache(data)
@@ -548,6 +800,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 }
 
                 // Fetch failed, try cached version
+                print("[Catalog] Falling back to cached catalog")
                 self.loadCachedCatalog()
             }
         }.resume()
@@ -605,25 +858,22 @@ class EmulatorViewModel: NSObject, ObservableObject {
         return downloadsDirectory.appendingPathComponent(filename)
     }
 
-    /// Refresh the list of available disks (bundled + downloaded)
+    /// Refresh the list of available disks (all catalog disks + any local .img files)
     func refreshAvailableDisks() {
         var disks: [DiskOption] = [DiskOption(name: "None", filename: "")]
 
-        // Add downloaded disks
+        // Add ALL catalog disks (downloaded or not - user can select and we'll download on run)
         for catalog in diskCatalog {
-            if isDiskDownloaded(catalog.filename) {
-                disks.append(DiskOption(
-                    name: catalog.name,
-                    filename: catalog.filename,
-                    isDownloaded: true
-                ))
-                downloadStates[catalog.filename] = .downloaded
-            } else if downloadStates[catalog.filename] == nil {
-                downloadStates[catalog.filename] = .notDownloaded
-            }
+            let downloaded = isDiskDownloaded(catalog.filename)
+            disks.append(DiskOption(
+                name: downloaded ? catalog.name : "\(catalog.name) (download)",
+                filename: catalog.filename,
+                isDownloaded: downloaded
+            ))
+            downloadStates[catalog.filename] = downloaded ? .downloaded : .notDownloaded
         }
 
-        // Check for any other .img files in downloads directory
+        // Check for any other .img files in downloads directory (user-added disks)
         if let contents = try? FileManager.default.contentsOfDirectory(
             at: downloadsDirectory,
             includingPropertiesForKeys: nil
@@ -1108,6 +1358,81 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         DispatchQueue.main.async {
             self.playBeep(durationMs: Int(durationMs))
         }
+    }
+
+    // MARK: - Host File Transfer (R8/W8)
+
+    func emulatorHostFileRequestRead(_ suggestedFilename: String) {
+        DispatchQueue.main.async {
+            self.statusText = "R8: Select file to import..."
+            self.showingHostFileImporter = true
+        }
+    }
+
+    func emulatorHostFileDownload(_ filename: String, data: Data) {
+        DispatchQueue.main.async {
+            // Save to Documents/Disks directory
+            let saveURL = self.downloadsDirectory.appendingPathComponent(filename)
+            do {
+                try data.write(to: saveURL)
+                self.statusText = "W8: Saved \(filename) (\(data.count) bytes)"
+                print("[HostFile] Saved \(filename) to \(saveURL.path)")
+
+                // Also show share sheet for convenience
+                self.hostFileExportData = data
+                self.hostFileExportFilename = filename
+                self.showingHostFileExporter = true
+            } catch {
+                self.showError("Failed to save \(filename): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Handle result from host file importer (R8)
+    func handleHostFileImportResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else {
+                emu_host_file_cancel()
+                statusText = "R8: Cancelled"
+                return
+            }
+
+            guard url.startAccessingSecurityScopedResource() else {
+                emu_host_file_cancel()
+                showError("Cannot access file: \(url.lastPathComponent)")
+                return
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+
+            do {
+                let data = try Data(contentsOf: url)
+                // Provide data to emulator
+                data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+                    if let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt8.self) {
+                        emu_host_file_load(ptr, data.count)
+                    }
+                }
+                statusText = "R8: Loaded \(url.lastPathComponent) (\(data.count) bytes)"
+            } catch {
+                emu_host_file_cancel()
+                showError("Failed to read file: \(error.localizedDescription)")
+            }
+
+        case .failure(let error):
+            emu_host_file_cancel()
+            if (error as NSError).code != NSUserCancelledError {
+                showError("Import failed: \(error.localizedDescription)")
+            } else {
+                statusText = "R8: Cancelled"
+            }
+        }
+    }
+
+    /// Handle cancellation of host file importer
+    func handleHostFileImportCancel() {
+        emu_host_file_cancel()
+        statusText = "R8: Cancelled"
     }
 }
 

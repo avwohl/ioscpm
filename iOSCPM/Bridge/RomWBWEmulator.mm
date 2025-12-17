@@ -70,6 +70,18 @@ extern "C" void emu_io_set_delegate(id delegate);
   }
 }
 
+- (void)emuHostFileRequestRead:(NSString*)suggestedFilename {
+  if (self.owner.delegate && [self.owner.delegate respondsToSelector:@selector(emulatorHostFileRequestRead:)]) {
+    [self.owner.delegate emulatorHostFileRequestRead:suggestedFilename];
+  }
+}
+
+- (void)emuHostFileDownload:(NSString*)filename data:(NSData*)data {
+  if (self.owner.delegate && [self.owner.delegate respondsToSelector:@selector(emulatorHostFileDownload:data:)]) {
+    [self.owner.delegate emulatorHostFileDownload:filename data:data];
+  }
+}
+
 @end
 
 //=============================================================================
@@ -195,6 +207,10 @@ static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
 
 - (BOOL)isDiskLoaded:(int)unit {
   return _emulator->isDiskLoaded(unit);
+}
+
+- (void)closeAllDisks {
+  _emulator->closeAllDisks();
 }
 
 //=============================================================================

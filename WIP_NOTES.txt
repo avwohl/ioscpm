@@ -1,0 +1,29 @@
+Work In Progress Notes - Z80CPM
+================================
+
+SESSION: Dec 17, 2024
+---------------------
+
+COMPLETED THIS SESSION:
+- Fixed disk count persistence bug: added closeAllDisks() to clear old disks before loading new config
+  - Files changed: hbios_core.cc, hbios_core.h, RomWBWEmulator.mm, RomWBWEmulator.h, EmulatorViewModel.swift
+- Fixed auto-download: disks marked "(download)" now download when Play is pressed
+- Fixed silent error handling: added popup alerts for catalog/disk errors
+
+KNOWN ISSUE - ZORK1 PANIC:
+- Running ZORK1 on infocom disk causes PANIC: @833C[32BB:0003:85BA:FD3F:D7A5]
+- Boot shows "Insufficient HBIOS Heap Memory" for drives H, I, J
+- Heap: starts at 0x0200, ends at 0x8000 (32KB available)
+- Heap appears to run out during drive configuration (hd1k has 8 slices = A-H)
+- Investigation needed: why is heap exhausted? Are allocations too large?
+- Debug: enable debugMode in app to see SYSALLOC log messages
+
+PREVIOUS NOTES:
+---------------
+- App renamed from RomWBW to Z80CPM
+- Version 1.1.0 released with R8/W8 host file transfer utilities
+- GitHub disks.xml catalog available
+
+REMAINING TASKS:
+- Investigate HBIOS heap exhaustion causing ZORK1 panic
+- Mac App Store screenshots if needed
