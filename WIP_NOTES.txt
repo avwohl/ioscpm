@@ -27,8 +27,68 @@ Files changed:
 - ContentView.swift: UI for slice count stepper
 - disks.xml, release_assets/disks.xml: Only combo and infocom
 
-SESSION: Dec 17, 2025 (continued)
----------------------------------
+SESSION: Dec 17, 2025 (investigation - CBIOS slice behavior)
+------------------------------------------------------------
+
+FINDING: CBIOS IGNORES HCB DRIVE MAP
+------------------------------------
+Root cause of "8 slices showing despite max_slices=4" identified:
+
+1. The HCB drive map (CB_DRVMAP at HCB+0x20) and CB_DEVCNT ARE correctly
+   updated with the limited slice count (verified via debug output).
+
+2. However, CBIOS (loaded from the CP/M boot sector on disk) completely
+   ignores the HCB drive map. It has its own hardcoded slice configuration
+   that was set at ROM/disk image build time.
+
+3. EXTSLICE and DIOCAP are NOT called by CBIOS during drive configuration.
+   These functions would be our hooks to limit slices at runtime, but CBIOS
+   doesn't use them.
+
+Evidence:
+- HCB drive map correctly shows only 6 drives (A-F) with max_slices=4
+- CB_DEVCNT = 0x06 (6 drives)
+- But CBIOS "Configuring Drives..." output shows A-J (10 drives, 8 HD slices)
+- No EXTSLICE or DIOCAP calls logged during boot
+
+FIX APPLIED - ROM WRITES:
+-------------------------
+Fixed populateDiskUnitTable() to write directly to ROM using get_rom()
+instead of write_bank(0x00, ...) which silently ignores ROM writes.
+This ensures the boot loader can read the correct drive map.
+
+However, this doesn't fix the CBIOS behavior - the CBIOS binary on the disk
+has hardcoded slice counts. Options to truly limit slices:
+1. Use a ROM/disk with configurable slice count (rebuild CP/M disk)
+2. Make disk I/O to slices >= max_slices fail (causes errors on G-J access)
+3. Accept that CBIOS shows all slices but only configure for limited I/O
+
+Files changed:
+- hbios_dispatch.cc: populateDiskUnitTable() - use rom[] directly instead of
+  write_bank(0x00, ...) which was being ignored
+
+SESSION: Dec 17, 2025 (continued - slice count fix)
+---------------------------------------------------
+
+SLICE COUNT FIX - EXTSLICE HANDLER:
+Root cause identified: The configurable slice count (setDiskSliceCount) was working
+correctly to set max_slices and populate the HCB drive map with limited slices.
+However, CBIOS doesn't use the drive map for slice enumeration - it queries HBIOS
+directly via EXTSLICE function to determine available slices based on disk size.
+
+Fix: Modified EXTSLICE handler in hbios_dispatch.cc to check max_slices:
+- When slice >= max_slices, return HBR_FAILED (0xFF) and media_id=0 (MID_NONE)
+- This tells CBIOS to stop enumerating slices at the configured limit
+- Added debug logging to show when slices are rejected
+
+Files changed:
+- hbios_dispatch.cc: EXTSLICE handler (case HBF_EXTSLICE around line 2016)
+
+This should finally make the slice count stepper work properly and reduce
+HBIOS heap usage when fewer slices are configured.
+
+SESSION: Dec 17, 2025 (afternoon - earlier)
+-------------------------------------------
 
 DISK MOUNTING BUGS FIXED:
 1. closeDisk() was not resetting partition detection fields (partition_probed,
@@ -84,5 +144,13 @@ PREVIOUS NOTES:
 - GitHub disks.xml catalog available
 
 REMAINING TASKS:
-- Investigate HBIOS heap exhaustion causing ZORK1 panic
+- Fix Zork/Infocom issue for App Store release
 - Mac App Store screenshots if needed
+
+FUTURE REFACTORING:
+- Unify disk handling: CLI (romwbw_emu.cc) has parallel disk I/O implementation
+  instead of using shared hbios_dispatch.cc. Only difference is storage backend
+  (FILE* vs uint8_t* buffer). Could refactor CLI to use HBIOSDispatch class.
+- Slice count limitation: CBIOS ignores HCB drive map, has hardcoded slice counts.
+  Would need to rebuild CP/M disk image with different config, or make I/O fail
+  for slices >= max_slices.

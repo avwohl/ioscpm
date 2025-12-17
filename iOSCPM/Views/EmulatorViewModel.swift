@@ -330,8 +330,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 if fileExists {
                     // Load from downloads directory
                     if loadDownloadedDisk(unit: unit, filename: disk.filename) {
+                        print("🔵 [DISK] Calling setDiskSliceCount(\(unit), \(diskSliceCounts[unit])) for downloaded disk")
                         emulator?.setDiskSliceCount(Int32(unit), slices: Int32(diskSliceCounts[unit]))
-                        print("[EmulatorVM] Loaded downloaded disk \(disk.filename) to unit \(unit) with \(diskSliceCounts[unit]) slices")
+                        print("🔵 [DISK] Loaded downloaded disk \(disk.filename) to unit \(unit) with \(diskSliceCounts[unit]) slices")
                         statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
                         continue
                     } else {
@@ -343,10 +344,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
                 // Try loading from bundle as fallback
                 let success = emulator?.loadDisk(Int32(unit), fromBundle: disk.filename) == true
-                print("[EmulatorVM] loadDisk(\(unit), \(disk.filename)) from bundle = \(success)")
+                print("🔵 [DISK] loadDisk(\(unit), \(disk.filename)) from bundle = \(success)")
                 if success {
+                    print("🔵 [DISK] Calling setDiskSliceCount(\(unit), \(diskSliceCounts[unit]))")
                     emulator?.setDiskSliceCount(Int32(unit), slices: Int32(diskSliceCounts[unit]))
-                    print("[EmulatorVM] Set slice count for unit \(unit) to \(diskSliceCounts[unit])")
+                    print("🔵 [DISK] Set slice count for unit \(unit) to \(diskSliceCounts[unit])")
                     statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
                 } else {
                     print("[EmulatorVM] ERROR: Failed to load \(disk.filename) to unit \(unit) - not in downloads or bundle")
@@ -637,14 +639,18 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// Actually start the emulator after all disks are ready
     private func startEmulator() {
+        print("🟢 [START] startEmulator called")
         // Clear terminal before starting (removes "Press Play" message)
         clearTerminal()
         // Load selected ROM and disks before starting
+        print("🟢 [START] calling loadSelectedResources, diskSliceCounts=\(diskSliceCounts)")
         loadSelectedResources()
+        print("🟢 [START] calling emulator.start()")
         emulator?.start()
         isRunning = emulator?.isRunning ?? false
         statusText = "Running"
         terminalShouldFocus = true  // Auto-focus terminal
+        print("🟢 [START] emulator started, isRunning=\(isRunning)")
     }
 
     func stop() {

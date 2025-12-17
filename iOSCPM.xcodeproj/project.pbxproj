@@ -7,54 +7,39 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		/* Swift files */
-		A1000001 /* iOSCPMApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000001; };
-		A1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000002; };
-		A1000003 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000003; };
-		A1000004 /* EmulatorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000004; };
-
-		/* Objective-C++ Bridge */
-		A1000010 /* RomWBWEmulator.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000010; };
-		A1000011 /* emu_io_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000012; };
-
-		/* C++ Core files */
-		A1000020 /* qkz80.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000020; };
-		A1000021 /* qkz80_mem.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000021; };
-		A1000022 /* qkz80_reg_set.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000022; };
-		A1000023 /* qkz80_errors.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000023; };
-		A1000024 /* hbios_core.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000024; };
-		A1000025 /* hbios_dispatch.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000025; };
-
-		/* Resources */
-		A1000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000030; };
-		A1000031 /* emu_hbios.bin in Resources */ = {isa = PBXBuildFile; fileRef = B1000031; };
-		A1000060 /* emu_avw.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000060; };
+		A1000001 /* iOSCPMApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000001 /* iOSCPMApp.swift */; };
+		A1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000002 /* ContentView.swift */; };
+		A1000003 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000003 /* TerminalView.swift */; };
+		A1000004 /* EmulatorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000004 /* EmulatorViewModel.swift */; };
+		A1000010 /* RomWBWEmulator.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000010 /* RomWBWEmulator.mm */; };
+		A1000011 /* emu_io_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000012 /* emu_io_ios.mm */; };
+		A1000020 /* qkz80.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000020 /* qkz80.cc */; };
+		A1000021 /* qkz80_mem.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000021 /* qkz80_mem.cc */; };
+		A1000022 /* qkz80_reg_set.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000022 /* qkz80_reg_set.cc */; };
+		A1000023 /* qkz80_errors.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000023 /* qkz80_errors.cc */; };
+		A1000024 /* hbios_core.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000024 /* hbios_core.cc */; };
+		A1000025 /* hbios_dispatch.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000025 /* hbios_dispatch.cc */; };
+		A1000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000030 /* Assets.xcassets */; };
+		A1000031 /* emu_hbios.bin in Resources */ = {isa = PBXBuildFile; fileRef = B1000031 /* emu_hbios.bin */; };
+		A1000060 /* emu_avw.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000060 /* emu_avw.rom */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		/* Product */
-		C1000001 /* iOSCPM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iOSCPM.app; sourceTree = BUILT_PRODUCTS_DIR; };
-
-		/* Swift files */
 		B1000001 /* iOSCPMApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iOSCPMApp.swift; sourceTree = "<group>"; };
 		B1000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B1000003 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		B1000004 /* EmulatorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmulatorViewModel.swift; sourceTree = "<group>"; };
-
-		/* Objective-C++ Bridge files */
 		B1000010 /* RomWBWEmulator.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomWBWEmulator.mm; sourceTree = "<group>"; };
 		B1000011 /* RomWBWEmulator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomWBWEmulator.h; sourceTree = "<group>"; };
 		B1000012 /* emu_io_ios.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = emu_io_ios.mm; sourceTree = "<group>"; };
-
-		/* C++ Core files */
 		B1000020 /* qkz80.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = qkz80.cc; sourceTree = "<group>"; };
 		B1000021 /* qkz80_mem.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = qkz80_mem.cc; sourceTree = "<group>"; };
 		B1000022 /* qkz80_reg_set.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = qkz80_reg_set.cc; sourceTree = "<group>"; };
 		B1000023 /* qkz80_errors.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = qkz80_errors.cc; sourceTree = "<group>"; };
 		B1000024 /* hbios_core.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hbios_core.cc; sourceTree = "<group>"; };
 		B1000025 /* hbios_dispatch.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hbios_dispatch.cc; sourceTree = "<group>"; };
-
-		/* C++ Header files */
+		B1000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B1000031 /* emu_hbios.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = emu_hbios.bin; sourceTree = "<group>"; };
 		B1000040 /* qkz80.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80.h; sourceTree = "<group>"; };
 		B1000041 /* qkz80_mem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80_mem.h; sourceTree = "<group>"; };
 		B1000042 /* qkz80_reg_set.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80_reg_set.h; sourceTree = "<group>"; };
@@ -65,17 +50,12 @@
 		B1000047 /* hbios_core.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hbios_core.h; sourceTree = "<group>"; };
 		B1000048 /* emu_io.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = emu_io.h; sourceTree = "<group>"; };
 		B1000049 /* romwbw_mem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = romwbw_mem.h; sourceTree = "<group>"; };
-		B1000052 /* hbios_dispatch.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hbios_dispatch.h; sourceTree = "<group>"; };
-
-		/* Resources */
-		B1000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		B1000031 /* emu_hbios.bin */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_hbios.bin; sourceTree = "<group>"; };
-		B1000060 /* emu_avw.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_avw.rom; sourceTree = "<group>"; };
-
-		/* Other files */
 		B1000050 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B1000051 /* iOSCPM-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "iOSCPM-Bridging-Header.h"; sourceTree = "<group>"; };
+		B1000052 /* hbios_dispatch.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hbios_dispatch.h; sourceTree = "<group>"; };
 		B1000053 /* iOSCPM.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iOSCPM.entitlements; sourceTree = "<group>"; };
+		B1000060 /* emu_avw.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_avw.rom; sourceTree = "<group>"; };
+		C1000001 /* iOSCPM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iOSCPM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -179,7 +159,7 @@
 /* Begin PBXNativeTarget section */
 		F1000001 /* iOSCPM */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F1000010;
+			buildConfigurationList = F1000010 /* Build configuration list for PBXNativeTarget "iOSCPM" */;
 			buildPhases = (
 				F1000002 /* Sources */,
 				D1000001 /* Frameworks */,
@@ -202,7 +182,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 1500;
+				LastUpgradeCheck = 2620;
 				TargetAttributes = {
 					F1000001 = {
 						CreatedOnToolsVersion = 15.0;
@@ -210,7 +190,7 @@
 					};
 				};
 			};
-			buildConfigurationList = F1000020;
+			buildConfigurationList = F1000020 /* Build configuration list for PBXProject "iOSCPM" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = "en-US";
 			hasScannedForEncodings = 0;
@@ -264,7 +244,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		/* Debug configuration for target */
 		F1000011 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -275,8 +254,14 @@
 				CODE_SIGN_ENTITLEMENTS = iOSCPM/iOSCPM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 644N5FNKG2;
+				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/iOSCPM/Core",
+					"$(SRCROOT)/iOSCPM/Bridge",
+				);
 				INFOPLIST_FILE = iOSCPM/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -291,20 +276,14 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.awohl.cpm;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MACCATALYST = YES;
-				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "iOSCPM/iOSCPM-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				HEADER_SEARCH_PATHS = (
-					"$(SRCROOT)/iOSCPM/Core",
-					"$(SRCROOT)/iOSCPM/Bridge",
-				);
 			};
 			name = Debug;
 		};
-		/* Release configuration for target */
 		F1000012 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -315,8 +294,14 @@
 				CODE_SIGN_ENTITLEMENTS = iOSCPM/iOSCPM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 644N5FNKG2;
+				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/iOSCPM/Core",
+					"$(SRCROOT)/iOSCPM/Bridge",
+				);
 				INFOPLIST_FILE = iOSCPM/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -331,19 +316,13 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.awohl.cpm;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MACCATALYST = YES;
-				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "iOSCPM/iOSCPM-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				HEADER_SEARCH_PATHS = (
-					"$(SRCROOT)/iOSCPM/Core",
-					"$(SRCROOT)/iOSCPM/Bridge",
-				);
 			};
 			name = Release;
 		};
-		/* Debug configuration for project */
 		F1000021 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -379,6 +358,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 644N5FNKG2;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -402,12 +382,12 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
 		};
-		/* Release configuration for project */
 		F1000022 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -443,6 +423,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 644N5FNKG2;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -459,6 +440,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};

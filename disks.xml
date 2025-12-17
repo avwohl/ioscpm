@@ -10,7 +10,7 @@
     <disk>
         <filename>hd1k_infocom.img</filename>
         <name>Infocom Adventures</name>
-        <description>Classic Infocom text adventures: Zork 1-3, Hitchhiker's Guide, Planetfall, Enchanter, and more.</description>
+        <description>9 classic Infocom text adventures with VEZZA interpreter. Run: VEZZA ZORK1.Z3</description>
         <size>8388608</size>
         <license>Abandonware</license>
     </disk>
