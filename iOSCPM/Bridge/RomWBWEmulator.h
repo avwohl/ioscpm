@@ -57,6 +57,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)saveDisk:(int)unit toPath:(NSString*)path;
 - (BOOL)isDiskLoaded:(int)unit;
 - (void)closeAllDisks;  // Close all disks before reconfiguring
+- (void)setDiskSliceCount:(int)unit slices:(int)slices;  // Set max slices (1-8)
 
 // Boot string (auto-type at boot menu)
 - (void)setBootString:(NSString*)bootString;

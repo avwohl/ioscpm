@@ -170,6 +170,10 @@ void HBIOSEmulator::closeAllDisks() {
   hbios.closeAllDisks();
 }
 
+void HBIOSEmulator::setDiskSliceCount(int unit, int slices) {
+  hbios.setDiskSliceCount(unit, slices);
+}
+
 //=============================================================================
 // Input Queue
 //=============================================================================
@@ -207,7 +211,7 @@ void HBIOSEmulator::start() {
   // Reset HBIOS state for new ROM (like web version does)
   hbios.reset();
 
-  // Initialize memory disks (MD0=RAM, MD1=ROM) from HCB configuration
+  // Initialize memory disks (MD0=RAM, MD1=ROM) and populate disk unit table
   hbios.initMemoryDisks();
 
   // Register reset callback for SYSRESET (REBOOT command)

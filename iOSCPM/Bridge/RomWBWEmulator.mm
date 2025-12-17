@@ -213,6 +213,10 @@ static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
   _emulator->closeAllDisks();
 }
 
+- (void)setDiskSliceCount:(int)unit slices:(int)slices {
+  _emulator->setDiskSliceCount(unit, slices);
+}
+
 //=============================================================================
 // Boot String
 //=============================================================================

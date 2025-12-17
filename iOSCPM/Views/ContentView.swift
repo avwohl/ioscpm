@@ -4,6 +4,7 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 // Read version from bundle Info.plist
 let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
@@ -171,6 +172,23 @@ struct ContentView: View {
             .sheet(isPresented: $showingAbout) {
                 AboutView()
             }
+            // Host file import (R8 utility)
+            .fileImporter(
+                isPresented: $viewModel.showingHostFileImporter,
+                allowedContentTypes: [.data, .item, .text, .plainText],
+                allowsMultipleSelection: false
+            ) { result in
+                viewModel.handleHostFileImportResult(result)
+            }
+            // Host file export share sheet (W8 utility)
+            .sheet(isPresented: $viewModel.showingHostFileExporter) {
+                if let data = viewModel.hostFileExportData {
+                    HostFileShareSheet(
+                        data: data,
+                        filename: viewModel.hostFileExportFilename
+                    )
+                }
+            }
         }
         .navigationViewStyle(.stack)  // Force single column on Mac
         .onAppear {
@@ -312,13 +330,27 @@ struct SettingsView: View {
                                 }
                             }
 
-                            Picker("", selection: $viewModel.selectedDisks[unit]) {
-                                ForEach(viewModel.availableDisks) { disk in
-                                    Text(disk.name).tag(disk as DiskOption?)
+                            HStack {
+                                Picker("", selection: $viewModel.selectedDisks[unit]) {
+                                    ForEach(viewModel.availableDisks) { disk in
+                                        Text(disk.name).tag(disk as DiskOption?)
+                                    }
                                 }
+                                .pickerStyle(.menu)
+                                .labelsHidden()
+
+                                Spacer()
+
+                                Text("Slices:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Stepper("\(viewModel.diskSliceCounts[unit])", value: $viewModel.diskSliceCounts[unit], in: 1...8)
+                                    .labelsHidden()
+                                    .fixedSize()
+                                Text("\(viewModel.diskSliceCounts[unit])")
+                                    .font(.caption)
+                                    .frame(width: 20)
                             }
-                            .pickerStyle(.menu)
-                            .labelsHidden()
 
                             HStack(spacing: 12) {
                                 Button("Open File...") {
@@ -343,7 +375,7 @@ struct SettingsView: View {
                         .padding(.vertical, 2)
                     }
 
-                    Text("Max disk size: 64MB (hd1k format)")
+                    Text("Slices control how many drive letters each disk uses (1-8). Default: 4 slices. Lower values use less memory.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -522,6 +554,33 @@ struct EmptyDiskDocument: FileDocument {
         let data = Data(repeating: 0xE5, count: 8 * 1024 * 1024)
         return FileWrapper(regularFileWithContents: data)
     }
+}
+
+// MARK: - Host File Share Sheet (for W8 export)
+
+struct HostFileShareSheet: UIViewControllerRepresentable {
+    let data: Data
+    let filename: String
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        // Create a temporary file for sharing
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+        try? data.write(to: tempURL)
+
+        let activityVC = UIActivityViewController(
+            activityItems: [tempURL],
+            applicationActivities: nil
+        )
+
+        // Clean up temp file after share sheet dismisses
+        activityVC.completionWithItemsHandler = { _, _, _, _ in
+            try? FileManager.default.removeItem(at: tempURL)
+        }
+
+        return activityVC
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - Disk Download Row

@@ -83,9 +83,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
     }
     let availableROMs: [ROMOption] = [
-        ROMOption(name: "EMU AVW (Recommended)", filename: "emu_avw.rom"),
-        ROMOption(name: "EMU RomWBW", filename: "emu_romwbw.rom"),
-        ROMOption(name: "SBC SIMH", filename: "SBC_simh_std.rom"),
+        ROMOption(name: "EMU AVW", filename: "emu_avw.rom"),
     ]
 
     // Disk selection for slots 0-3 (OS slots) and data drives
@@ -94,6 +92,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
             // Save selected disk filenames to UserDefaults
             let filenames = selectedDisks.map { $0?.filename ?? "" }
             UserDefaults.standard.set(filenames, forKey: "selectedDisks")
+        }
+    }
+
+    // Number of slices to expose per disk (1-8, default 4)
+    @Published var diskSliceCounts: [Int] = [4, 4, 4, 4] {
+        didSet {
+            UserDefaults.standard.set(diskSliceCounts, forKey: "diskSliceCounts")
         }
     }
     @Published var availableDisks: [DiskOption] = [
@@ -273,6 +278,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
             }
         }
 
+        // Restore saved slice counts or use defaults
+        if let savedSliceCounts = UserDefaults.standard.array(forKey: "diskSliceCounts") as? [Int] {
+            diskSliceCounts = savedSliceCounts.count >= 4 ? Array(savedSliceCounts.prefix(4)) : savedSliceCounts + Array(repeating: 4, count: 4 - savedSliceCounts.count)
+        }
+        print("[RestoreDisks] Slice counts: \(diskSliceCounts)")
+
         statusText = "Ready - Press Play to start"
     }
 
@@ -302,7 +313,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
             // First check if there's a local file URL for this unit
             if let url = localDiskURLs[unit] {
                 if loadLocalDisk(unit: unit, from: url) {
-                    print("[EmulatorVM] Loaded local disk to unit \(unit)")
+                    emulator?.setDiskSliceCount(Int32(unit), slices: Int32(diskSliceCounts[unit]))
+                    print("[EmulatorVM] Loaded local disk to unit \(unit) with \(diskSliceCounts[unit]) slices")
                     statusText = "Loaded local file to \(diskLabels[unit])"
                     continue
                 }
@@ -318,7 +330,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 if fileExists {
                     // Load from downloads directory
                     if loadDownloadedDisk(unit: unit, filename: disk.filename) {
-                        print("[EmulatorVM] Loaded downloaded disk \(disk.filename) to unit \(unit)")
+                        emulator?.setDiskSliceCount(Int32(unit), slices: Int32(diskSliceCounts[unit]))
+                        print("[EmulatorVM] Loaded downloaded disk \(disk.filename) to unit \(unit) with \(diskSliceCounts[unit]) slices")
                         statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
                         continue
                     } else {
@@ -332,6 +345,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 let success = emulator?.loadDisk(Int32(unit), fromBundle: disk.filename) == true
                 print("[EmulatorVM] loadDisk(\(unit), \(disk.filename)) from bundle = \(success)")
                 if success {
+                    emulator?.setDiskSliceCount(Int32(unit), slices: Int32(diskSliceCounts[unit]))
+                    print("[EmulatorVM] Set slice count for unit \(unit) to \(diskSliceCounts[unit])")
                     statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
                 } else {
                     print("[EmulatorVM] ERROR: Failed to load \(disk.filename) to unit \(unit) - not in downloads or bundle")

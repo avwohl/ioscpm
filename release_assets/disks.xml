@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<disks version="1">
+    <disk>
+        <filename>hd1k_combo.img</filename>
+        <name>Combo (Recommended)</name>
+        <description>49MB multi-slice disk with CP/M 2.2, games, utilities, and R8/W8 host file transfer. Best starter disk.</description>
+        <size>51380224</size>
+        <license>Mixed</license>
+    </disk>
+    <disk>
+        <filename>hd1k_infocom.img</filename>
+        <name>Infocom Adventures</name>
+        <description>Classic Infocom text adventures: Zork 1-3, Hitchhiker's Guide, Planetfall, Enchanter, and more.</description>
+        <size>8388608</size>
+        <license>Abandonware</license>
+    </disk>
+</disks>

@@ -470,3 +470,117 @@ void emu_dsky_beep(int duration_ms) {
 int emu_dsky_get_key() {
   return -1;
 }
+
+//=============================================================================
+// Host File Transfer (R8/W8 utilities)
+//=============================================================================
+
+// Extended delegate protocol for host file transfer
+@protocol EMUIOHostFileDelegate <EMUIODelegate>
+@optional
+- (void)emuHostFileRequestRead:(NSString*)suggestedFilename;
+- (void)emuHostFileDownload:(NSString*)filename data:(NSData*)data;
+@end
+
+// Host file state
+static emu_host_file_state g_host_file_state = HOST_FILE_IDLE;
+static std::vector<uint8_t> g_host_read_buffer;
+static size_t g_host_read_pos = 0;
+static std::vector<uint8_t> g_host_write_buffer;
+static std::string g_host_write_filename;
+
+emu_host_file_state emu_host_file_get_state() {
+  return g_host_file_state;
+}
+
+bool emu_host_file_open_read(const char* filename) {
+  // Close any existing read operation
+  g_host_read_buffer.clear();
+  g_host_read_pos = 0;
+
+  // Request file from user via delegate
+  g_host_file_state = HOST_FILE_WAITING_READ;
+
+  id<EMUIOHostFileDelegate> delegate = (id<EMUIOHostFileDelegate>)g_delegate;
+  if (delegate && [delegate respondsToSelector:@selector(emuHostFileRequestRead:)]) {
+    NSString* suggestedName = filename ? [NSString stringWithUTF8String:filename] : @"";
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [delegate emuHostFileRequestRead:suggestedName];
+    });
+  }
+
+  return true;  // Request initiated (will wait for emu_host_file_provide_data)
+}
+
+bool emu_host_file_open_write(const char* filename) {
+  // Close any existing write operation
+  g_host_write_buffer.clear();
+  g_host_write_filename = filename ? filename : "download.bin";
+  g_host_file_state = HOST_FILE_WRITING;
+  return true;
+}
+
+int emu_host_file_read_byte() {
+  if (g_host_file_state != HOST_FILE_READING) return -1;
+  if (g_host_read_pos >= g_host_read_buffer.size()) return -1;
+  return g_host_read_buffer[g_host_read_pos++];
+}
+
+bool emu_host_file_write_byte(uint8_t byte) {
+  if (g_host_file_state != HOST_FILE_WRITING) return false;
+  g_host_write_buffer.push_back(byte);
+  return true;
+}
+
+void emu_host_file_close_read() {
+  g_host_read_buffer.clear();
+  g_host_read_pos = 0;
+  g_host_file_state = HOST_FILE_IDLE;
+}
+
+void emu_host_file_close_write() {
+  if (g_host_file_state == HOST_FILE_WRITING && !g_host_write_buffer.empty()) {
+    // Trigger download/save via delegate
+    id<EMUIOHostFileDelegate> delegate = (id<EMUIOHostFileDelegate>)g_delegate;
+    if (delegate && [delegate respondsToSelector:@selector(emuHostFileDownload:data:)]) {
+      NSString* filename = [NSString stringWithUTF8String:g_host_write_filename.c_str()];
+      NSData* data = [NSData dataWithBytes:g_host_write_buffer.data() length:g_host_write_buffer.size()];
+      dispatch_async(dispatch_get_main_queue(), ^{
+        [delegate emuHostFileDownload:filename data:data];
+      });
+    }
+  }
+  g_host_write_buffer.clear();
+  g_host_write_filename.clear();
+  g_host_file_state = HOST_FILE_IDLE;
+}
+
+void emu_host_file_provide_data(const uint8_t* data, size_t size) {
+  g_host_read_buffer.assign(data, data + size);
+  g_host_read_pos = 0;
+  g_host_file_state = HOST_FILE_READING;
+}
+
+const uint8_t* emu_host_file_get_write_data() {
+  return g_host_write_buffer.empty() ? nullptr : g_host_write_buffer.data();
+}
+
+size_t emu_host_file_get_write_size() {
+  return g_host_write_buffer.size();
+}
+
+const char* emu_host_file_get_write_name() {
+  return g_host_write_filename.c_str();
+}
+
+// C function for Swift to provide file data after picker selection
+extern "C" void emu_host_file_load(const uint8_t* data, size_t size) {
+  emu_host_file_provide_data(data, size);
+}
+
+// C function for Swift to cancel a file read operation
+extern "C" void emu_host_file_cancel() {
+  g_host_file_state = HOST_FILE_IDLE;
+  g_host_read_buffer.clear();
+  g_host_read_pos = 0;
+}

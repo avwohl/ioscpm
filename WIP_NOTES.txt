@@ -1,6 +1,65 @@
 Work In Progress Notes - Z80CPM
 ================================
 
+SESSION: Dec 17, 2025 (afternoon)
+---------------------------------
+
+CLEANUP AND SLICE COUNT FEATURE:
+1. Removed non-working ROMs - kept only emu_avw.rom
+   - Deleted: SBC_simh_std.rom, emu_romwbw.rom, RCZ80_std.rom, emu_rcz80.rom
+
+2. Cleaned up disks - kept only combo and rebuilt infocom
+   - Deleted: hd1k_cpm22.img, hd1k_zsdos.img, hd1k_zpm3.img, hd1k_utils.img
+   - Copied rebuilt hd1k_infocom.img from romwbw_emu (has proper boot sector)
+
+3. Added configurable slice count per disk (1-8, default 4)
+   - UI: Stepper in Settings next to each disk picker
+   - Persists in UserDefaults
+   - Calls setDiskSliceCount() after loading each disk
+   - Lower slice counts use less HBIOS heap memory (helps with Zork!)
+
+4. VT100 terminal support confirmed - should work with Zork blanking screen
+
+Files changed:
+- hbios_core.h, hbios_core.cc: Added setDiskSliceCount()
+- RomWBWEmulator.h, RomWBWEmulator.mm: Bridge for slice count
+- EmulatorViewModel.swift: diskSliceCounts array, restoration, loading
+- ContentView.swift: UI for slice count stepper
+- disks.xml, release_assets/disks.xml: Only combo and infocom
+
+SESSION: Dec 17, 2025 (continued)
+---------------------------------
+
+DISK MOUNTING BUGS FIXED:
+1. closeDisk() was not resetting partition detection fields (partition_probed,
+   partition_base_lba, slice_size, is_hd1k, current_lba). This caused wrong
+   disk format detection when loading new disks.
+   - Fixed in: hbios_dispatch.cc:closeDisk()
+
+2. populateDiskUnitTable() was never called. The command line emulator calls
+   this to populate the HCB disk unit table so romldr can enumerate disks.
+   Without this, the boot loader couldn't find attached disks.
+   - Fixed in: hbios_dispatch.cc:initMemoryDisks() - now calls populateDiskUnitTable()
+     at the end, so all emulators get it automatically
+
+VERIFIED:
+- ROM files are byte-for-byte identical between iOS app and command line
+- GitHub release disk (hd1k_combo.img) boots correctly in command line emulator
+- hbios_dispatch.cc and hbios_dispatch.h are identical between both versions (symlinked)
+
+REMAINING HEAP ISSUE:
+- Both CLI and iOS configure 8 HD slices (C-J) for hd1k_combo - this is correct
+- CLI: 1859 disk buffer bytes free, boots successfully
+- iOS: 170 disk buffer bytes free, heap exhausted at drive H, PANIC
+- Root cause: iOS heap is being consumed faster than CLI
+- Added SYSALLOC logging to track heap allocations
+- Need to investigate why iOS uses ~1700 more heap bytes than CLI
+
+INFOCOM/ZORK CRASH:
+- hd1k_infocom.img crashes in CLI too (not iOS-specific)
+- User debugging in romwbw_emu project first (easier to debug CLI)
+- Will return to test iOS after CLI works
+
 SESSION: Dec 17, 2024
 ---------------------
 

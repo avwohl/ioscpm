@@ -37,6 +37,7 @@ public:
   const uint8_t* getDiskData(int unit) const;
   size_t getDiskSize(int unit) const;
   bool isDiskLoaded(int unit) const;
+  void setDiskSliceCount(int unit, int slices);  // Set max slices (1-8)
 
   // Input queue
   void queueInput(int ch);

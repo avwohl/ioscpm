@@ -8,31 +8,10 @@
         <license>Mixed</license>
     </disk>
     <disk>
-        <filename>hd1k_utils.img</filename>
-        <name>Host Utils (R8/W8)</name>
-        <description>R8.COM and W8.COM utilities for transferring files between CP/M and the host OS.</description>
+        <filename>hd1k_infocom.img</filename>
+        <name>Infocom Adventures</name>
+        <description>Classic Infocom text adventures: Zork 1-3, Hitchhiker's Guide, Planetfall, Enchanter, and more.</description>
         <size>8388608</size>
-        <license>Free</license>
-    </disk>
-    <disk>
-        <filename>hd1k_cpm22.img</filename>
-        <name>CP/M 2.2</name>
-        <description>Digital Research CP/M 2.2 operating system. The classic 8-bit OS.</description>
-        <size>8388608</size>
-        <license>Free (Lineo)</license>
-    </disk>
-    <disk>
-        <filename>hd1k_zsdos.img</filename>
-        <name>ZSDOS</name>
-        <description>Z-System DOS - Enhanced CP/M compatible OS with date/time stamping.</description>
-        <size>8388608</size>
-        <license>Free</license>
-    </disk>
-    <disk>
-        <filename>hd1k_zpm3.img</filename>
-        <name>ZPM3</name>
-        <description>Z-System CP/M 3 - Enhanced CP/M Plus with ZCPR support.</description>
-        <size>8388608</size>
-        <license>Free</license>
+        <license>Abandonware</license>
     </disk>
 </disks>
