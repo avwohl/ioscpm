@@ -119,6 +119,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var downloadStates: [String: DownloadState] = [:]
     private var downloadTasks: [String: URLSessionDownloadTask] = [:]
 
+    // Dedicated URLSession with no caching for disk downloads (avoids redirect caching issues)
+    private lazy var downloadSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        config.urlCache = nil
+        return URLSession(configuration: config)
+    }()
+
     // Disk slot labels
     let diskLabels = ["Disk 0 (OS)", "Disk 1 (OS)", "Disk 2 (OS)", "Disk 3 (Data)"]
 
@@ -604,15 +612,29 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         downloadStates[disk.filename] = .downloading(progress: 0)
 
-        let task = URLSession.shared.downloadTask(with: url) { [weak self] tempURL, response, error in
+        let task = downloadSession.downloadTask(with: url) { [weak self] tempURL, response, error in
             DispatchQueue.main.async {
                 guard let self = self else {
                     completion(false)
                     return
                 }
 
+                // Check HTTP status code first
                 if let httpResponse = response as? HTTPURLResponse {
                     self.debugPrint("[Download] HTTP status: \(httpResponse.statusCode)")
+                    if httpResponse.statusCode < 200 || httpResponse.statusCode >= 300 {
+                        self.debugPrint("[Download] ERROR: Bad HTTP status \(httpResponse.statusCode)")
+                        if attemptsRemaining > 1 {
+                            self.debugPrint("[Download] Retrying in 1 second... (\(attemptsRemaining - 1) attempts left)")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                self.downloadDiskWithRetry(disk, attemptsRemaining: attemptsRemaining - 1, completion: completion)
+                            }
+                            return
+                        }
+                        self.downloadStates[disk.filename] = .error("HTTP error \(httpResponse.statusCode)")
+                        completion(false)
+                        return
+                    }
                 }
 
                 // Check for errors - retry if attempts remaining
@@ -1002,9 +1024,26 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         downloadStates[disk.filename] = .downloading(progress: 0)
 
-        let task = URLSession.shared.downloadTask(with: url) { [weak self] tempURL, response, error in
+        let task = downloadSession.downloadTask(with: url) { [weak self] tempURL, response, error in
             DispatchQueue.main.async {
                 guard let self = self else { return }
+
+                // Check HTTP status code first
+                if let httpResponse = response as? HTTPURLResponse {
+                    self.debugPrint("[Settings Download] HTTP status: \(httpResponse.statusCode)")
+                    if httpResponse.statusCode < 200 || httpResponse.statusCode >= 300 {
+                        self.debugPrint("[Settings Download] ERROR: Bad HTTP status \(httpResponse.statusCode)")
+                        if attemptsRemaining > 1 {
+                            self.debugPrint("[Settings Download] Retrying in 1 second...")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1)
+                            }
+                            return
+                        }
+                        self.downloadStates[disk.filename] = .error("HTTP error \(httpResponse.statusCode)")
+                        return
+                    }
+                }
 
                 if let error = error {
                     self.debugPrint("[Settings Download] ERROR: \(error.localizedDescription)")
