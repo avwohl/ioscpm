@@ -254,6 +254,7 @@ void HBIOSEmulator::stop() {
 
 void HBIOSEmulator::setDebug(bool enable) {
   debug = enable;
+  emu_set_debug(enable);
   hbios.setDebug(enable);
   memory.set_debug(enable);
 }

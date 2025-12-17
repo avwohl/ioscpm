@@ -65,6 +65,26 @@ struct ContentView: View {
                 .padding(.vertical, 4)
                 .background(Color(.systemGray6))
             }
+            .overlay(
+                // Download overlay
+                Group {
+                    if viewModel.isDownloading {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                            Text("Downloading...")
+                                .font(.headline)
+                            Text(viewModel.downloadingDiskName)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(24)
+                        .background(Color(.systemBackground).opacity(0.95))
+                        .cornerRadius(12)
+                        .shadow(radius: 10)
+                    }
+                }
+            )
             .navigationTitle("Z80CPM v\(appVersion)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -293,11 +313,12 @@ struct SettingsView: View {
     var body: some View {
         NavigationView {
             Form {
-                // Scroll hint
+                // Warning about downloaded disks
                 Section {
                     HStack {
-                        Spacer()
-                        Text("↓ Scroll for more options")
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("Downloaded disks may be replaced on updates. Save work to local files. ↓ Scroll")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                         Spacer()
@@ -535,6 +556,13 @@ struct SettingsView: View {
                 if case .success(let url) = result {
                     viewModel.createNewDisk(at: url)
                 }
+            }
+            .alert(isPresented: $viewModel.showingError) {
+                Alert(
+                    title: Text("Error"),
+                    message: Text(viewModel.errorMessage),
+                    dismissButton: .default(Text("OK"))
+                )
             }
         }
         .navigationViewStyle(.stack)

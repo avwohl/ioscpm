@@ -43,6 +43,7 @@ static std::mutex g_input_mutex;
 static int g_cursor_row = 0;
 static int g_cursor_col = 0;
 static uint8_t g_attr = 0x07;
+static bool g_debug_enabled = false;
 
 // Audio engine for beep
 static AVAudioEngine* g_audioEngine = nil;
@@ -140,12 +141,17 @@ void emu_aux_out(uint8_t ch) {}
 //=============================================================================
 
 void emu_log(const char* fmt, ...) {
+  if (!g_debug_enabled) return;
   va_list args;
   va_start(args, fmt);
   char buf[1024];
   vsnprintf(buf, sizeof(buf), fmt, args);
   va_end(args);
   NSLog(@"[EMU] %s", buf);
+}
+
+void emu_set_debug(bool enable) {
+  g_debug_enabled = enable;
 }
 
 void emu_error(const char* fmt, ...) {
