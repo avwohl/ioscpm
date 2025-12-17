@@ -594,9 +594,30 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
     }
 
-    /// Download a disk image with completion callback (with automatic retry)
+    /// Download a disk image with completion callback (uses same path as settings download)
     private func downloadDiskWithCompletion(_ disk: DownloadableDisk, completion: @escaping (Bool) -> Void) {
-        downloadDiskWithRetry(disk, attemptsRemaining: 3, completion: completion)
+        // Use the settings download path and poll for completion
+        downloadDiskFromSettings(disk, attemptsRemaining: 3)
+        waitForDownloadCompletion(disk.filename, completion: completion)
+    }
+
+    /// Poll for download completion (checks downloadStates)
+    private func waitForDownloadCompletion(_ filename: String, completion: @escaping (Bool) -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self = self else {
+                completion(false)
+                return
+            }
+            switch self.downloadStates[filename] {
+            case .downloaded:
+                completion(true)
+            case .error:
+                completion(false)
+            case .downloading, .notDownloaded, .none:
+                // Still in progress, keep polling
+                self.waitForDownloadCompletion(filename, completion: completion)
+            }
+        }
     }
 
     /// Internal download with retry logic
