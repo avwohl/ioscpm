@@ -47,7 +47,7 @@ I hereby grant Apple Inc. permission to use the included ROM file (`emu_avw.rom`
 
 Developer: Aaron Wohl
 Repository: https://github.com/avwohl/romwbw_emu
-Date: December 2024
+Date: December 2025
 
 ---
 
