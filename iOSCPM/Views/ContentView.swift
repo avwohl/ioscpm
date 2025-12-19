@@ -263,7 +263,7 @@ struct AboutView: View {
                 Spacer()
 
                 VStack(spacing: 4) {
-                    Text("License: MIT")
+                    Text("License: GPL v3")
                         .font(.caption)
                     Text("CP/M OS licensed by Lineo for non-commercial use")
                         .font(.caption)
@@ -516,7 +516,7 @@ struct SettingsView: View {
                             .font(.caption)
                         Text("Built on the RomWBW HBIOS platform")
                             .font(.caption)
-                        Text("License: MIT")
+                        Text("License: GPL v3")
                             .font(.caption)
                         Text("CP/M OS licensed by Lineo for non-commercial use")
                             .font(.caption)
