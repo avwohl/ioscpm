@@ -40,11 +40,59 @@ static void setup_hbios_ident(banked_mem& memory) {
 }
 
 //=============================================================================
+// hbios_cpu Implementation
+//=============================================================================
+
+hbios_cpu::hbios_cpu(qkz80_cpu_mem* mem, HBIOSEmulator* emu)
+  : qkz80(mem), emulator(emu) {}
+
+void hbios_cpu::halt() {
+  emu_status("HLT instruction - emulation stopped\n");
+  emulator->running = false;
+}
+
+void hbios_cpu::unimplemented_opcode(qkz80_uint8 opcode, qkz80_uint16 pc) {
+  emu_error("Unimplemented opcode 0x%02X at PC=0x%04X\n", opcode, pc);
+  emulator->running = false;
+}
+
+qkz80_uint8 hbios_cpu::port_in(qkz80_uint8 port) {
+  switch (port) {
+    case 0x78:  // Bank register
+    case 0x7C:
+      return emulator->memory.get_current_bank();
+
+    case 0xFE:  // Sense switches (front panel)
+      return 0x00;
+
+    default:
+      return 0xFF;
+  }
+}
+
+void hbios_cpu::port_out(qkz80_uint8 port, qkz80_uint8 value) {
+  switch (port) {
+    case 0x78:  // RAM bank
+    case 0x7C:  // ROM bank
+      emulator->memory.select_bank(value);
+      break;
+
+    case 0xEE:  // EMU signal port
+      emulator->hbios.handleSignalPort(value);
+      break;
+
+    case 0xEF:  // HBIOS dispatch port
+      emulator->hbios.handlePortDispatch();
+      break;
+  }
+}
+
+//=============================================================================
 // Constructor/Destructor
 //=============================================================================
 
 HBIOSEmulator::HBIOSEmulator()
-  : memory(), cpu(&memory), running(false), waiting_for_input(false),
+  : memory(), cpu(&memory, this), running(false), waiting_for_input(false),
     debug(false), instruction_count(0), boot_string_pos(0)
 {
   // Initialize banked memory
@@ -267,81 +315,7 @@ void HBIOSEmulator::runBatch(int count) {
   if (!running || waiting_for_input) return;
 
   for (int i = 0; i < count && running && !waiting_for_input; i++) {
-    uint16_t pc = cpu.regs.PC.get_pair16();
-    uint8_t opcode = memory.fetch_mem(pc) & 0xFF;
-
-    // Check for HBIOS trap
-    if (hbios.checkTrap(pc)) {
-      int trap_type = hbios.getTrapType(pc);
-      if (!hbios.handleCall(trap_type)) {
-        emu_error("[HBIOS] Failed to handle trap at 0x%04X\n", pc);
-      }
-      // Note: Don't check isWaitingForInput here - let the I/O port handler
-      // manage input waiting (matching web version behavior)
-      instruction_count++;
-      continue;
-    }
-
-    // Handle HLT instruction
-    if (opcode == 0x76) {
-      emu_status("HLT instruction - emulation stopped\n");
-      running = false;
-      break;
-    }
-
-    // Handle IN instruction (0xDB)
-    if (opcode == 0xDB) {
-      uint8_t port = memory.fetch_mem(pc + 1) & 0xFF;
-      uint8_t value = handle_in(port);
-      cpu.set_reg8(value, qkz80::reg_A);
-      cpu.regs.PC.set_pair16(pc + 2);
-      instruction_count++;
-      continue;
-    }
-
-    // Handle OUT instruction (0xD3)
-    if (opcode == 0xD3) {
-      uint8_t port = memory.fetch_mem(pc + 1) & 0xFF;
-      uint8_t value = cpu.get_reg8(qkz80::reg_A);
-      handle_out(port, value);
-      cpu.regs.PC.set_pair16(pc + 2);
-      instruction_count++;
-      continue;
-    }
-
-    // Execute normal instruction
     cpu.execute();
     instruction_count++;
-  }
-}
-
-//=============================================================================
-// I/O Port Handlers
-//=============================================================================
-
-uint8_t HBIOSEmulator::handle_in(uint8_t port) {
-  switch (port) {
-    case 0x78:  // Bank register
-    case 0x7C:
-      return memory.get_current_bank();
-
-    case 0xFE:  // Sense switches (front panel) - match CLI
-      return 0x00;
-
-    default:
-      return 0xFF;
-  }
-}
-
-void HBIOSEmulator::handle_out(uint8_t port, uint8_t value) {
-  switch (port) {
-    case 0x78:  // RAM bank
-    case 0x7C:  // ROM bank
-      memory.select_bank(value);
-      break;
-
-    case 0xEE:  // EMU signal port
-      hbios.handleSignalPort(value);
-      break;
   }
 }

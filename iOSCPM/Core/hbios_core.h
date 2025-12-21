@@ -16,11 +16,34 @@
 #include <vector>
 #include <queue>
 
+// Forward declaration
+class HBIOSEmulator;
+
+//=============================================================================
+// Custom CPU - subclass of qkz80 for halt/unimplemented opcode handling
+//=============================================================================
+
+class hbios_cpu : public qkz80 {
+public:
+  hbios_cpu(qkz80_cpu_mem* mem, HBIOSEmulator* emu);
+
+  void halt() override;
+  void unimplemented_opcode(qkz80_uint8 opcode, qkz80_uint16 pc) override;
+
+  // I/O port handlers - override for custom I/O
+  void port_out(qkz80_uint8 port, qkz80_uint8 value) override;
+  qkz80_uint8 port_in(qkz80_uint8 port) override;
+
+private:
+  HBIOSEmulator* emulator;
+};
+
 //=============================================================================
 // HBIOS Emulator Class
 //=============================================================================
 
 class HBIOSEmulator {
+  friend class hbios_cpu;
 public:
   HBIOSEmulator();
   ~HBIOSEmulator();
@@ -64,7 +87,7 @@ public:
 private:
   // CPU and memory
   banked_mem memory;
-  qkz80 cpu;
+  hbios_cpu cpu;
 
   // HBIOS dispatcher (shared implementation)
   HBIOSDispatch hbios;
@@ -79,10 +102,6 @@ private:
   std::queue<int> input_queue;
   std::string boot_string;
   size_t boot_string_pos;
-
-  // I/O handling
-  uint8_t handle_in(uint8_t port);
-  void handle_out(uint8_t port, uint8_t value);
 };
 
 #endif // HBIOS_CORE_H

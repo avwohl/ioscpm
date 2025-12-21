@@ -11,6 +11,8 @@
 #include <cstdio>
 #include <queue>
 #include <mutex>
+#include <unistd.h>
+#include <strings.h>
 
 //=============================================================================
 // Delegate Protocol
@@ -59,6 +61,18 @@ extern "C" void emu_io_set_delegate(id<EMUIODelegate> delegate) {
 
 extern "C" id<EMUIODelegate> emu_io_get_delegate(void) {
   return g_delegate;
+}
+
+//=============================================================================
+// Utility Functions
+//=============================================================================
+
+void emu_sleep_ms(int ms) {
+  usleep(ms * 1000);
+}
+
+int emu_strncasecmp(const char* s1, const char* s2, size_t n) {
+  return strncasecmp(s1, s2, n);
 }
 
 //=============================================================================
