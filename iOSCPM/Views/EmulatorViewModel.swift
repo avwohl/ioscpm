@@ -5,6 +5,7 @@
 import SwiftUI
 import Combine
 import AVFoundation
+import CryptoKit
 
 // ROM option with name and filename
 struct ROMOption: Identifiable, Hashable {
@@ -40,6 +41,7 @@ struct DownloadableDisk: Identifiable, Codable {
     let url: String
     let sizeBytes: Int64
     let license: String  // "MIT", "Free", "User-provided", etc.
+    let sha256: String?  // Optional SHA256 hash for integrity verification
 
     var sizeDescription: String {
         if sizeBytes >= 1_000_000 {
@@ -47,6 +49,12 @@ struct DownloadableDisk: Identifiable, Codable {
         } else {
             return String(format: "%.0f KB", Double(sizeBytes) / 1_000)
         }
+    }
+
+    /// Short SHA256 prefix for display (first 8 chars)
+    var sha256Short: String? {
+        guard let hash = sha256, hash.count >= 8 else { return nil }
+        return String(hash.prefix(8))
     }
 }
 
@@ -697,6 +705,28 @@ class EmulatorViewModel: NSObject, ObservableObject {
                     let fileExists = FileManager.default.fileExists(atPath: destURL.path)
                     self.debugPrint("[Download] SUCCESS: '\(disk.filename)' saved, fileExists=\(fileExists)")
 
+                    // Verify SHA256 checksum if available
+                    if let expectedSha256 = disk.sha256 {
+                        let actualSha256 = self.sha256OfFile(at: destURL)
+                        if actualSha256?.lowercased() != expectedSha256.lowercased() {
+                            self.debugPrint("[Download] ERROR: SHA256 mismatch for '\(disk.filename)'")
+                            self.debugPrint("[Download]   Expected: \(expectedSha256)")
+                            self.debugPrint("[Download]   Got:      \(actualSha256 ?? "nil")")
+                            try? FileManager.default.removeItem(at: destURL)
+                            if attemptsRemaining > 1 {
+                                self.debugPrint("[Download] Retrying in 1 second... (\(attemptsRemaining - 1) attempts left)")
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                    self.downloadDiskWithRetry(disk, attemptsRemaining: attemptsRemaining - 1, completion: completion)
+                                }
+                                return
+                            }
+                            self.downloadStates[disk.filename] = .error("Checksum mismatch")
+                            completion(false)
+                            return
+                        }
+                        self.debugPrint("[Download] SHA256 verified: \(expectedSha256.prefix(16))...")
+                    }
+
                     self.downloadStates[disk.filename] = .downloaded
                     self.refreshAvailableDisks()
                     // Update the selected disk to mark it as downloaded
@@ -787,7 +817,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     func sendKey(_ char: Character) {
         // Only send ASCII characters (0-127) to CP/M
-        guard let code = char.asciiValue else { return }
+        guard let code = char.asciiValue else {
+            NSLog("[sendKey] non-ASCII char ignored: %@", String(char))
+            return
+        }
+        NSLog("[sendKey] sending char: 0x%02X '%c' emulator=%@", code, code, emulator != nil ? "YES" : "NIL")
         emulator?.sendCharacter(unichar(code))
     }
 
@@ -862,6 +896,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private func showError(_ message: String) {
         errorMessage = message
         showingError = true
+    }
+
+    /// Calculate SHA256 hash of a file
+    func sha256OfFile(at url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let hash = SHA256.hash(data: data)
+        return hash.map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - Disk Catalog Management
@@ -1778,6 +1819,8 @@ class DiskCatalogXMLParser: NSObject, XMLParserDelegate {
             currentDisk["size"] = trimmed
         case "license":
             currentDisk["license"] = trimmed
+        case "sha256":
+            currentDisk["sha256"] = trimmed
         case "disk":
             // End of disk element - create DownloadableDisk
             if let filename = currentDisk["filename"],
@@ -1788,7 +1831,8 @@ class DiskCatalogXMLParser: NSObject, XMLParserDelegate {
                     description: currentDisk["description"] ?? "",
                     url: "\(baseURL)/\(filename)",
                     sizeBytes: Int64(currentDisk["size"] ?? "0") ?? 0,
-                    license: currentDisk["license"] ?? "Unknown"
+                    license: currentDisk["license"] ?? "Unknown",
+                    sha256: currentDisk["sha256"]
                 )
                 disks.append(disk)
             }

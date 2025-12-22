@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<disks version="6">
+<disks version="7">
     <disk>
         <filename>hd1k_combo.img</filename>
         <name>Combo (Recommended)</name>
         <description>49MB multi-slice disk with CP/M 2.2, games, utilities, and R8/W8 host file transfer. Best starter disk.</description>
         <size>51380224</size>
         <license>Mixed</license>
+        <sha256>c14b9bef3eca03523c059b6c5eb4921e66323921dc481ebf5f84fb378627fb0f</sha256>
     </disk>
     <disk>
         <filename>hd1k_cpm22.img</filename>
@@ -13,6 +14,7 @@
         <description>Digital Research CP/M 2.2 operating system with standard utilities.</description>
         <size>8388608</size>
         <license>Mixed</license>
+        <sha256>bfe32f3b5d6ebc8c9d5615a3390d61bba4cb565039d4fb144a65a9502515cbe6</sha256>
     </disk>
     <disk>
         <filename>hd1k_zsdos.img</filename>
@@ -20,6 +22,7 @@
         <description>Z-System DOS - enhanced CP/M compatible OS with date/time stamping.</description>
         <size>8388608</size>
         <license>Mixed</license>
+        <sha256>0d44decad41fd054dcaf44219d60b0c253e7351e30dec16e902ec76d1a063acc</sha256>
     </disk>
     <disk>
         <filename>hd1k_zpm3.img</filename>
@@ -27,6 +30,7 @@
         <description>Z-System Plus/M3 - enhanced CP/M 3 compatible with ZCPR extensions.</description>
         <size>8388608</size>
         <license>Mixed</license>
+        <sha256>7397a518e7cbee06d3d9fd470d9a5185c9b81fad8b757607248de010eced6187</sha256>
     </disk>
     <disk>
         <filename>hd1k_cpm3.img</filename>
@@ -34,6 +38,7 @@
         <description>CP/M Plus (CP/M 3.0) - NOT WORKING, under investigation.</description>
         <size>8388608</size>
         <license>Mixed</license>
+        <sha256>9d2199eeef755f36b36fd3eae886f18da5b44bfd1f0ea1bed4fa49c73950472c</sha256>
     </disk>
     <disk>
         <filename>hd1k_nzcom.img</filename>
@@ -41,6 +46,7 @@
         <description>NZCOM - Z-System implementation for CP/M 2.2 environments.</description>
         <size>8388608</size>
         <license>Mixed</license>
+        <sha256>c578ef7264be9cdcddd1b8bee242ef728dcbbdf1043c05ad0d2fac14e873beee</sha256>
     </disk>
     <disk>
         <filename>hd1k_qpm.img</filename>
@@ -48,6 +54,7 @@
         <description>QPM - QP/M operating system, CP/M 2.2 compatible alternative.</description>
         <size>8388608</size>
         <license>Mixed</license>
+        <sha256>3822a1db41b0a3d710a5125a5dca04dabc611fd7ef48ff014d3c42a01357460b</sha256>
     </disk>
     <disk>
         <filename>hd1k_games.img</filename>
@@ -55,6 +62,7 @@
         <description>Collection of classic CP/M games including adventures and arcade.</description>
         <size>8388608</size>
         <license>Abandonware</license>
+        <sha256>7f33738c4c8be0655ee9452370fe450146492e9174347c22b3300ac2377d0abd</sha256>
     </disk>
     <disk>
         <filename>hd1k_infocom.img</filename>
@@ -62,6 +70,7 @@
         <description>Classic Infocom text adventures with VEZZA interpreter. Run: VEZZA ZORK1.Z3</description>
         <size>8388608</size>
         <license>Abandonware</license>
+        <sha256>135def877f4a4869a2d9ed169ca6fdab569010089ae8cf1ff9f69c0a1467756b</sha256>
     </disk>
     <disk>
         <filename>hd1k_aztecc.img</filename>
@@ -69,6 +78,7 @@
         <description>Aztec C compiler for CP/M - professional C development environment.</description>
         <size>8388608</size>
         <license>Abandonware</license>
+        <sha256>d2e637a562a31fd855281ec3eb8ed598019885ecb127e22c7d4b8e1fc4c44c03</sha256>
     </disk>
     <disk>
         <filename>hd1k_bascomp.img</filename>
@@ -76,6 +86,7 @@
         <description>Collection of BASIC compilers and interpreters for CP/M.</description>
         <size>8388608</size>
         <license>Abandonware</license>
+        <sha256>4a260bcaebe5666e6144c219e22d16a9d784cf328b4e9372c3654808ab689943</sha256>
     </disk>
     <disk>
         <filename>hd1k_cowgol.img</filename>
@@ -83,6 +94,7 @@
         <description>Cowgol compiler - modern language targeting 8-bit systems.</description>
         <size>8388608</size>
         <license>Open Source</license>
+        <sha256>68fdae49d596799ea0393d17eecac5a2bafea3284b679db6bb7e0278dcc443fd</sha256>
     </disk>
     <disk>
         <filename>hd1k_fortran.img</filename>
@@ -90,6 +102,7 @@
         <description>Fortran compiler for CP/M - scientific computing language.</description>
         <size>8388608</size>
         <license>Abandonware</license>
+        <sha256>a9b977eb88dc71414634cb847eb12eb84f62150d08fe4de60e9e88fb2fc2c27a</sha256>
     </disk>
     <disk>
         <filename>hd1k_hitechc.img</filename>
@@ -97,6 +110,7 @@
         <description>Hi-Tech C compiler - optimizing C compiler for Z80 CP/M.</description>
         <size>8388608</size>
         <license>Freeware</license>
+        <sha256>1423423e124bbc4b90b4152522923c16a41ccef3b3eae9d99fcad19909dc4d74</sha256>
     </disk>
     <disk>
         <filename>hd1k_tpascal.img</filename>
@@ -104,6 +118,7 @@
         <description>Borland Turbo Pascal 3.0 - fast Pascal IDE and compiler.</description>
         <size>8388608</size>
         <license>Freeware</license>
+        <sha256>b349c329b6233ad9cfcdd728075c4e53fe5e737a6d6003f20e5f1eb80e007573</sha256>
     </disk>
     <disk>
         <filename>hd1k_z80asm.img</filename>
@@ -111,6 +126,7 @@
         <description>Collection of Z80 assemblers and development tools.</description>
         <size>8388608</size>
         <license>Mixed</license>
+        <sha256>46104ce74a53405b99228bf7d17f000880dab5e0aca0fb774ae7fa046559f04d</sha256>
     </disk>
     <disk>
         <filename>hd1k_ws4.img</filename>
@@ -118,6 +134,7 @@
         <description>WordStar 4.0 - classic word processor for CP/M.</description>
         <size>8388608</size>
         <license>Abandonware</license>
+        <sha256>fcdf308753142d2d2957636ac74721f8e3ef27a4f0aeec81f41196f631c1f2c9</sha256>
     </disk>
     <disk>
         <filename>hd1k_z3plus.img</filename>
@@ -125,6 +142,7 @@
         <description>Z3Plus - ZCPR3 command processor with enhanced features.</description>
         <size>8388608</size>
         <license>Mixed</license>
+        <sha256>09fa6306b5b38db7f4536c38a192488b8c2e608add0fb869aea274356f2bb760</sha256>
     </disk>
     <disk>
         <filename>hd1k_bp.img</filename>
@@ -132,6 +150,7 @@
         <description>B/P Bios utilities and tools disk.</description>
         <size>8388608</size>
         <license>Mixed</license>
+        <sha256>37b31a2866bf7b0b6617395be7fd599ba1e287b7037ffe9fd112cb07ae1d60f1</sha256>
     </disk>
     <disk>
         <filename>hd1k_msxroms1.img</filename>
@@ -139,6 +158,7 @@
         <description>MSX ROM images collection - volume 1.</description>
         <size>8388608</size>
         <license>Abandonware</license>
+        <sha256>0d0624a444369971c1e6ff68d04ffede7050d157963bbf2821ff1d338a439d5f</sha256>
     </disk>
     <disk>
         <filename>hd1k_msxroms2.img</filename>
@@ -146,5 +166,6 @@
         <description>MSX ROM images collection - volume 2.</description>
         <size>8388608</size>
         <license>Abandonware</license>
+        <sha256>4a8e89b981f2684e9f523010d84d2050db6cf07d031aa9fb200f3bc1b9cf2893</sha256>
     </disk>
 </disks>

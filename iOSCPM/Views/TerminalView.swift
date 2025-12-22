@@ -356,6 +356,43 @@ class TerminalUIView: UIView, UIKeyInput {
             onKeyInput?(Character(UnicodeScalar(ctrlCode)))
         }
     }
+
+    // MARK: - Hardware Keyboard Support
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var handled = false
+
+        for press in presses {
+            guard let key = press.key else { continue }
+
+            // Get the characters from the key press
+            let chars = key.characters
+
+            // Debug: log all key presses
+            if let ascii = chars.first?.asciiValue {
+                NSLog("[KEY] pressesBegan: '%@' ascii=%d modifiers=%lu", chars, ascii, key.modifierFlags.rawValue)
+            }
+
+            // Check for modifier keys that we handle via keyCommands
+            if key.modifierFlags.contains(.command) || key.modifierFlags.contains(.control) {
+                // Let keyCommands handle these
+                continue
+            }
+
+            // Handle regular character input from hardware keyboard
+            if !chars.isEmpty {
+                for char in chars {
+                    onKeyInput?(char)
+                    handled = true
+                }
+            }
+        }
+
+        // If we didn't handle the press, pass it up the chain
+        if !handled {
+            super.pressesBegan(presses, with: event)
+        }
+    }
 }
 
 #Preview {

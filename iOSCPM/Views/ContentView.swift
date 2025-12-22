@@ -621,6 +621,21 @@ struct DiskDownloadRow: View {
         viewModel.downloadStates[disk.filename] ?? .notDownloaded
     }
 
+    /// Actual SHA256 of the downloaded file (first 8 chars)
+    var actualSha256Short: String? {
+        guard case .downloaded = downloadState else { return nil }
+        let url = viewModel.downloadsDirectory.appendingPathComponent(disk.filename)
+        guard let hash = viewModel.sha256OfFile(at: url), hash.count >= 8 else { return nil }
+        return String(hash.prefix(8))
+    }
+
+    /// Check if actual hash matches expected
+    var checksumMatches: Bool {
+        guard let actual = actualSha256Short,
+              let expected = disk.sha256Short else { return true }  // No expected = assume ok
+        return actual.lowercased() == expected.lowercased()
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -641,6 +656,21 @@ struct DiskDownloadRow: View {
                         Text(disk.license)
                             .font(.caption2)
                             .foregroundColor(.blue)
+                        if let sha256Short = actualSha256Short {
+                            Text("•")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text(sha256Short)
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundColor(checksumMatches ? .green : .red)
+                        } else if let expectedShort = disk.sha256Short {
+                            Text("•")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text(expectedShort)
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
 

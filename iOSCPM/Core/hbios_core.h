@@ -102,6 +102,12 @@ private:
   std::queue<int> input_queue;
   std::string boot_string;
   size_t boot_string_pos;
+
+  // RAM bank initialization tracking (bitmask for banks 0x80-0x8F)
+  uint16_t initialized_ram_banks;
+
+  // Initialize a RAM bank if it hasn't been initialized yet
+  void initializeRamBankIfNeeded(uint8_t bank);
 };
 
 #endif // HBIOS_CORE_H
