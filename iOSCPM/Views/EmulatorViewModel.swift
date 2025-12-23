@@ -817,11 +817,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     func sendKey(_ char: Character) {
         // Only send ASCII characters (0-127) to CP/M
-        guard let code = char.asciiValue else {
-            NSLog("[sendKey] non-ASCII char ignored: %@", String(char))
-            return
-        }
-        NSLog("[sendKey] sending char: 0x%02X '%c' emulator=%@", code, code, emulator != nil ? "YES" : "NIL")
+        guard let code = char.asciiValue else { return }
         emulator?.sendCharacter(unichar(code))
     }
 

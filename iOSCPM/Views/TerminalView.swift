@@ -368,11 +368,6 @@ class TerminalUIView: UIView, UIKeyInput {
             // Get the characters from the key press
             let chars = key.characters
 
-            // Debug: log all key presses
-            if let ascii = chars.first?.asciiValue {
-                NSLog("[KEY] pressesBegan: '%@' ascii=%d modifiers=%lu", chars, ascii, key.modifierFlags.rawValue)
-            }
-
             // Check for modifier keys that we handle via keyCommands
             if key.modifierFlags.contains(.command) || key.modifierFlags.contains(.control) {
                 // Let keyCommands handle these

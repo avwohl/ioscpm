@@ -71,6 +71,10 @@ void emu_sleep_ms(int ms) {
   usleep(ms * 1000);
 }
 
+int emu_strcasecmp(const char* s1, const char* s2) {
+  return strcasecmp(s1, s2);
+}
+
 int emu_strncasecmp(const char* s1, const char* s2, size_t n) {
   return strncasecmp(s1, s2, n);
 }
