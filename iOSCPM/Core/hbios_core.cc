@@ -12,219 +12,37 @@
 // Debug log file - set to nullptr to disable logging
 FILE* debug_log_file = nullptr;
 
-// Debug logging - disabled in production (no-op when debug_log_file is null)
-static inline void hlog(const char*, ...) {
-  // No-op - debug logging disabled
+// Debug logging helper
+static inline void hlog(const char* fmt, ...) {
+  if (!debug_log_file) return;
+  va_list args;
+  va_start(args, fmt);
+  vfprintf(debug_log_file, fmt, args);
+  va_end(args);
 }
 
 //=============================================================================
-// hbios_cpu Implementation
+// HBIOSCPUDelegate Implementation
 //=============================================================================
 
-hbios_cpu::hbios_cpu(qkz80_cpu_mem* mem, HBIOSEmulator* emu)
-  : qkz80(mem), emulator(emu) {}
-
-void hbios_cpu::halt() {
+void HBIOSEmulator::onHalt() {
   emu_status("HLT instruction - emulation stopped\n");
-  hlog("[HALT] Z80 HLT at PC=0x%04X\n", regs.PC.get_pair16());
-  emulator->running = false;
+  hlog("[HALT] Z80 HLT at PC=0x%04X\n", cpu.regs.PC.get_pair16());
+  running = false;
 }
 
-void hbios_cpu::unimplemented_opcode(qkz80_uint8 opcode, qkz80_uint16 pc) {
+void HBIOSEmulator::onUnimplementedOpcode(uint8_t opcode, uint16_t pc) {
   emu_error("Unimplemented opcode 0x%02X at PC=0x%04X\n", opcode, pc);
   hlog("[UNIMPL] Unimplemented opcode 0x%02X at PC=0x%04X\n", opcode, pc);
-  emulator->running = false;
+  running = false;
 }
 
-qkz80_uint8 hbios_cpu::port_in(qkz80_uint8 port) {
-  switch (port) {
-    case 0x68: {  // UART data register - read character
-      int ch = emulator->hbios.readInputChar();
-      return (ch >= 0) ? (ch & 0xFF) : 0;
-    }
-
-    case 0x6D:  // UART Line Status Register (LSR)
-      // Bit 0: Data Ready, Bit 5: THRE (transmitter empty), Bit 6: TEMT
-      return 0x60 | (emulator->hbios.hasInputChar() ? 0x01 : 0x00);
-
-    case 0x78:  // Bank register
-    case 0x7C:
-      return emulator->memory.get_current_bank();
-
-    case 0xFE:  // Sense switches (front panel)
-      return 0x00;
-
-    default:
-      return 0xFF;
-  }
-}
-
-void hbios_cpu::port_out(qkz80_uint8 port, qkz80_uint8 value) {
-  // DEBUG: Log port output (except noisy 0xEF which is HBIOS dispatch)
-  if (port >= 0xE0 && port != 0xEF) {
-    hlog( "[PORT OUT] port=0x%02X value=0x%02X PC=0x%04X\n",
-            port, value, regs.PC.get_pair16());
-  }
-
-  switch (port) {
-    case 0x78:  // RAM bank
-    case 0x7C:  // ROM bank
-      // Initialize RAM bank if first access (ensures page zero/HCB is present)
-      // This is needed because CP/M 3 uses direct port I/O for bank switching
-      // instead of HBIOS SYSSETBNK, bypassing the initialization in that handler.
-      emulator->initializeRamBankIfNeeded(value);
-      emulator->memory.select_bank(value);
-      break;
-
-    case 0xEC: {
-      // EMU BNKCPY port - inter-bank memory copy
-      // Called when HB_BNKCPY at 0xFFF6 executes: OUT (0xEC), A
-      // Parameters:
-      //   HL = source address, DE = dest address, BC = byte count
-      //   0xFFE4 = source bank, 0xFFE7 = dest bank
-      uint16_t src_addr = regs.HL.get_pair16();
-      uint16_t dst_addr = regs.DE.get_pair16();
-      uint16_t length = regs.BC.get_pair16();
-      uint8_t src_bank = emulator->memory.fetch_mem(0xFFE4);
-      uint8_t dst_bank = emulator->memory.fetch_mem(0xFFE7);
-
-      // DEBUG: Always log BNKCPY calls
-      static int bnkcpy_count = 0;
-      bnkcpy_count++;
-      hlog("[BNKCPY #%d] src=%02X:%04X dst=%02X:%04X len=%d PC=0x%04X\n",
-           bnkcpy_count, src_bank, src_addr, dst_bank, dst_addr, length,
-           regs.PC.get_pair16());
-
-      // Perform inter-bank copy
-      for (uint16_t i = 0; i < length; i++) {
-        uint8_t byte;
-        uint16_t s_addr = src_addr + i;
-        uint16_t d_addr = dst_addr + i;
-
-        // Read from source
-        if (s_addr >= 0x8000) {
-          byte = emulator->memory.fetch_mem(s_addr);
-        } else {
-          byte = emulator->memory.read_bank(src_bank, s_addr);
-        }
-
-        // Write to dest
-        if (d_addr >= 0x8000) {
-          emulator->memory.store_mem(d_addr, byte);
-        } else {
-          emulator->memory.write_bank(dst_bank, d_addr, byte);
-        }
-      }
-      break;
-    }
-
-    case 0xED: {
-      // EMU BNKCALL port - bank call to HBIOS vectors
-      // Called when HB_BNKCALL at 0xFFF9 executes: OUT (0xED), A
-      // On entry: A = target bank, IX = call address in target bank
-      uint16_t call_addr = regs.IX.get_pair16();
-      hlog( "[BNKCALL] bank=0x%02X addr=0x%04X\n", value, call_addr);
-
-      // Dispatch to HBIOSDispatch for known vectors
-      if (call_addr == 0x0406) {
-        // PRTSUM - Print device summary (used by boot loader 'D' command)
-        emulator->hbios.handlePRTSUM();
-      } else {
-        hlog( "[BNKCALL] Unknown vector 0x%04X - ignoring\n", call_addr);
-      }
-      // Z80 proxy code has its own RET, so no action needed
-      break;
-    }
-
-    case 0x68:  // UART data register - direct character output (used by boot menu)
-      // Output character to buffer (will be displayed by runBatch)
-      emulator->hbios.queueOutputChar(value);
-      break;
-
-    case 0xEE:  // EMU signal port
-      hlog("[SIGNAL] port 0xEE value=0x%02X\n", value);
-      emulator->hbios.handleSignalPort(value);
-      break;
-
-    case 0xEF: {  // HBIOS dispatch port
-      uint8_t func = emulator->cpu.regs.BC.get_high();
-      uint8_t unit = emulator->cpu.regs.BC.get_low();
-
-      // Suppress repeated CIOIST spam - only log every 1000th or when func changes
-      static uint8_t last_func = 0xFF;
-      static int cioist_count = 0;
-
-      if (func == 0x02) {  // CIOIST
-        cioist_count++;
-        // Log buffer state periodically to debug input issues
-        bool has_input = emulator->hbios.hasInputChar();
-        if (last_func != 0x02) {
-          hlog("[HBIOS] CIOIST polling started... (has_input=%d)\n", has_input ? 1 : 0);
-        } else if (cioist_count % 1000 == 0) {
-          hlog("[HBIOS] ...CIOIST x%d (has_input=%d)\n", cioist_count, has_input ? 1 : 0);
-        }
-        // If we have input, log every call to trace transition
-        if (has_input) {
-          hlog("[HBIOS] CIOIST with input available! cioist_count=%d\n", cioist_count);
-        }
-        last_func = func;
-        emulator->hbios.handlePortDispatch();
-        break;
-      }
-
-      // Log other functions normally
-      if (last_func == 0x02 && cioist_count > 1) {
-        hlog("[HBIOS] ...CIOIST ended after %d polls\n", cioist_count);
-        cioist_count = 0;
-      }
-      last_func = func;
-
-      // Map function code to name
-      const char* func_name = "???";
-      switch (func) {
-        case 0x00: func_name = "CIOIN"; break;
-        case 0x01: func_name = "CIOOUT"; break;
-        case 0x03: func_name = "CIOOST"; break;
-        case 0x04: func_name = "CIOINIT"; break;
-        case 0x05: func_name = "CIOQUERY"; break;
-        case 0x06: func_name = "CIODEVICE"; break;
-        case 0x10: func_name = "DIOSTATUS"; break;
-        case 0x11: func_name = "DIORESET"; break;
-        case 0x12: func_name = "DIOSEEK"; break;
-        case 0x13: func_name = "DIOREAD"; break;
-        case 0x14: func_name = "DIOWRITE"; break;
-        case 0x15: func_name = "DIOVERIFY"; break;
-        case 0x17: func_name = "DIODEVICE"; break;
-        case 0x18: func_name = "DIOMEDIA"; break;
-        case 0x1A: func_name = "DIOCAP"; break;
-        case 0x1B: func_name = "DIOGEOM"; break;
-        case 0x20: func_name = "RTCGETTIM"; break;
-        case 0x21: func_name = "RTCSETTIM"; break;
-        case 0x40: func_name = "VDAINI"; break;
-        case 0x41: func_name = "VDAQRY"; break;
-        case 0x45: func_name = "VDASCP"; break;
-        case 0x48: func_name = "VDAWRC"; break;
-        case 0x4C: func_name = "VDAKST"; break;
-        case 0x4E: func_name = "VDAKRD"; break;
-        case 0xE0: func_name = "EXTSLICE"; break;
-        case 0xF0: func_name = "SYSRESET"; break;
-        case 0xF1: func_name = "SYSVER"; break;
-        case 0xF2: func_name = "SYSSETBNK"; break;
-        case 0xF3: func_name = "SYSGETBNK"; break;
-        case 0xF4: func_name = "SYSSETCPY"; break;
-        case 0xF5: func_name = "SYSBNKCPY"; break;
-        case 0xF6: func_name = "SYSALLOC"; break;
-        case 0xF8: func_name = "SYSGET"; break;
-        case 0xF9: func_name = "SYSSET"; break;
-        case 0xFA: func_name = "SYSPEEK"; break;
-        case 0xFB: func_name = "SYSPOKE"; break;
-        case 0xFE: func_name = "SYSBOOT"; break;
-      }
-      hlog("[HBIOS] B=0x%02X C=0x%02X (%s)\n", func, unit, func_name);
-      emulator->hbios.handlePortDispatch();
-      break;
-    }
-  }
+void HBIOSEmulator::logDebug(const char* fmt, ...) {
+  if (!debug_log_file) return;
+  va_list args;
+  va_start(args, fmt);
+  vfprintf(debug_log_file, fmt, args);
+  va_end(args);
 }
 
 //=============================================================================
@@ -233,7 +51,7 @@ void hbios_cpu::port_out(qkz80_uint8 port, qkz80_uint8 value) {
 
 HBIOSEmulator::HBIOSEmulator()
   : memory(), cpu(&memory, this), running(false), waiting_for_input(false),
-    debug(false), instruction_count(0), boot_string_pos(0), initialized_ram_banks(0)
+    debug_enabled(false), instruction_count(0), boot_string_pos(0), initialized_ram_banks(0)
 {
   // Initialize banked memory
   memory.enable_banking();
@@ -451,9 +269,6 @@ void HBIOSEmulator::start() {
   // Enable banking
   memory.enable_banking();
 
-  // DEBUG: Enable proxy parameter tracing
-  memory.set_trace_proxy_params(true);
-
   // Debug: check disk state BEFORE reset
   hlog( "[HBIOS] Before reset - checking disk state:\n");
   for (int i = 0; i < 4; i++) {
@@ -540,7 +355,7 @@ void HBIOSEmulator::stop() {
 }
 
 void HBIOSEmulator::setDebug(bool enable) {
-  debug = enable;
+  debug_enabled = enable;
   emu_set_debug(enable);
   hbios.setDebug(enable);
   memory.set_debug(enable);

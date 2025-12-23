@@ -19,6 +19,7 @@
 		A1000023 /* qkz80_errors.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000023 /* qkz80_errors.cc */; };
 		A1000024 /* hbios_core.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000024 /* hbios_core.cc */; };
 		A1000025 /* hbios_dispatch.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000025 /* hbios_dispatch.cc */; };
+		A1000026 /* hbios_cpu.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000026 /* hbios_cpu.cc */; };
 		A1000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000030 /* Assets.xcassets */; };
 		A1000031 /* emu_hbios.bin in Resources */ = {isa = PBXBuildFile; fileRef = B1000031 /* emu_hbios.bin */; };
 		A1000060 /* emu_avw.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000060 /* emu_avw.rom */; };
@@ -54,6 +55,8 @@
 		B1000051 /* iOSCPM-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "iOSCPM-Bridging-Header.h"; sourceTree = "<group>"; };
 		B1000052 /* hbios_dispatch.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hbios_dispatch.h; sourceTree = "<group>"; };
 		B1000053 /* iOSCPM.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iOSCPM.entitlements; sourceTree = "<group>"; };
+		B1000026 /* hbios_cpu.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hbios_cpu.cc; sourceTree = "<group>"; };
+		B1000054 /* hbios_cpu.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hbios_cpu.h; sourceTree = "<group>"; };
 		B1000060 /* emu_avw.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_avw.rom; sourceTree = "<group>"; };
 		C1000001 /* iOSCPM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iOSCPM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -129,6 +132,8 @@
 				B1000024 /* hbios_core.cc */,
 				B1000052 /* hbios_dispatch.h */,
 				B1000025 /* hbios_dispatch.cc */,
+				B1000054 /* hbios_cpu.h */,
+				B1000026 /* hbios_cpu.cc */,
 				B1000049 /* romwbw_mem.h */,
 				B1000040 /* qkz80.h */,
 				B1000020 /* qkz80.cc */,
@@ -238,6 +243,7 @@
 				A1000023 /* qkz80_errors.cc in Sources */,
 				A1000024 /* hbios_core.cc in Sources */,
 				A1000025 /* hbios_dispatch.cc in Sources */,
+				A1000026 /* hbios_cpu.cc in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

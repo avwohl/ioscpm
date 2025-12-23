@@ -8,6 +8,7 @@
 #ifndef HBIOS_CORE_H
 #define HBIOS_CORE_H
 
+#include "hbios_cpu.h"  // Shared CPU class with port I/O handlers
 #include "qkz80.h"
 #include "romwbw_mem.h"
 #include "hbios_dispatch.h"
@@ -16,34 +17,11 @@
 #include <vector>
 #include <queue>
 
-// Forward declaration
-class HBIOSEmulator;
-
 //=============================================================================
-// Custom CPU - subclass of qkz80 for halt/unimplemented opcode handling
+// HBIOS Emulator Class - implements HBIOSCPUDelegate for the shared CPU
 //=============================================================================
 
-class hbios_cpu : public qkz80 {
-public:
-  hbios_cpu(qkz80_cpu_mem* mem, HBIOSEmulator* emu);
-
-  void halt() override;
-  void unimplemented_opcode(qkz80_uint8 opcode, qkz80_uint16 pc) override;
-
-  // I/O port handlers - override for custom I/O
-  void port_out(qkz80_uint8 port, qkz80_uint8 value) override;
-  qkz80_uint8 port_in(qkz80_uint8 port) override;
-
-private:
-  HBIOSEmulator* emulator;
-};
-
-//=============================================================================
-// HBIOS Emulator Class
-//=============================================================================
-
-class HBIOSEmulator {
-  friend class hbios_cpu;
+class HBIOSEmulator : public HBIOSCPUDelegate {
 public:
   HBIOSEmulator();
   ~HBIOSEmulator();
@@ -84,6 +62,14 @@ public:
   uint16_t getPC() const { return cpu.regs.PC.get_pair16(); }
   long long getInstructionCount() const { return instruction_count; }
 
+  // HBIOSCPUDelegate interface - called by shared hbios_cpu
+  banked_mem* getMemory() override { return &memory; }
+  HBIOSDispatch* getHBIOS() override { return &hbios; }
+  void initializeRamBankIfNeeded(uint8_t bank) override;
+  void onHalt() override;
+  void onUnimplementedOpcode(uint8_t opcode, uint16_t pc) override;
+  void logDebug(const char* fmt, ...) override;
+
 private:
   // CPU and memory
   banked_mem memory;
@@ -95,7 +81,7 @@ private:
   // State
   bool running;
   bool waiting_for_input;
-  bool debug;
+  bool debug_enabled;
   long long instruction_count;
 
   // Input queue
@@ -105,9 +91,6 @@ private:
 
   // RAM bank initialization tracking (bitmask for banks 0x80-0x8F)
   uint16_t initialized_ram_banks;
-
-  // Initialize a RAM bank if it hasn't been initialized yet
-  void initializeRamBankIfNeeded(uint8_t bank);
 };
 
 #endif // HBIOS_CORE_H
