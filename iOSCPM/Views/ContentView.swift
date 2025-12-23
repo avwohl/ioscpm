@@ -18,18 +18,19 @@ struct ContentView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Terminal display
-                TerminalView(
+                // Terminal display with control key toolbar
+                TerminalWithToolbar(
                     cells: $viewModel.terminalCells,
                     cursorRow: $viewModel.cursorRow,
                     cursorCol: $viewModel.cursorCol,
+                    shouldFocus: $viewModel.terminalShouldFocus,
+                    onKeyInput: { char in viewModel.sendKey(char) },
+                    onSetControlify: { mode in viewModel.setControlify(mode) },
+                    isControlifyActive: viewModel.isControlifyActive,
                     rows: viewModel.terminalRows,
                     cols: viewModel.terminalCols,
-                    fontSize: CGFloat(fontSize),
-                    shouldFocus: $viewModel.terminalShouldFocus
-                ) { char in
-                    viewModel.sendKey(char)
-                }
+                    fontSize: CGFloat(fontSize)
+                )
                 .id(fontSize)  // Force view recreation when font size changes
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 

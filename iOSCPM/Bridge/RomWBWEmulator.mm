@@ -307,6 +307,18 @@ static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
 }
 
 //=============================================================================
+// Controlify Mode
+//=============================================================================
+
+- (void)setControlify:(RWBControlifyMode)mode {
+  _emulator->setControlify(static_cast<ControlifyMode>(mode));
+}
+
+- (RWBControlifyMode)getControlify {
+  return static_cast<RWBControlifyMode>(_emulator->getControlify());
+}
+
+//=============================================================================
 // Debug
 //=============================================================================
 

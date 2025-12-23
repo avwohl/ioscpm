@@ -32,7 +32,8 @@ void HBIOSEmulator::logDebug(const char* fmt, ...) {
 
 HBIOSEmulator::HBIOSEmulator()
   : memory(), cpu(&memory, this), running(false), waiting_for_input(false),
-    debug_enabled(false), instruction_count(0), boot_string_pos(0), initialized_ram_banks(0)
+    debug_enabled(false), instruction_count(0), boot_string_pos(0),
+    controlify_mode(CTRL_OFF), initialized_ram_banks(0)
 {
   // Initialize banked memory
   memory.enable_banking();
@@ -60,6 +61,7 @@ void HBIOSEmulator::reset() {
   waiting_for_input = false;
   instruction_count = 0;
   boot_string_pos = 0;
+  controlify_mode = CTRL_OFF;
   initialized_ram_banks = 0;
 
   // Clear console input queue
@@ -192,8 +194,25 @@ void HBIOSEmulator::setDiskSliceCount(int unit, int slices) {
 // Input Queue
 //=============================================================================
 
+void HBIOSEmulator::setControlify(ControlifyMode mode) {
+  controlify_mode = mode;
+}
+
 void HBIOSEmulator::queueInput(int ch) {
   if (ch == '\n') ch = '\r';  // LF -> CR for CP/M
+
+  // Apply controlify conversion if active
+  if (controlify_mode != CTRL_OFF) {
+    // Convert A-Z and a-z to control codes 1-26
+    int upper = (ch >= 'a' && ch <= 'z') ? (ch - 32) : ch;
+    if (upper >= '@' && upper <= '_') {
+      ch = upper - '@';  // '@'=0, 'A'=1, ... 'Z'=26, etc.
+    }
+    // Turn off one-char mode after conversion
+    if (controlify_mode == CTRL_ONE_CHAR) {
+      controlify_mode = CTRL_OFF;
+    }
+  }
 
   // Queue to emu_console - this is what CIOIN reads from
   emu_console_queue_char(ch);

@@ -9,6 +9,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+// Controlify mode - convert input to control characters
+typedef NS_ENUM(NSInteger, RWBControlifyMode) {
+    RWBControlifyOff = 0,      // Normal input
+    RWBControlifyOneChar = 1,  // Convert next char, then turn off
+    RWBControlifySticky = 2    // Convert all chars until turned off
+};
+
 @protocol RomWBWEmulatorDelegate <NSObject>
 @optional
 // Console output
@@ -70,6 +77,10 @@ NS_ASSUME_NONNULL_BEGIN
 // Input
 - (void)sendCharacter:(unichar)ch;
 - (void)sendString:(NSString*)string;
+
+// Controlify mode (for Ctrl key modifier)
+- (void)setControlify:(RWBControlifyMode)mode;
+- (RWBControlifyMode)getControlify;
 
 // Debug
 - (void)setDebug:(BOOL)enable;

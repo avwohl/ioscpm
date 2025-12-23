@@ -53,6 +53,78 @@ struct TerminalView: UIViewRepresentable {
     }
 }
 
+// MARK: - Terminal with Control Toolbar
+
+struct TerminalWithToolbar: View {
+    @Binding var cells: [[TerminalCell]]
+    @Binding var cursorRow: Int
+    @Binding var cursorCol: Int
+    @Binding var shouldFocus: Bool
+    var onKeyInput: ((Character) -> Void)?
+    var onSetControlify: ((RWBControlifyMode) -> Void)?
+    var isControlifyActive: Bool = false
+
+    let rows: Int
+    let cols: Int
+    let fontSize: CGFloat
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TerminalView(
+                cells: $cells,
+                cursorRow: $cursorRow,
+                cursorCol: $cursorCol,
+                rows: rows,
+                cols: cols,
+                fontSize: fontSize,
+                shouldFocus: $shouldFocus,
+                onKeyInput: onKeyInput
+            )
+
+            // Control key toolbar
+            HStack(spacing: 8) {
+                ToolbarButton(title: "Ctrl", isActive: isControlifyActive) {
+                    // Toggle: if active turn off, if off turn on (one-char mode)
+                    onSetControlify?(isControlifyActive ? .off : .oneChar)
+                }
+                ToolbarButton(title: "Esc", isActive: false) {
+                    onSetControlify?(.off)
+                    onKeyInput?(Character(UnicodeScalar(27)))
+                }
+                ToolbarButton(title: "Tab", isActive: false) {
+                    onSetControlify?(.off)
+                    onKeyInput?(Character(UnicodeScalar(9)))
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color(UIColor.systemGray5))
+        }
+    }
+}
+
+struct ToolbarButton: View {
+    let title: String
+    let isActive: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 18, weight: .medium))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(isActive ? Color.blue : Color(UIColor.systemGray4))
+                .foregroundColor(isActive ? .white : .primary)
+                .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+
+// MARK: - Terminal UI View
+
 class TerminalUIView: UIView, UIKeyInput {
     var onKeyInput: ((Character) -> Void)?
 
@@ -263,7 +335,7 @@ class TerminalUIView: UIView, UIKeyInput {
     }
 
     func deleteBackward() {
-        onKeyInput?(Character(UnicodeScalar(8)))
+        onKeyInput?(Character(UnicodeScalar(8)))  // Backspace
     }
 
     // MARK: - Key Commands
@@ -392,5 +464,13 @@ class TerminalUIView: UIView, UIKeyInput {
 
 #Preview {
     let cells = Array(repeating: Array(repeating: TerminalCell(character: "A", foreground: 2, background: 0), count: 80), count: 25)
-    return TerminalView(cells: .constant(cells), cursorRow: .constant(0), cursorCol: .constant(0))
+    return TerminalWithToolbar(
+        cells: .constant(cells),
+        cursorRow: .constant(0),
+        cursorCol: .constant(0),
+        shouldFocus: .constant(false),
+        rows: 25,
+        cols: 80,
+        fontSize: 20
+    )
 }

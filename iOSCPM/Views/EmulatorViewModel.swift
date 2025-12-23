@@ -825,6 +825,17 @@ class EmulatorViewModel: NSObject, ObservableObject {
         emulator?.send(str)
     }
 
+    // Set controlify mode (for Ctrl key modifier)
+    func setControlify(_ mode: RWBControlifyMode) {
+        emulator?.setControlify(mode)
+    }
+
+    // Check if controlify is active
+    var isControlifyActive: Bool {
+        guard let mode = emulator?.getControlify() else { return false }
+        return mode != .off
+    }
+
     // MARK: - Terminal Operations
 
     func clearTerminal() {

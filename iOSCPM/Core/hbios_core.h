@@ -18,6 +18,16 @@
 #include <queue>
 
 //=============================================================================
+// Controlify Mode - convert next input char(s) to control codes
+//=============================================================================
+
+enum ControlifyMode {
+  CTRL_OFF = 0,      // Normal input
+  CTRL_ONE_CHAR = 1, // Convert next char to control code, then turn off
+  CTRL_STICKY = 2    // Convert all chars until explicitly turned off
+};
+
+//=============================================================================
 // HBIOS Emulator Class - implements HBIOSCPUDelegate for the shared CPU
 //=============================================================================
 
@@ -43,6 +53,10 @@ public:
   // Input queue
   void queueInput(int ch);
   bool hasInput() const;
+
+  // Controlify mode - convert input to control characters
+  void setControlify(ControlifyMode mode);
+  ControlifyMode getControlify() const { return controlify_mode; }
 
   // Boot string for auto-boot
   void setBootString(const std::string& str);
@@ -88,6 +102,9 @@ private:
   std::queue<int> input_queue;
   std::string boot_string;
   size_t boot_string_pos;
+
+  // Controlify mode
+  ControlifyMode controlify_mode;
 
   // RAM bank initialization tracking (bitmask for banks 0x80-0x8F)
   uint16_t initialized_ram_banks;
