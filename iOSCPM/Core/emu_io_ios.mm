@@ -517,6 +517,11 @@ emu_host_file_state emu_host_file_get_state() {
   return g_host_file_state;
 }
 
+// C wrappers for Swift bridging (Swift can't call C++ functions)
+extern "C" int emu_host_file_get_state_c() {
+  return (int)g_host_file_state;
+}
+
 bool emu_host_file_open_read(const char* filename) {
   // Close any existing read operation
   g_host_read_buffer.clear();
@@ -564,19 +569,25 @@ void emu_host_file_close_read() {
 
 void emu_host_file_close_write() {
   if (g_host_file_state == HOST_FILE_WRITING && !g_host_write_buffer.empty()) {
-    // Trigger download/save via delegate
-    id<EMUIOHostFileDelegate> delegate = (id<EMUIOHostFileDelegate>)g_delegate;
-    if (delegate && [delegate respondsToSelector:@selector(emuHostFileDownload:data:)]) {
-      NSString* filename = [NSString stringWithUTF8String:g_host_write_filename.c_str()];
-      NSData* data = [NSData dataWithBytes:g_host_write_buffer.data() length:g_host_write_buffer.size()];
-      dispatch_async(dispatch_get_main_queue(), ^{
-        [delegate emuHostFileDownload:filename data:data];
-      });
-    }
+    // Set state to WRITE_READY - UI will poll for this and show save picker
+    // Data stays in buffer until emu_host_file_write_done() is called
+    g_host_file_state = HOST_FILE_WRITE_READY;
+  } else {
+    g_host_write_buffer.clear();
+    g_host_write_filename.clear();
+    g_host_file_state = HOST_FILE_IDLE;
   }
+}
+
+void emu_host_file_write_done() {
+  // Called by UI after file has been saved (or cancelled)
   g_host_write_buffer.clear();
   g_host_write_filename.clear();
   g_host_file_state = HOST_FILE_IDLE;
+}
+
+extern "C" void emu_host_file_write_done_c() {
+  emu_host_file_write_done();
 }
 
 void emu_host_file_provide_data(const uint8_t* data, size_t size) {
@@ -595,6 +606,19 @@ size_t emu_host_file_get_write_size() {
 
 const char* emu_host_file_get_write_name() {
   return g_host_write_filename.c_str();
+}
+
+// C wrappers for Swift
+extern "C" const uint8_t* emu_host_file_get_write_data_c() {
+  return emu_host_file_get_write_data();
+}
+
+extern "C" size_t emu_host_file_get_write_size_c() {
+  return emu_host_file_get_write_size();
+}
+
+extern "C" const char* emu_host_file_get_write_name_c() {
+  return emu_host_file_get_write_name();
 }
 
 // C function for Swift to provide file data after picker selection

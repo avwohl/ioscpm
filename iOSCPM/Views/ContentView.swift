@@ -71,15 +71,19 @@ struct ContentView: View {
                 Group {
                     if viewModel.isDownloading {
                         VStack(spacing: 12) {
-                            ProgressView()
-                                .scaleEffect(1.5)
-                            Text("Downloading...")
-                                .font(.headline)
+                            ProgressView(value: viewModel.downloadingProgress)
+                                .progressViewStyle(.linear)
+                                .frame(width: 200)
+                            Text("Downloading \(Int(viewModel.downloadingProgress * 100))%")
+                                .font(.system(.headline, design: .monospaced))
                             Text(viewModel.downloadingDiskName)
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
                         }
                         .padding(24)
+                        .frame(minWidth: 250)
                         .background(Color(.systemBackground).opacity(0.95))
                         .cornerRadius(12)
                         .shadow(radius: 10)
@@ -193,23 +197,8 @@ struct ContentView: View {
             .sheet(isPresented: $showingAbout) {
                 AboutView()
             }
-            // Host file import (R8 utility)
-            .fileImporter(
-                isPresented: $viewModel.showingHostFileImporter,
-                allowedContentTypes: [.data, .item, .text, .plainText],
-                allowsMultipleSelection: false
-            ) { result in
-                viewModel.handleHostFileImportResult(result)
-            }
-            // Host file export share sheet (W8 utility)
-            .sheet(isPresented: $viewModel.showingHostFileExporter) {
-                if let data = viewModel.hostFileExportData {
-                    HostFileShareSheet(
-                        data: data,
-                        filename: viewModel.hostFileExportFilename
-                    )
-                }
-            }
+            // Host file modifiers extracted to reduce type-check complexity
+            .hostFileModifiers(viewModel: viewModel)
         }
         .navigationViewStyle(.stack)  // Force single column on Mac
         .onAppear {
@@ -585,31 +574,41 @@ struct EmptyDiskDocument: FileDocument {
     }
 }
 
-// MARK: - Host File Share Sheet (for W8 export)
+// MARK: - Document Export Picker (for W8 file export)
 
-struct HostFileShareSheet: UIViewControllerRepresentable {
-    let data: Data
-    let filename: String
+struct DocumentExportPicker: UIViewControllerRepresentable {
+    let sourceURL: URL
+    let onCompletion: (Result<URL, Error>) -> Void
 
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        // Create a temporary file for sharing
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-        try? data.write(to: tempURL)
-
-        let activityVC = UIActivityViewController(
-            activityItems: [tempURL],
-            applicationActivities: nil
-        )
-
-        // Clean up temp file after share sheet dismisses
-        activityVC.completionWithItemsHandler = { _, _, _, _ in
-            try? FileManager.default.removeItem(at: tempURL)
-        }
-
-        return activityVC
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forExporting: [sourceURL], asCopy: true)
+        picker.delegate = context.coordinator
+        return picker
     }
 
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onCompletion: onCompletion)
+    }
+
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onCompletion: (Result<URL, Error>) -> Void
+
+        init(onCompletion: @escaping (Result<URL, Error>) -> Void) {
+            self.onCompletion = onCompletion
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            if let url = urls.first {
+                onCompletion(.success(url))
+            }
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onCompletion(.failure(NSError(domain: "", code: NSUserCancelledError, userInfo: nil)))
+        }
+    }
 }
 
 // MARK: - Disk Download Row
@@ -755,5 +754,10 @@ extension View {
     @ViewBuilder
     func ifAvailable<Content: View>(@ViewBuilder transform: (Self) -> Content) -> some View {
         transform(self)
+    }
+
+    /// Host file modifiers - R8/W8 use folder-based transfer (file pickers crash on Mac Catalyst)
+    func hostFileModifiers(viewModel: EmulatorViewModel) -> some View {
+        self  // No file picker modifiers needed - using Imports/Exports folders instead
     }
 }

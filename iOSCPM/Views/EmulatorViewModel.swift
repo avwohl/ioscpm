@@ -77,12 +77,17 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var errorMessage: String = ""
     @Published var isDownloading: Bool = false
     @Published var downloadingDiskName: String = ""
+    @Published var downloadingProgress: Double = 0
 
     // Host file transfer (R8/W8 utilities)
     @Published var showingHostFileImporter: Bool = false
     @Published var showingHostFileExporter: Bool = false
-    @Published var hostFileExportData: Data?
     @Published var hostFileExportFilename: String = "download.bin"
+    @Published var hostFileExportDocument: DiskImageDocument?
+    @Published var hostFileTempURL: URL?
+    @Published var showingHostFileMoveExporter: Bool = false
+    @Published var showingHostFileSavePrompt: Bool = false  // Alert asking user to save
+    private var pendingHostFileData: Data?  // Data waiting to be saved
 
     // ROM selection
     @Published var selectedROM: ROMOption? {
@@ -503,8 +508,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         // Check if catalog is loaded
         if diskCatalog.isEmpty {
-            showError("Disk catalog not loaded. Please wait for catalog to load or check internet connection.")
-            statusText = "Error: No disk catalog"
+            if catalogLoading {
+                showError("Disk catalog is loading. Please wait a moment and try again.")
+                statusText = "Catalog loading..."
+            } else {
+                showError("Failed to load disk catalog. Please check your internet connection and try again.")
+                statusText = "Error: No disk catalog"
+            }
             return
         }
 
@@ -587,6 +597,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         let current = remaining.removeFirst()
         isDownloading = true
         downloadingDiskName = current.name
+        downloadingProgress = 0
         statusText = "Downloading \(current.name)..."
 
         downloadDiskWithCompletion(current) { [weak self] success in
@@ -597,7 +608,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
             } else {
                 self.isDownloading = false
                 self.downloadingDiskName = ""
-                self.showError("Failed to download \(current.name)")
+                // Get actual error from download state
+                if case .error(let errorMsg) = self.downloadStates[current.filename] {
+                    self.showError("Download failed: \(errorMsg)")
+                } else {
+                    self.showError("Failed to download \(current.name)")
+                }
             }
         }
     }
@@ -618,10 +634,15 @@ class EmulatorViewModel: NSObject, ObservableObject {
             }
             switch self.downloadStates[filename] {
             case .downloaded:
+                self.downloadingProgress = 1.0
                 completion(true)
             case .error:
+                self.downloadingProgress = 0
                 completion(false)
-            case .downloading, .notDownloaded, .none:
+            case .downloading(let progress):
+                self.downloadingProgress = progress
+                self.waitForDownloadCompletion(filename, completion: completion)
+            case .notDownloaded, .none:
                 // Still in progress, keep polling
                 self.waitForDownloadCompletion(filename, completion: completion)
             }
@@ -642,91 +663,106 @@ class EmulatorViewModel: NSObject, ObservableObject {
         downloadStates[disk.filename] = .downloading(progress: 0)
 
         let task = downloadSession.downloadTask(with: url) { [weak self] tempURL, response, error in
-            DispatchQueue.main.async {
-                guard let self = self else {
-                    completion(false)
-                    return
-                }
+            guard let self = self else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
 
-                // Check HTTP status code first
-                if let httpResponse = response as? HTTPURLResponse {
-                    self.debugPrint("[Download] HTTP status: \(httpResponse.statusCode)")
-                    if httpResponse.statusCode < 200 || httpResponse.statusCode >= 300 {
-                        self.debugPrint("[Download] ERROR: Bad HTTP status \(httpResponse.statusCode)")
+            // Check HTTP status code first (can check on background thread)
+            if let httpResponse = response as? HTTPURLResponse {
+                self.debugPrint("[Download] HTTP status: \(httpResponse.statusCode)")
+                if httpResponse.statusCode < 200 || httpResponse.statusCode >= 300 {
+                    self.debugPrint("[Download] ERROR: Bad HTTP status \(httpResponse.statusCode)")
+                    DispatchQueue.main.async {
                         if attemptsRemaining > 1 {
                             self.debugPrint("[Download] Retrying in 1 second... (\(attemptsRemaining - 1) attempts left)")
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                                 self.downloadDiskWithRetry(disk, attemptsRemaining: attemptsRemaining - 1, completion: completion)
                             }
-                            return
+                        } else {
+                            self.downloadStates[disk.filename] = .error("HTTP error \(httpResponse.statusCode)")
+                            completion(false)
                         }
-                        self.downloadStates[disk.filename] = .error("HTTP error \(httpResponse.statusCode)")
+                    }
+                    return
+                }
+            }
+
+            // Check for errors - retry if attempts remaining
+            if let error = error {
+                self.debugPrint("[Download] ERROR: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    if attemptsRemaining > 1 {
+                        self.debugPrint("[Download] Retrying in 1 second... (\(attemptsRemaining - 1) attempts left)")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            self.downloadDiskWithRetry(disk, attemptsRemaining: attemptsRemaining - 1, completion: completion)
+                        }
+                    } else {
+                        self.downloadStates[disk.filename] = .error(error.localizedDescription)
                         completion(false)
-                        return
                     }
                 }
+                return
+            }
 
-                // Check for errors - retry if attempts remaining
-                if let error = error {
-                    self.debugPrint("[Download] ERROR: \(error.localizedDescription)")
+            guard let tempURL = tempURL else {
+                self.debugPrint("[Download] ERROR: No temp file received")
+                DispatchQueue.main.async {
                     if attemptsRemaining > 1 {
                         self.debugPrint("[Download] Retrying in 1 second... (\(attemptsRemaining - 1) attempts left)")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                             self.downloadDiskWithRetry(disk, attemptsRemaining: attemptsRemaining - 1, completion: completion)
                         }
-                        return
+                    } else {
+                        self.downloadStates[disk.filename] = .error("Download failed - no data")
+                        completion(false)
                     }
-                    self.downloadStates[disk.filename] = .error(error.localizedDescription)
-                    completion(false)
-                    return
                 }
+                return
+            }
 
-                if tempURL == nil {
-                    self.debugPrint("[Download] ERROR: No temp file received")
-                    if attemptsRemaining > 1 {
-                        self.debugPrint("[Download] Retrying in 1 second... (\(attemptsRemaining - 1) attempts left)")
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            self.downloadDiskWithRetry(disk, attemptsRemaining: attemptsRemaining - 1, completion: completion)
-                        }
-                        return
-                    }
-                    self.downloadStates[disk.filename] = .error("Download failed - no data")
-                    completion(false)
-                    return
-                }
+            // IMPORTANT: Move file BEFORE returning from completion handler!
+            // URLSession deletes the temp file when the completion handler returns.
+            let fm = FileManager.default
+            let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let disksDir = docs.appendingPathComponent("Disks", isDirectory: true)
+            try? fm.createDirectory(at: disksDir, withIntermediateDirectories: true)
+            let destURL = disksDir.appendingPathComponent(disk.filename)
 
-                let destURL = self.downloadsDirectory.appendingPathComponent(disk.filename)
-                self.debugPrint("[Download] Moving temp file to \(destURL.path)")
-                do {
-                    try? FileManager.default.removeItem(at: destURL)
-                    try FileManager.default.moveItem(at: tempURL!, to: destURL)
+            self.debugPrint("[Download] Moving temp file to \(destURL.path)")
+            do {
+                try? fm.removeItem(at: destURL)
+                try fm.moveItem(at: tempURL, to: destURL)
 
-                    // Verify the file exists
-                    let fileExists = FileManager.default.fileExists(atPath: destURL.path)
-                    self.debugPrint("[Download] SUCCESS: '\(disk.filename)' saved, fileExists=\(fileExists)")
+                // Verify the file exists
+                let fileExists = fm.fileExists(atPath: destURL.path)
+                self.debugPrint("[Download] SUCCESS: '\(disk.filename)' saved, fileExists=\(fileExists)")
 
-                    // Verify SHA256 checksum if available
-                    if let expectedSha256 = disk.sha256 {
-                        let actualSha256 = self.sha256OfFile(at: destURL)
-                        if actualSha256?.lowercased() != expectedSha256.lowercased() {
-                            self.debugPrint("[Download] ERROR: SHA256 mismatch for '\(disk.filename)'")
-                            self.debugPrint("[Download]   Expected: \(expectedSha256)")
-                            self.debugPrint("[Download]   Got:      \(actualSha256 ?? "nil")")
-                            try? FileManager.default.removeItem(at: destURL)
+                // Verify SHA256 checksum if available
+                if let expectedSha256 = disk.sha256 {
+                    let actualSha256 = self.sha256OfFile(at: destURL)
+                    if actualSha256?.lowercased() != expectedSha256.lowercased() {
+                        self.debugPrint("[Download] ERROR: SHA256 mismatch for '\(disk.filename)'")
+                        self.debugPrint("[Download]   Expected: \(expectedSha256)")
+                        self.debugPrint("[Download]   Got:      \(actualSha256 ?? "nil")")
+                        try? fm.removeItem(at: destURL)
+                        DispatchQueue.main.async {
                             if attemptsRemaining > 1 {
                                 self.debugPrint("[Download] Retrying in 1 second... (\(attemptsRemaining - 1) attempts left)")
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                                     self.downloadDiskWithRetry(disk, attemptsRemaining: attemptsRemaining - 1, completion: completion)
                                 }
-                                return
+                            } else {
+                                self.downloadStates[disk.filename] = .error("Checksum mismatch")
+                                completion(false)
                             }
-                            self.downloadStates[disk.filename] = .error("Checksum mismatch")
-                            completion(false)
-                            return
                         }
-                        self.debugPrint("[Download] SHA256 verified: \(expectedSha256.prefix(16))...")
+                        return
                     }
+                    self.debugPrint("[Download] SHA256 verified: \(expectedSha256.prefix(16))...")
+                }
 
+                DispatchQueue.main.async {
                     self.downloadStates[disk.filename] = .downloaded
                     self.refreshAvailableDisks()
                     // Update the selected disk to mark it as downloaded
@@ -737,9 +773,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
                         }
                     }
                     completion(true)
-                } catch {
-                    self.debugPrint("[Download] ERROR moving file: \(error.localizedDescription)")
-                    self.downloadStates[disk.filename] = .error(error.localizedDescription)
+                }
+            } catch {
+                self.debugPrint("[Download] ERROR moving file: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.downloadStates[disk.filename] = .error("Save failed: \(error.localizedDescription)")
                     completion(false)
                 }
             }
@@ -1094,63 +1132,81 @@ class EmulatorViewModel: NSObject, ObservableObject {
         downloadStates[disk.filename] = .downloading(progress: 0)
 
         let task = downloadSession.downloadTask(with: url) { [weak self] tempURL, response, error in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
+            guard let self = self else { return }
 
-                // Check HTTP status code first
-                if let httpResponse = response as? HTTPURLResponse {
-                    self.debugPrint("[Settings Download] HTTP status: \(httpResponse.statusCode)")
-                    if httpResponse.statusCode < 200 || httpResponse.statusCode >= 300 {
-                        self.debugPrint("[Settings Download] ERROR: Bad HTTP status \(httpResponse.statusCode)")
+            // Check HTTP status code first (can check on background thread)
+            if let httpResponse = response as? HTTPURLResponse {
+                self.debugPrint("[Settings Download] HTTP status: \(httpResponse.statusCode)")
+                if httpResponse.statusCode < 200 || httpResponse.statusCode >= 300 {
+                    self.debugPrint("[Settings Download] ERROR: Bad HTTP status \(httpResponse.statusCode)")
+                    DispatchQueue.main.async {
                         if attemptsRemaining > 1 {
                             self.debugPrint("[Settings Download] Retrying in 1 second...")
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                                 self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1)
                             }
-                            return
+                        } else {
+                            self.downloadStates[disk.filename] = .error("HTTP error \(httpResponse.statusCode)")
                         }
-                        self.downloadStates[disk.filename] = .error("HTTP error \(httpResponse.statusCode)")
-                        return
                     }
+                    return
                 }
+            }
 
-                if let error = error {
-                    self.debugPrint("[Settings Download] ERROR: \(error.localizedDescription)")
+            if let error = error {
+                self.debugPrint("[Settings Download] ERROR: \(error.localizedDescription)")
+                DispatchQueue.main.async {
                     if attemptsRemaining > 1 {
                         self.debugPrint("[Settings Download] Retrying in 1 second...")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                             self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1)
                         }
-                        return
+                    } else {
+                        self.downloadStates[disk.filename] = .error(error.localizedDescription)
                     }
-                    self.downloadStates[disk.filename] = .error(error.localizedDescription)
-                    return
                 }
+                return
+            }
 
-                guard let tempURL = tempURL else {
-                    self.debugPrint("[Settings Download] ERROR: No temp file")
+            guard let tempURL = tempURL else {
+                self.debugPrint("[Settings Download] ERROR: No temp file")
+                DispatchQueue.main.async {
                     if attemptsRemaining > 1 {
                         self.debugPrint("[Settings Download] Retrying in 1 second...")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                             self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1)
                         }
-                        return
+                    } else {
+                        self.downloadStates[disk.filename] = .error("Download failed")
                     }
-                    self.downloadStates[disk.filename] = .error("Download failed")
-                    return
                 }
+                return
+            }
 
-                // Move to downloads directory
-                let destURL = self.downloadsDirectory.appendingPathComponent(disk.filename)
-                do {
-                    // Remove existing file if any
-                    try? FileManager.default.removeItem(at: destURL)
-                    try FileManager.default.moveItem(at: tempURL, to: destURL)
+            // IMPORTANT: Move file BEFORE returning from completion handler!
+            // URLSession deletes the temp file when the completion handler returns.
+            let fm = FileManager.default
+            let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let disksDir = docs.appendingPathComponent("Disks", isDirectory: true)
+            try? fm.createDirectory(at: disksDir, withIntermediateDirectories: true)
+            let destURL = disksDir.appendingPathComponent(disk.filename)
+
+            self.debugPrint("[Settings Download] Moving from \(tempURL.path) to \(destURL.path)")
+
+            do {
+                // Remove existing file if any
+                try? fm.removeItem(at: destURL)
+                try fm.moveItem(at: tempURL, to: destURL)
+                self.debugPrint("[Settings Download] Move successful")
+                DispatchQueue.main.async {
                     self.downloadStates[disk.filename] = .downloaded
                     self.refreshAvailableDisks()
                     self.statusText = "Downloaded: \(disk.name)"
-                } catch {
-                    self.downloadStates[disk.filename] = .error(error.localizedDescription)
+                }
+            } catch {
+                self.debugPrint("[Settings Download] ERROR moving file: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.downloadStates[disk.filename] = .error("Save failed: \(error.localizedDescription)")
                 }
             }
         }
@@ -1293,6 +1349,40 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
     func emulatorVDAWriteChar(_ ch: unichar) {
         DispatchQueue.main.async {
             self.processCharacter(ch)
+            self.checkHostFileState()
+        }
+    }
+
+    /// Check if emulator has file ready to save (W8)
+    private func checkHostFileState() {
+        let state = emu_host_file_get_state_c()
+        if state == Int32(HOST_FILE_WRITE_READY.rawValue) {
+            // Get file data from emulator
+            guard let dataPtr = emu_host_file_get_write_data_c(),
+                  let namePtr = emu_host_file_get_write_name_c() else {
+                emu_host_file_write_done_c()
+                return
+            }
+            let size = emu_host_file_get_write_size_c()
+            let data = Data(bytes: dataPtr, count: size)
+            let filename = String(cString: namePtr)
+
+            // Save directly to Documents/Exports folder
+            let fm = FileManager.default
+            let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let exportsDir = docs.appendingPathComponent("Exports", isDirectory: true)
+            try? fm.createDirectory(at: exportsDir, withIntermediateDirectories: true)
+
+            let destURL = exportsDir.appendingPathComponent(filename)
+            do {
+                try? fm.removeItem(at: destURL)
+                try data.write(to: destURL)
+                emu_host_file_write_done_c()
+                statusText = "W8: Saved \(filename) to Exports folder"
+            } catch {
+                emu_host_file_write_done_c()
+                statusText = "W8: Failed to save \(filename)"
+            }
         }
     }
 
@@ -1699,26 +1789,92 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
     func emulatorHostFileRequestRead(_ suggestedFilename: String) {
         DispatchQueue.main.async {
-            self.statusText = "R8: Select file to import..."
-            self.showingHostFileImporter = true
+            // Read from Documents/Imports folder (file pickers crash on Mac Catalyst)
+            let fm = FileManager.default
+            let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let importsDir = docs.appendingPathComponent("Imports", isDirectory: true)
+            try? fm.createDirectory(at: importsDir, withIntermediateDirectories: true)
+
+            // Look for the requested file, or any file if none specified
+            let filename = suggestedFilename.trimmingCharacters(in: .whitespaces)
+            var fileURL: URL?
+
+            if !filename.isEmpty {
+                let specificFile = importsDir.appendingPathComponent(filename)
+                if fm.fileExists(atPath: specificFile.path) {
+                    fileURL = specificFile
+                }
+            }
+
+            // If specific file not found, use first file in folder
+            if fileURL == nil {
+                if let contents = try? fm.contentsOfDirectory(at: importsDir, includingPropertiesForKeys: nil),
+                   let firstFile = contents.first(where: { !$0.lastPathComponent.hasPrefix(".") }) {
+                    fileURL = firstFile
+                }
+            }
+
+            if let url = fileURL {
+                do {
+                    let data = try Data(contentsOf: url)
+                    data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+                        if let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt8.self) {
+                            emu_host_file_load(ptr, data.count)
+                        }
+                    }
+                    self.statusText = "R8: Loaded \(url.lastPathComponent) (\(data.count) bytes)"
+                } catch {
+                    emu_host_file_cancel()
+                    self.statusText = "R8: Error reading \(url.lastPathComponent)"
+                }
+            } else {
+                emu_host_file_cancel()
+                self.showError("R8: No files in Imports folder. Put files in:\n\(importsDir.path)")
+                self.statusText = "R8: No files in Imports folder"
+            }
         }
     }
 
     func emulatorHostFileDownload(_ filename: String, data: Data) {
-        DispatchQueue.main.async {
-            // Save to Documents/Disks directory
-            let saveURL = self.downloadsDirectory.appendingPathComponent(filename)
-            do {
-                try data.write(to: saveURL)
-                self.statusText = "W8: Saved \(filename) (\(data.count) bytes)"
-                self.debugPrint("[HostFile] Saved \(filename) to \(saveURL.path)")
+        // Legacy callback - no longer used, polling checkHostFileState() instead
+        // Keep for protocol compliance but do nothing
+        debugPrint("[HostFile] emulatorHostFileDownload called (legacy, ignored)")
+    }
 
-                // Also show share sheet for convenience
-                self.hostFileExportData = data
-                self.hostFileExportFilename = filename
-                self.showingHostFileExporter = true
-            } catch {
-                self.showError("Failed to save \(filename): \(error.localizedDescription)")
+    /// Handle result from host file move picker (W8)
+    func handleHostFileMoveResult(_ result: Result<URL, Error>) {
+        // Clean up temp file
+        if let tempURL = hostFileTempURL {
+            try? FileManager.default.removeItem(at: tempURL)
+        }
+        hostFileTempURL = nil
+
+        // Tell emulator we're done with the write data
+        emu_host_file_write_done_c()
+
+        switch result {
+        case .success(let url):
+            statusText = "W8: Saved to \(url.lastPathComponent)"
+        case .failure(let error):
+            if (error as NSError).code == NSUserCancelledError {
+                statusText = "W8: Save cancelled"
+            } else {
+                showError("Failed to save: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Handle result from host file exporter (W8) - legacy, keeping for compatibility
+    func handleHostFileExportResult(_ result: Result<URL, Error>) {
+        hostFileExportDocument = nil
+        switch result {
+        case .success(let url):
+            statusText = "W8: Saved to \(url.lastPathComponent)"
+        case .failure(let error):
+            if (error as NSError).code == NSUserCancelledError {
+                statusText = "W8: Save cancelled"
+            } else {
+                showError("Failed to save: \(error.localizedDescription)")
             }
         }
     }
