@@ -5,6 +5,7 @@
  */
 
 #include "hbios_core.h"
+#include "emu_init.h"
 #include "emu_io.h"
 #include <cstring>
 #include <cstdarg>
@@ -87,26 +88,8 @@ void HBIOSEmulator::reset() {
 //=============================================================================
 
 void HBIOSEmulator::initializeRamBankIfNeeded(uint8_t bank) {
-  // Only initialize RAM banks 0x80-0x8F
-  if (!(bank & 0x80) || (bank & 0x70)) return;
-
-  uint8_t bank_idx = bank & 0x0F;
-  if (initialized_ram_banks & (1 << bank_idx)) return;  // Already initialized
-
-  // Copy page zero (0x0000-0x0100) from ROM bank 0 - contains RST vectors
-  for (uint16_t addr = 0x0000; addr < 0x0100; addr++) {
-    uint8_t byte = memory.read_bank(0x00, addr);  // Read from ROM bank 0
-    memory.write_bank(bank, addr, byte);          // Write to RAM bank
-  }
-
-  // Copy HCB (0x0100-0x0200) from ROM bank 0 - HBIOS configuration
-  for (uint16_t addr = 0x0100; addr < 0x0200; addr++) {
-    uint8_t byte = memory.read_bank(0x00, addr);
-    memory.write_bank(bank, addr, byte);
-  }
-
-  // Mark this bank as initialized
-  initialized_ram_banks |= (1 << bank_idx);
+  // Use shared RAM bank initialization (copies page zero, HCB, and patches APITYPE)
+  emu_init_ram_bank(&memory, bank, &initialized_ram_banks);
 }
 
 //=============================================================================
@@ -119,31 +102,12 @@ bool HBIOSEmulator::loadROM(const uint8_t* data, size_t size) {
     return false;
   }
 
-  uint8_t* rom = memory.get_rom();
-  if (!rom) {
-    emu_error("[HBIOS] ROM memory not allocated\n");
-    return false;
-  }
-
   // Clear RAM for clean state when loading a new ROM
-  // (following porting notes: ensures stop/start behaves identically to fresh app launch)
+  // (ensures stop/start behaves identically to fresh app launch)
   memory.clear_ram();
 
-  // Copy ROM data (up to 512KB)
-  size_t copy_size = (size > 512 * 1024) ? 512 * 1024 : size;
-  memcpy(rom, data, copy_size);
-
-  // Patch APITYPE at 0x0112 to 0x00 (HBIOS) instead of 0xFF (UNA)
-  // This is required for REBOOT and other utilities to work correctly
-  rom[0x0112] = 0x00;  // CB_APITYPE = HBIOS
-
-  // Copy HCB (HBIOS Configuration Block) to RAM bank 0x80
-  uint8_t* ram = memory.get_ram();
-  if (ram) {
-    memcpy(ram, rom, 512);  // First 512 bytes
-  }
-
-  return true;
+  // Use shared ROM loading function
+  return emu_load_rom_from_buffer(&memory, data, size);
 }
 
 bool HBIOSEmulator::loadROMFromFile(const std::string& path) {
@@ -246,8 +210,10 @@ void HBIOSEmulator::start() {
   // Reset HBIOS state for new ROM
   hbios.reset();
 
-  // Initialize memory disks (MD0=RAM, MD1=ROM) and populate disk unit table
-  hbios.initMemoryDisks();
+  // Use shared initialization: patches APITYPE, copies HCB to RAM,
+  // sets up HBIOS ident signatures, initializes memory disks,
+  // and copies HCB to shadow RAM with shadow bits set
+  emu_complete_init(&memory, &hbios, nullptr);
 
   // Register reset callback for SYSRESET (REBOOT command)
   hbios.setResetCallback([this](uint8_t reset_type) {
