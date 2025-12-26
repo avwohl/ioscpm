@@ -823,6 +823,41 @@ class EmulatorViewModel: NSObject, ObservableObject {
         statusText = "All disks saved"
     }
 
+    /// Open the Imports folder (for R8)
+    func openImportsFolder() {
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let importsDir = docs.appendingPathComponent("Imports", isDirectory: true)
+        try? fm.createDirectory(at: importsDir, withIntermediateDirectories: true)
+        openFolderInFilesApp(importsDir)
+    }
+
+    /// Open the Exports folder (for W8)
+    func openExportsFolder() {
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let exportsDir = docs.appendingPathComponent("Exports", isDirectory: true)
+        try? fm.createDirectory(at: exportsDir, withIntermediateDirectories: true)
+        openFolderInFilesApp(exportsDir)
+    }
+
+    /// Open a folder - on Mac opens Finder, on iOS shows path
+    private func openFolderInFilesApp(_ url: URL) {
+        #if targetEnvironment(macCatalyst)
+        // On Mac, open in Finder
+        UIApplication.shared.open(url)
+        #else
+        // On iOS, try shareddocuments scheme for Files app
+        if let filesURL = URL(string: "shareddocuments://\(url.path)"),
+           UIApplication.shared.canOpenURL(filesURL) {
+            UIApplication.shared.open(filesURL)
+        } else {
+            // Fallback: show the path
+            showError("Open Files app and navigate to:\nOn My iPhone > Z80CPM > \(url.lastPathComponent)")
+        }
+        #endif
+    }
+
     /// Save downloaded disk images back to Documents/Disks
     private func saveDownloadedDisks() {
         for unit in 0..<4 {

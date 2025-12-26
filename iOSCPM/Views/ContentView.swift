@@ -160,6 +160,19 @@ struct ContentView: View {
                         Divider()
 
                         Button {
+                            viewModel.openImportsFolder()
+                        } label: {
+                            Label("Open Imports Folder", systemImage: "folder")
+                        }
+                        Button {
+                            viewModel.openExportsFolder()
+                        } label: {
+                            Label("Open Exports Folder", systemImage: "folder.fill")
+                        }
+
+                        Divider()
+
+                        Button {
                             showingAbout = true
                         } label: {
                             Label("About", systemImage: "info.circle")
