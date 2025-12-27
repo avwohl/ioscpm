@@ -20,6 +20,7 @@ struct HelpTopic: Codable, Identifiable {
 struct HelpView: View {
     @StateObject private var viewModel = HelpViewModel()
     @State private var selectedTopic: HelpTopic?
+    @Environment(\.presentationMode) private var presentationMode
 
     var body: some View {
         NavigationView {
@@ -70,6 +71,13 @@ struct HelpView: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
             .sheet(item: $selectedTopic) { topic in
                 HelpTopicView(viewModel: viewModel, topic: topic)
             }
