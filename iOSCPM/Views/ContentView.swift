@@ -14,6 +14,7 @@ struct ContentView: View {
     @AppStorage("terminalFontSize") private var fontSize: Double = 20
     @State private var showingSettings = false
     @State private var showingAbout = false
+    @State private var showingHelp = false
 
     var body: some View {
         NavigationView {
@@ -173,6 +174,12 @@ struct ContentView: View {
                         Divider()
 
                         Button {
+                            showingHelp = true
+                        } label: {
+                            Label("Help", systemImage: "questionmark.circle")
+                        }
+
+                        Button {
                             showingAbout = true
                         } label: {
                             Label("About", systemImage: "info.circle")
@@ -209,6 +216,9 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showingAbout) {
                 AboutView()
+            }
+            .sheet(isPresented: $showingHelp) {
+                HelpView()
             }
             // Host file modifiers extracted to reduce type-check complexity
             .hostFileModifiers(viewModel: viewModel)
