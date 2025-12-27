@@ -1784,8 +1784,9 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
     func emulatorVDASetAttr(_ attr: UInt8) {
         // Attr is CGA-style: bits 0-3 = foreground, bits 4-6 = background, bit 7 = blink
-        // For now, store and use when writing chars
-        // This could be enhanced to update current attribute state
+        DispatchQueue.main.async {
+            self.currentAttr = attr
+        }
     }
 
     private func scrollUp(_ lines: Int) {

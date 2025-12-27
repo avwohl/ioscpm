@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<disks version="7">
+<disks version="8">
     <disk>
         <filename>hd1k_combo.img</filename>
         <name>Combo (Recommended)</name>
@@ -66,11 +66,11 @@
     </disk>
     <disk>
         <filename>hd1k_infocom.img</filename>
-        <name>Infocom Adventures</name>
-        <description>Classic Infocom text adventures with VEZZA interpreter. Run: VEZZA ZORK1.Z3</description>
+        <name>Games</name>
+        <description>Collection of classic CP/M games including adventures and arcade.</description>
         <size>8388608</size>
         <license>Abandonware</license>
-        <sha256>135def877f4a4869a2d9ed169ca6fdab569010089ae8cf1ff9f69c0a1467756b</sha256>
+        <sha256>7f33738c4c8be0655ee9452370fe450146492e9174347c22b3300ac2377d0abd</sha256>
     </disk>
     <disk>
         <filename>hd1k_aztecc.img</filename>
