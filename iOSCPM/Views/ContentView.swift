@@ -130,17 +130,21 @@ struct ContentView: View {
 
                         Divider()
 
-                        ForEach([14, 16, 18, 20, 24, 28], id: \.self) { size in
-                            Button {
-                                fontSize = Double(size)
-                            } label: {
-                                HStack {
-                                    Text("\(size) pt")
-                                    if Int(fontSize) == size {
-                                        Image(systemName: "checkmark")
+                        Menu {
+                            ForEach([14, 16, 18, 20, 24, 28], id: \.self) { size in
+                                Button {
+                                    fontSize = Double(size)
+                                } label: {
+                                    HStack {
+                                        Text("\(size) pt")
+                                        if Int(fontSize) == size {
+                                            Image(systemName: "checkmark")
+                                        }
                                     }
                                 }
                             }
+                        } label: {
+                            Label("Font Size (\(Int(fontSize)) pt)", systemImage: "textformat.size")
                         }
 
                         Divider()
