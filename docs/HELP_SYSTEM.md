@@ -123,3 +123,59 @@ Clients should:
 - Display error message if fetch fails
 - Offer retry option
 - Fall back to cached content if available
+
+## Platform-Specific Implementation Examples
+
+### Windows (C++/WinRT)
+
+```cpp
+// Fetch index
+winrt::Windows::Web::Http::HttpClient client;
+auto response = co_await client.GetStringAsync(
+    winrt::Windows::Foundation::Uri(L"https://github.com/avwohl/ioscpm/releases/latest/download/help_index.json"));
+
+// Parse JSON
+auto json = winrt::Windows::Data::Json::JsonObject::Parse(response);
+auto topics = json.GetNamedArray(L"topics");
+
+// Display in ListView, fetch content on selection
+// Render markdown in WebView2 using a JS library like marked.js
+```
+
+### Web (JavaScript)
+
+```javascript
+// Fetch and display help
+async function loadHelp() {
+    const indexUrl = 'https://github.com/avwohl/ioscpm/releases/latest/download/help_index.json';
+    const response = await fetch(indexUrl);
+    const index = await response.json();
+
+    // Build topic list
+    const list = document.getElementById('help-topics');
+    index.topics.forEach(topic => {
+        const item = document.createElement('div');
+        item.innerHTML = `<h3>${topic.title}</h3><p>${topic.description}</p>`;
+        item.onclick = () => loadTopic(index.base_url + topic.filename);
+        list.appendChild(item);
+    });
+}
+
+async function loadTopic(url) {
+    const response = await fetch(url);
+    const markdown = await response.text();
+    document.getElementById('help-content').innerHTML = marked.parse(markdown);
+}
+```
+
+## Current Help Topics
+
+| ID | Title | Filename |
+|----|-------|----------|
+| quick_start | Quick Start Guide | help_quick_start.md |
+| cpm22 | CP/M 2.2 User Guide | help_cpm22.md |
+| zsdos | ZSDOS User Guide | help_zsdos.md |
+| nzcom | NZCOM User Guide | help_nzcom.md |
+| zpm3 | ZPM3 User Guide | help_zpm3.md |
+| qpm | QP/M User Guide | help_qpm.md |
+| file_transfer | File Transfer (R8/W8) | help_file_transfer.md |
