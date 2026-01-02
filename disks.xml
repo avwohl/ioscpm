@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<disks version="9">
+<disks version="10">
     <disk>
         <filename>hd1k_combo.img</filename>
         <name>Combo (Recommended)</name>
@@ -7,6 +7,7 @@
         <size>51380224</size>
         <license>Mixed</license>
         <sha256>c14b9bef3eca03523c059b6c5eb4921e66323921dc481ebf5f84fb378627fb0f</sha256>
+        <defaultSlot>0</defaultSlot>
     </disk>
     <disk>
         <filename>hd1k_cpm22.img</filename>

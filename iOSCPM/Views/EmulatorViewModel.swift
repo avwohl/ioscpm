@@ -42,6 +42,7 @@ struct DownloadableDisk: Identifiable, Codable {
     let sizeBytes: Int64
     let license: String  // "MIT", "Free", "User-provided", etc.
     let sha256: String?  // Optional SHA256 hash for integrity verification
+    let defaultSlot: Int?  // If set, use this disk as default in this slot (0-3) on first launch
 
     var sizeDescription: String {
         if sizeBytes >= 1_000_000 {
@@ -102,12 +103,24 @@ class EmulatorViewModel: NSObject, ObservableObject {
     ]
 
     // Disk selection for slots 0-3 (OS slots) and data drives
+    private var isRestoringSelections = false  // Flag to prevent recalculation during restore
     @Published var selectedDisks: [DiskOption?] = Array(repeating: nil, count: 4) {
         didSet {
             // Save selected disk filenames to UserDefaults
             let filenames = selectedDisks.map { $0?.filename ?? "" }
             UserDefaults.standard.set(filenames, forKey: "selectedDisks")
+
+            // Update slice counts when selection changes (but not during restoration)
+            if !isRestoringSelections {
+                updateSliceCountsForSelection(oldValue: oldValue)
+            }
         }
+    }
+
+    /// Update slice counts when disk selection changes
+    /// Preserves user's manual settings (no automatic adjustments)
+    private func updateSliceCountsForSelection(oldValue: [DiskOption?]) {
+        // User's slice counts are preserved exactly as set - no enforcement
     }
 
     // Number of slices to expose per disk (auto-calculated based on disk count)
@@ -125,6 +138,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         if count == 2 { return 4 }
         return 2
     }
+
     @Published var availableDisks: [DiskOption] = [
         DiskOption(name: "None", filename: ""),
     ]
@@ -284,6 +298,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// Restore saved disk selections from UserDefaults, or set defaults
     private func restoreDiskSelections() {
+        isRestoringSelections = true
+        defer { isRestoringSelections = false }
+
         // Check if user has saved selections
         let hasSavedSelections = UserDefaults.standard.stringArray(forKey: "selectedDisks") != nil
         debugPrint("[RestoreDisks] hasSavedSelections=\(hasSavedSelections)")
@@ -304,15 +321,21 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 }
             }
         } else {
-            // First launch defaults: Combo for disk 0, Infocom for disk 1
-            debugPrint("[RestoreDisks] First launch - setting defaults")
-            selectedDisks[0] = availableDisks.first { $0.filename == "hd1k_combo.img" }
-            selectedDisks[1] = availableDisks.first { $0.filename == "hd1k_infocom.img" }
+            // First launch defaults: use defaultSlot from catalog
+            debugPrint("[RestoreDisks] First launch - setting defaults from catalog")
+            for catalogDisk in diskCatalog {
+                if let slot = catalogDisk.defaultSlot, slot >= 0, slot < 4 {
+                    debugPrint("[RestoreDisks] Catalog default: '\(catalogDisk.filename)' -> slot \(slot)")
+                    selectedDisks[slot] = availableDisks.first { $0.filename == catalogDisk.filename }
+                }
+            }
         }
 
-        // Ensure disk 0 has something selected
+        // Ensure disk 0 has something selected (fallback if no catalog defaults)
         if selectedDisks[0] == nil || selectedDisks[0]?.filename.isEmpty == true {
-            selectedDisks[0] = availableDisks.first { $0.filename == "hd1k_combo.img" }
+            // Try to find a disk with defaultSlot=0, then fall back to first available
+            let defaultDisk = diskCatalog.first { $0.defaultSlot == 0 }
+            selectedDisks[0] = availableDisks.first { $0.filename == defaultDisk?.filename }
                 ?? availableDisks.first { !$0.filename.isEmpty }
                 ?? availableDisks.first
         }
@@ -326,10 +349,33 @@ class EmulatorViewModel: NSObject, ObservableObject {
             }
         }
 
-        // Slice counts are now auto-calculated based on disk count (not restored from UserDefaults)
-        // Formula: 1 disk=8 slices, 2 disks=4 each, 3+ disks=2 each
+        // Restore saved slice counts from UserDefaults
+        if let savedSliceCounts = UserDefaults.standard.array(forKey: "diskSliceCounts") as? [Int],
+           savedSliceCounts.count == 4 {
+            // Restore saved values exactly as user set them
+            diskSliceCounts = savedSliceCounts
+            debugPrint("[RestoreDisks] Restored slice counts: \(diskSliceCounts)")
+        } else {
+            // First launch - calculate defaults based on disk count
+            recalculateDefaultSliceCounts()
+        }
+
+        // Restore local disk bindings from bookmarks
+        restoreLocalDiskBindings()
 
         statusText = "Ready - Press Play to start"
+    }
+
+    /// Recalculate default slice counts based on current disk selection
+    func recalculateDefaultSliceCounts() {
+        let diskCount = selectedDisks.filter { $0 != nil && !($0?.filename.isEmpty ?? true) }.count
+            + localDiskURLs.filter { $0 != nil }.count
+        let autoSlices = autoSliceCount(forDiskCount: max(1, diskCount))
+
+        for i in 0..<4 {
+            diskSliceCounts[i] = autoSlices
+        }
+        debugPrint("[SliceCounts] Recalculated defaults: \(diskSliceCounts) (diskCount=\(diskCount), auto=\(autoSlices))")
     }
 
     func loadSelectedResources() {
@@ -349,24 +395,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         debugPrint("[EmulatorVM] ROM loaded successfully: \(romFile)")
         statusText = "ROM loaded: \(selectedROM?.name ?? romFile)"
 
-        // Count how many disks will be loaded to calculate auto slice count
-        var diskCount = 0
-        for unit in 0..<selectedDisks.count {
-            if localDiskURLs[unit] != nil {
-                diskCount += 1
-            } else if let disk = selectedDisks[unit], !disk.filename.isEmpty {
-                let diskPath = downloadsDirectory.appendingPathComponent(disk.filename)
-                let fileExists = FileManager.default.fileExists(atPath: diskPath.path)
-                // Count if file exists in downloads or might be in bundle
-                if fileExists || Bundle.main.path(forResource: disk.filename, ofType: nil) != nil {
-                    diskCount += 1
-                }
-            }
-        }
-
-        // Calculate auto slice count based on disk count
-        let autoSlices = autoSliceCount(forDiskCount: diskCount)
-        debugPrint("[EmulatorVM] Disk count: \(diskCount), auto slices per disk: \(autoSlices)")
+        debugPrint("[EmulatorVM] Using saved slice counts: \(diskSliceCounts)")
 
         var diskLoadErrors: [String] = []
 
@@ -374,11 +403,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
         for unit in 0..<selectedDisks.count {
             debugPrint("[EmulatorVM] Loading disk unit \(unit): \(selectedDisks[unit]?.filename ?? "none")")
 
+            // Get the saved slice count for this unit
+            let slices = diskSliceCounts[unit]
+
             // First check if there's a local file URL for this unit
             if let url = localDiskURLs[unit] {
                 if loadLocalDisk(unit: unit, from: url) {
-                    emulator?.setDiskSliceCount(Int32(unit), slices: Int32(autoSlices))
-                    debugPrint("[EmulatorVM] Loaded local disk to unit \(unit) with \(autoSlices) slices (auto)")
+                    emulator?.setDiskSliceCount(Int32(unit), slices: Int32(slices))
+                    debugPrint("[EmulatorVM] Loaded local disk to unit \(unit) with \(slices) slices")
                     statusText = "Loaded local file to \(diskLabels[unit])"
                     continue
                 }
@@ -394,8 +426,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 if fileExists {
                     // Load from downloads directory
                     if loadDownloadedDisk(unit: unit, filename: disk.filename) {
-                        emulator?.setDiskSliceCount(Int32(unit), slices: Int32(autoSlices))
-                        debugPrint("🔵 [DISK] Loaded downloaded disk \(disk.filename) to unit \(unit) with \(autoSlices) slices (auto)")
+                        emulator?.setDiskSliceCount(Int32(unit), slices: Int32(slices))
+                        debugPrint("🔵 [DISK] Loaded downloaded disk \(disk.filename) to unit \(unit) with \(slices) slices")
                         statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
                         continue
                     } else {
@@ -409,8 +441,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 let success = emulator?.loadDisk(Int32(unit), fromBundle: disk.filename) == true
                 debugPrint("🔵 [DISK] loadDisk(\(unit), \(disk.filename)) from bundle = \(success)")
                 if success {
-                    emulator?.setDiskSliceCount(Int32(unit), slices: Int32(autoSlices))
-                    debugPrint("🔵 [DISK] Set slice count for unit \(unit) to \(autoSlices) (auto)")
+                    emulator?.setDiskSliceCount(Int32(unit), slices: Int32(slices))
+                    debugPrint("🔵 [DISK] Set slice count for unit \(unit) to \(slices) slices")
                     statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
                 } else {
                     debugPrint("[EmulatorVM] ERROR: Failed to load \(disk.filename) to unit \(unit) - not in downloads or bundle")
@@ -456,6 +488,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
             if emulator?.loadDisk(Int32(unit), from: data) == true {
                 localDiskURLs[unit] = url
                 selectedDisks[unit] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "")
+                saveLocalDiskBindings()
+                recalculateDefaultSliceCounts()
                 return true
             }
         } catch {
@@ -491,6 +525,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
             if emulator?.loadDisk(Int32(diskUnitForFileOp), from: data) == true {
                 localDiskURLs[diskUnitForFileOp] = url
                 selectedDisks[diskUnitForFileOp] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "")
+                saveLocalDiskBindings()
+                recalculateDefaultSliceCounts()
                 statusText = "Created: \(url.lastPathComponent)"
             }
         } catch {
@@ -522,6 +558,91 @@ class EmulatorViewModel: NSObject, ObservableObject {
         } catch {
             showError("Failed to save: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - Local Disk Bookmark Persistence
+
+    /// Save security-scoped bookmarks for local disk files to UserDefaults
+    private func saveLocalDiskBindings() {
+        var bookmarks: [Data?] = Array(repeating: nil, count: 4)
+
+        for i in 0..<4 {
+            guard let url = localDiskURLs[i] else { continue }
+            do {
+                let bookmarkData = try url.bookmarkData(
+                    options: .minimalBookmark,
+                    includingResourceValuesForKeys: nil,
+                    relativeTo: nil
+                )
+                bookmarks[i] = bookmarkData
+                debugPrint("[LocalDisk] Saved bookmark for slot \(i): \(url.lastPathComponent)")
+            } catch {
+                debugPrint("[LocalDisk] Failed to create bookmark for slot \(i): \(error)")
+            }
+        }
+
+        // Save as array of optional Data (encode as array of Data or empty Data)
+        let encoded = bookmarks.map { $0 ?? Data() }
+        UserDefaults.standard.set(encoded, forKey: "localDiskBookmarks")
+        debugPrint("[LocalDisk] Saved \(bookmarks.compactMap { $0 }.count) local disk bookmarks")
+    }
+
+    /// Restore local disk bindings from saved bookmarks
+    private func restoreLocalDiskBindings() {
+        guard let savedBookmarks = UserDefaults.standard.array(forKey: "localDiskBookmarks") as? [Data] else {
+            debugPrint("[LocalDisk] No saved bookmarks found")
+            return
+        }
+
+        for (i, bookmarkData) in savedBookmarks.enumerated() where i < 4 {
+            guard !bookmarkData.isEmpty else { continue }
+
+            do {
+                var isStale = false
+                let url = try URL(
+                    resolvingBookmarkData: bookmarkData,
+                    options: [],
+                    relativeTo: nil,
+                    bookmarkDataIsStale: &isStale
+                )
+
+                if isStale {
+                    debugPrint("[LocalDisk] Bookmark for slot \(i) is stale, will re-save")
+                }
+
+                // Verify we can still access the file
+                guard url.startAccessingSecurityScopedResource() else {
+                    debugPrint("[LocalDisk] Cannot access security-scoped resource for slot \(i)")
+                    continue
+                }
+
+                if FileManager.default.fileExists(atPath: url.path) {
+                    localDiskURLs[i] = url
+                    selectedDisks[i] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "")
+                    debugPrint("[LocalDisk] Restored local disk for slot \(i): \(url.lastPathComponent)")
+
+                    // Re-save bookmark if stale
+                    if isStale {
+                        saveLocalDiskBindings()
+                    }
+                } else {
+                    url.stopAccessingSecurityScopedResource()
+                    debugPrint("[LocalDisk] File no longer exists for slot \(i): \(url.path)")
+                }
+            } catch {
+                debugPrint("[LocalDisk] Failed to resolve bookmark for slot \(i): \(error)")
+            }
+        }
+    }
+
+    /// Clear local disk binding for a specific slot
+    func clearLocalDisk(unit: Int) {
+        if let url = localDiskURLs[unit] {
+            url.stopAccessingSecurityScopedResource()
+        }
+        localDiskURLs[unit] = nil
+        saveLocalDiskBindings()
+        debugPrint("[LocalDisk] Cleared local disk for slot \(unit)")
     }
 
     // MARK: - Emulation Control
@@ -2043,6 +2164,8 @@ class DiskCatalogXMLParser: NSObject, XMLParserDelegate {
             currentDisk["license"] = trimmed
         case "sha256":
             currentDisk["sha256"] = trimmed
+        case "defaultSlot":
+            currentDisk["defaultSlot"] = trimmed
         case "disk":
             // End of disk element - create DownloadableDisk
             if let filename = currentDisk["filename"],
@@ -2054,7 +2177,8 @@ class DiskCatalogXMLParser: NSObject, XMLParserDelegate {
                     url: "\(baseURL)/\(filename)",
                     sizeBytes: Int64(currentDisk["size"] ?? "0") ?? 0,
                     license: currentDisk["license"] ?? "Unknown",
-                    sha256: currentDisk["sha256"]
+                    sha256: currentDisk["sha256"],
+                    defaultSlot: Int(currentDisk["defaultSlot"] ?? "")
                 )
                 disks.append(disk)
             }
