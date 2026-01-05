@@ -382,12 +382,12 @@ struct SettingsView: View {
                                 Text("Slices:")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
-                                Stepper("\(viewModel.diskSliceCounts[unit])", value: $viewModel.diskSliceCounts[unit], in: 1...8)
+                                Stepper("", value: $viewModel.diskSliceCounts[unit], in: 0...8)
                                     .labelsHidden()
                                     .fixedSize()
-                                Text("\(viewModel.diskSliceCounts[unit])")
+                                Text(viewModel.diskSliceCounts[unit] == 0 ? "Auto" : "\(viewModel.diskSliceCounts[unit])")
                                     .font(.caption)
-                                    .frame(width: 20)
+                                    .frame(width: 32)
                             }
 
                             HStack(spacing: 12) {
@@ -413,7 +413,7 @@ struct SettingsView: View {
                         .padding(.vertical, 2)
                     }
 
-                    Text("Slices control how many drive letters each disk uses (1-8). Default: 4 slices. Lower values use less memory.")
+                    Text("Slices control how many drive letters each disk uses. Auto: 1 disk=8, 2 disks=4 each, 3+ disks=2 each. Set manually for specific OS requirements (e.g., 6 for boot 2.4).")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
