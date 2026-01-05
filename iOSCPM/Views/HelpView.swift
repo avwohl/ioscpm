@@ -222,13 +222,27 @@ class HelpViewModel: ObservableObject {
                         self?.baseURL = index.base_url
                         self?.indexState = .loaded(index)
                     } else {
-                        self?.indexState = .error(error.localizedDescription)
+                        self?.indexState = .error("Network error: \(error.localizedDescription)")
                     }
                     return
                 }
 
-                guard let data = data else {
-                    self?.indexState = .error("No data received")
+                // Check HTTP status code
+                if let httpResponse = response as? HTTPURLResponse,
+                   httpResponse.statusCode != 200 {
+                    // Try cache on HTTP error
+                    if let cachedData = try? Data(contentsOf: cachedIndexURL),
+                       let index = try? JSONDecoder().decode(HelpIndex.self, from: cachedData) {
+                        self?.baseURL = index.base_url
+                        self?.indexState = .loaded(index)
+                    } else {
+                        self?.indexState = .error("Server returned status \(httpResponse.statusCode)")
+                    }
+                    return
+                }
+
+                guard let data = data, !data.isEmpty else {
+                    self?.indexState = .error("No data received from server")
                     return
                 }
 
@@ -240,7 +254,9 @@ class HelpViewModel: ObservableObject {
                     // Cache the index
                     try? data.write(to: cachedIndexURL)
                 } catch {
-                    self?.indexState = .error("Failed to parse index: \(error.localizedDescription)")
+                    // Show beginning of response for debugging
+                    let preview = String(data: data.prefix(100), encoding: .utf8) ?? "(binary)"
+                    self?.indexState = .error("Parse error: \(error.localizedDescription)\nResponse: \(preview)...")
                 }
             }
         }.resume()
@@ -269,12 +285,24 @@ class HelpViewModel: ObservableObject {
                     if let cachedContent = try? String(contentsOf: cachedFileURL, encoding: .utf8) {
                         self?.contentCache[topic.id] = .loaded(cachedContent)
                     } else {
-                        self?.contentCache[topic.id] = .error(error.localizedDescription)
+                        self?.contentCache[topic.id] = .error("Network: \(error.localizedDescription)")
                     }
                     return
                 }
 
-                guard let data = data, let content = String(data: data, encoding: .utf8) else {
+                // Check HTTP status code
+                if let httpResponse = response as? HTTPURLResponse,
+                   httpResponse.statusCode != 200 {
+                    if let cachedContent = try? String(contentsOf: cachedFileURL, encoding: .utf8) {
+                        self?.contentCache[topic.id] = .loaded(cachedContent)
+                    } else {
+                        self?.contentCache[topic.id] = .error("HTTP \(httpResponse.statusCode)")
+                    }
+                    return
+                }
+
+                guard let data = data, !data.isEmpty,
+                      let content = String(data: data, encoding: .utf8) else {
                     self?.contentCache[topic.id] = .error("Failed to decode content")
                     return
                 }
