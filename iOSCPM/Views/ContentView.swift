@@ -226,6 +226,10 @@ struct ContentView: View {
             }
             // Host file modifiers extracted to reduce type-check complexity
             .hostFileModifiers(viewModel: viewModel)
+            // Listen for Help menu command from menu bar
+            .onReceive(NotificationCenter.default.publisher(for: .showHelp)) { _ in
+                showingHelp = true
+            }
         }
         .navigationViewStyle(.stack)  // Force single column on Mac
         .onAppear {
