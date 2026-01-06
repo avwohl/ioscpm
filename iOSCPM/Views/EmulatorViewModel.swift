@@ -103,40 +103,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
     ]
 
     // Disk selection for slots 0-3 (OS slots) and data drives
-    private var isRestoringSelections = false  // Flag to prevent recalculation during restore
+    private var isRestoringSelections = false  // Flag to prevent didSet during restore
     @Published var selectedDisks: [DiskOption?] = Array(repeating: nil, count: 4) {
         didSet {
             // Save selected disk filenames to UserDefaults
             let filenames = selectedDisks.map { $0?.filename ?? "" }
             UserDefaults.standard.set(filenames, forKey: "selectedDisks")
-
-            // Update slice counts when selection changes (but not during restoration)
-            if !isRestoringSelections {
-                updateSliceCountsForSelection(oldValue: oldValue)
-            }
         }
-    }
-
-    /// Update slice counts when disk selection changes
-    /// Preserves user's manual settings (no automatic adjustments)
-    private func updateSliceCountsForSelection(oldValue: [DiskOption?]) {
-        // User's slice counts are preserved exactly as set - no enforcement
-    }
-
-    // Number of slices to expose per disk (0 = auto-calculated based on disk count)
-    // Auto formula: 1 disk = 8 slices, 2 disks = 4 each, 3+ disks = 2 each
-    @Published var diskSliceCounts: [Int] = [0, 0, 0, 0] {
-        didSet {
-            UserDefaults.standard.set(diskSliceCounts, forKey: "diskSliceCounts")
-        }
-    }
-
-    /// Calculate auto slice count based on number of loaded disks
-    /// Matches RomWBW/CBIOS behavior: 1 disk=8, 2 disks=4 each, 3+ disks=2 each
-    private func autoSliceCount(forDiskCount count: Int) -> Int {
-        if count <= 1 { return 8 }
-        if count == 2 { return 4 }
-        return 2
     }
 
     @Published var availableDisks: [DiskOption] = [
@@ -349,34 +322,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
             }
         }
 
-        // Restore saved slice counts from UserDefaults
-        if let savedSliceCounts = UserDefaults.standard.array(forKey: "diskSliceCounts") as? [Int],
-           savedSliceCounts.count == 4 {
-            // Restore saved values exactly as user set them
-            diskSliceCounts = savedSliceCounts
-            debugPrint("[RestoreDisks] Restored slice counts: \(diskSliceCounts)")
-        } else {
-            // First launch - calculate defaults based on disk count
-            recalculateDefaultSliceCounts()
-        }
-
         // Restore local disk bindings from bookmarks
         restoreLocalDiskBindings()
 
         statusText = "Ready - Press Play to start"
     }
 
-    /// Recalculate default slice counts based on current disk selection
-    /// Sets all to 0 (Auto) which will be calculated at runtime
-    func recalculateDefaultSliceCounts() {
-        for i in 0..<4 {
-            diskSliceCounts[i] = 0  // 0 = Auto
-        }
-        let diskCount = selectedDisks.filter { $0 != nil && !($0?.filename.isEmpty ?? true) }.count
-            + localDiskURLs.filter { $0 != nil }.count
-        let autoSlices = autoSliceCount(forDiskCount: max(1, diskCount))
-        debugPrint("[SliceCounts] Reset to Auto (0), will use \(autoSlices) for \(diskCount) disks at runtime")
-    }
 
     func loadSelectedResources() {
         // Close all existing disks before loading new configuration
@@ -395,27 +346,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
         debugPrint("[EmulatorVM] ROM loaded successfully: \(romFile)")
         statusText = "ROM loaded: \(selectedROM?.name ?? romFile)"
 
-        // Calculate auto slice count based on disk selection
-        let diskCount = selectedDisks.filter { $0 != nil && !($0?.filename.isEmpty ?? true) }.count
-            + localDiskURLs.filter { $0 != nil }.count
-        let autoSlices = autoSliceCount(forDiskCount: max(1, diskCount))
-        debugPrint("[EmulatorVM] Using slice counts: \(diskSliceCounts) (auto=\(autoSlices) for \(diskCount) disks)")
-
         var diskLoadErrors: [String] = []
 
         // Load selected disks
         for unit in 0..<selectedDisks.count {
             debugPrint("[EmulatorVM] Loading disk unit \(unit): \(selectedDisks[unit]?.filename ?? "none")")
 
-            // Get slice count: use saved value, or auto if 0
-            let savedSlices = diskSliceCounts[unit]
-            let slices = savedSlices > 0 ? savedSlices : autoSlices
-
             // First check if there's a local file URL for this unit
             if let url = localDiskURLs[unit] {
                 if loadLocalDisk(unit: unit, from: url) {
-                    emulator?.setDiskSliceCount(Int32(unit), slices: Int32(slices))
-                    debugPrint("[EmulatorVM] Loaded local disk to unit \(unit) with \(slices) slices")
+                    debugPrint("[EmulatorVM] Loaded local disk to unit \(unit)")
                     statusText = "Loaded local file to \(diskLabels[unit])"
                     continue
                 }
@@ -431,8 +371,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 if fileExists {
                     // Load from downloads directory
                     if loadDownloadedDisk(unit: unit, filename: disk.filename) {
-                        emulator?.setDiskSliceCount(Int32(unit), slices: Int32(slices))
-                        debugPrint("🔵 [DISK] Loaded downloaded disk \(disk.filename) to unit \(unit) with \(slices) slices")
+                        debugPrint("🔵 [DISK] Loaded downloaded disk \(disk.filename) to unit \(unit)")
                         statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
                         continue
                     } else {
@@ -446,8 +385,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 let success = emulator?.loadDisk(Int32(unit), fromBundle: disk.filename) == true
                 debugPrint("🔵 [DISK] loadDisk(\(unit), \(disk.filename)) from bundle = \(success)")
                 if success {
-                    emulator?.setDiskSliceCount(Int32(unit), slices: Int32(slices))
-                    debugPrint("🔵 [DISK] Set slice count for unit \(unit) to \(slices) slices")
                     statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
                 } else {
                     debugPrint("[EmulatorVM] ERROR: Failed to load \(disk.filename) to unit \(unit) - not in downloads or bundle")
@@ -494,7 +431,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 localDiskURLs[unit] = url
                 selectedDisks[unit] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "")
                 saveLocalDiskBindings()
-                recalculateDefaultSliceCounts()
                 return true
             }
         } catch {
@@ -531,7 +467,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 localDiskURLs[diskUnitForFileOp] = url
                 selectedDisks[diskUnitForFileOp] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "")
                 saveLocalDiskBindings()
-                recalculateDefaultSliceCounts()
                 statusText = "Created: \(url.lastPathComponent)"
             }
         } catch {
@@ -946,8 +881,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
         debugPrint("🟢 [START] startEmulator called")
         // Clear terminal before starting (removes "Press Play" message)
         clearTerminal()
-        // Load selected ROM and disks before starting (slice counts auto-calculated)
-        debugPrint("🟢 [START] calling loadSelectedResources (auto slice count)")
+        // Load selected ROM and disks before starting
+        debugPrint("🟢 [START] calling loadSelectedResources")
         loadSelectedResources()
         debugPrint("🟢 [START] calling emulator.start()")
         emulator?.start()

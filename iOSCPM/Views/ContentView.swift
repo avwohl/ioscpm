@@ -372,27 +372,13 @@ struct SettingsView: View {
                                 }
                             }
 
-                            HStack {
-                                Picker("", selection: $viewModel.selectedDisks[unit]) {
-                                    ForEach(viewModel.availableDisks) { disk in
-                                        Text(disk.name).tag(disk as DiskOption?)
-                                    }
+                            Picker("", selection: $viewModel.selectedDisks[unit]) {
+                                ForEach(viewModel.availableDisks) { disk in
+                                    Text(disk.name).tag(disk as DiskOption?)
                                 }
-                                .pickerStyle(.menu)
-                                .labelsHidden()
-
-                                Spacer()
-
-                                Text("Slices:")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Stepper("", value: $viewModel.diskSliceCounts[unit], in: 0...8)
-                                    .labelsHidden()
-                                    .fixedSize()
-                                Text(viewModel.diskSliceCounts[unit] == 0 ? "Auto" : "\(viewModel.diskSliceCounts[unit])")
-                                    .font(.caption)
-                                    .frame(width: 32)
                             }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
 
                             HStack(spacing: 12) {
                                 Button("Open File...") {
@@ -417,9 +403,6 @@ struct SettingsView: View {
                         .padding(.vertical, 2)
                     }
 
-                    Text("Slices control how many drive letters each disk uses. Auto: 1 disk=8, 2 disks=4 each, 3+ disks=2 each. Set manually for specific OS requirements (e.g., 6 for boot 2.4).")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
 
                 // Boot Section

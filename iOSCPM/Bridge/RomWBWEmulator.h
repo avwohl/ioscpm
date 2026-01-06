@@ -64,7 +64,7 @@ typedef NS_ENUM(NSInteger, RWBControlifyMode) {
 - (BOOL)saveDisk:(int)unit toPath:(NSString*)path;
 - (BOOL)isDiskLoaded:(int)unit;
 - (void)closeAllDisks;  // Close all disks before reconfiguring
-- (void)setDiskSliceCount:(int)unit slices:(int)slices;  // Set max slices (1-8)
+- (void)setDiskSliceCount:(int)unit slices:(int)slices;  // Set slices for drive letter assignment
 
 // Boot string (auto-type at boot menu)
 - (void)setBootString:(NSString*)bootString;
