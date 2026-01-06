@@ -69,20 +69,9 @@ struct TerminalWithToolbar: View {
     let fontSize: CGFloat
 
     var body: some View {
-        VStack(spacing: 0) {
-            TerminalView(
-                cells: $cells,
-                cursorRow: $cursorRow,
-                cursorCol: $cursorCol,
-                rows: rows,
-                cols: cols,
-                fontSize: fontSize,
-                shouldFocus: $shouldFocus,
-                onKeyInput: onKeyInput
-            )
-
-            // Control key toolbar
-            HStack(spacing: 8) {
+        HStack(spacing: 0) {
+            // Control key toolbar (vertical, left side)
+            VStack(spacing: 6) {
                 ToolbarButton(title: "Ctrl", isActive: isControlifyActive) {
                     // Toggle: if active turn off, if off turn on (one-char mode)
                     onSetControlify?(isControlifyActive ? .off : .oneChar)
@@ -95,10 +84,22 @@ struct TerminalWithToolbar: View {
                     onSetControlify?(.off)
                     onKeyInput?(Character(UnicodeScalar(9)))
                 }
+                Spacer()
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 4)
             .background(Color(UIColor.systemGray5))
+
+            TerminalView(
+                cells: $cells,
+                cursorRow: $cursorRow,
+                cursorCol: $cursorCol,
+                rows: rows,
+                cols: cols,
+                fontSize: fontSize,
+                shouldFocus: $shouldFocus,
+                onKeyInput: onKeyInput
+            )
         }
     }
 }
@@ -111,12 +112,12 @@ struct ToolbarButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 18, weight: .medium))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 36)
+                .padding(.vertical, 6)
                 .background(isActive ? Color.blue : Color(UIColor.systemGray4))
                 .foregroundColor(isActive ? .white : .primary)
-                .cornerRadius(8)
+                .cornerRadius(6)
         }
         .buttonStyle(.plain)
     }
