@@ -34,7 +34,7 @@ void HBIOSEmulator::logDebug(const char* fmt, ...) {
 HBIOSEmulator::HBIOSEmulator()
   : memory(), cpu(&memory, this), running(false), waiting_for_input(false),
     debug_enabled(false), instruction_count(0), boot_string_pos(0),
-    controlify_mode(CTRL_OFF), initialized_ram_banks(0)
+    controlify_mode(CTRL_OFF)
 {
   // Initialize banked memory
   memory.enable_banking();
@@ -63,7 +63,6 @@ void HBIOSEmulator::reset() {
   instruction_count = 0;
   boot_string_pos = 0;
   controlify_mode = CTRL_OFF;
-  initialized_ram_banks = 0;
 
   // Clear console input queue
   emu_console_clear_queue();
@@ -89,7 +88,8 @@ void HBIOSEmulator::reset() {
 
 void HBIOSEmulator::initializeRamBankIfNeeded(uint8_t bank) {
   // Use shared RAM bank initialization (copies page zero, HCB, and patches APITYPE)
-  emu_init_ram_bank(&memory, bank, &initialized_ram_banks);
+  // Use shared bitmap from HBIOSDispatch so port I/O and SYSSETBNK paths share one tracking bitmap
+  emu_init_ram_bank(&memory, bank, hbios.getInitializedBanksBitmap());
 }
 
 //=============================================================================

@@ -105,9 +105,6 @@ private:
 
   // Controlify mode
   ControlifyMode controlify_mode;
-
-  // RAM bank initialization tracking (bitmask for banks 0x80-0x8F)
-  uint16_t initialized_ram_banks;
 };
 
 #endif // HBIOS_CORE_H
