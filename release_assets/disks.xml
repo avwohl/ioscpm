@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<disks version="11">
+<disks version="12">
     <disk>
         <filename>hd1k_combo.img</filename>
         <name>Combo (Recommended)</name>
@@ -61,14 +61,6 @@
         <filename>hd1k_games.img</filename>
         <name>Games</name>
         <description>Collection of classic CP/M games including adventures and arcade.</description>
-        <size>8388608</size>
-        <license>Abandonware</license>
-        <sha256>7f33738c4c8be0655ee9452370fe450146492e9174347c22b3300ac2377d0abd</sha256>
-    </disk>
-    <disk>
-        <filename>hd1k_infocom.img</filename>
-        <name>Infocom</name>
-        <description>Infocom text adventures - Zork, Hitchhiker's Guide, and more.</description>
         <size>8388608</size>
         <license>Abandonware</license>
         <sha256>7f33738c4c8be0655ee9452370fe450146492e9174347c22b3300ac2377d0abd</sha256>

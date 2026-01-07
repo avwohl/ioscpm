@@ -163,7 +163,6 @@ shasum -a 256 hd1k_newdisk.img
 | hd1k_nzcom.img | NZCOM | Mixed | 8MB |
 | hd1k_qpm.img | QPM | Mixed | 8MB |
 | hd1k_games.img | Games | Abandonware | 8MB |
-| hd1k_infocom.img | Infocom | Abandonware | 8MB |
 | hd1k_aztecc.img | Aztec C | Abandonware | 8MB |
 | hd1k_bascomp.img | BASIC Compilers | Abandonware | 8MB |
 | hd1k_cowgol.img | Cowgol | Open Source | 8MB |
