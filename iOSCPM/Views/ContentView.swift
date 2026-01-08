@@ -92,6 +92,34 @@ struct ContentView: View {
                     }
                 }
             )
+            .overlay(
+                // Auto-start countdown overlay
+                Group {
+                    if viewModel.isCountingDown {
+                        VStack(spacing: 16) {
+                            Text("Auto-starting in \(viewModel.countdownRemaining)...")
+                                .font(.system(.headline, design: .monospaced))
+
+                            Button(action: {
+                                viewModel.cancelAutoStartCountdown()
+                            }) {
+                                Text("Cancel")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 32)
+                                    .padding(.vertical, 12)
+                                    .background(Color.red)
+                                    .cornerRadius(8)
+                            }
+                        }
+                        .padding(24)
+                        .frame(minWidth: 200)
+                        .background(Color(.systemBackground).opacity(0.95))
+                        .cornerRadius(12)
+                        .shadow(radius: 10)
+                    }
+                }
+            )
             .navigationTitle("Z80CPM v\(appVersion)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -415,10 +443,21 @@ struct SettingsView: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 100)
                             .multilineTextAlignment(.trailing)
+                            .disableAutocorrection(true)
+                            .autocapitalization(.none)
                     }
                     Text("Enter a command to auto-send at boot (e.g., '0' to boot CP/M)")
                         .font(.caption)
                         .foregroundColor(.secondary)
+
+                    Toggle("Auto-Start on Launch", isOn: $viewModel.autoStartEnabled)
+
+                    if viewModel.autoStartEnabled {
+                        Stepper("Countdown: \(viewModel.autoStartDelay)s", value: $viewModel.autoStartDelay, in: 1...10)
+                        Text("Emulator will start automatically after \(viewModel.autoStartDelay) second\(viewModel.autoStartDelay == 1 ? "" : "s")")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
 
                 // Download Disk Images Section

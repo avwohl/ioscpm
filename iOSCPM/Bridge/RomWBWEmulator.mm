@@ -225,6 +225,10 @@ static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
   _emulator->setBootString(bootString ? [bootString UTF8String] : "");
 }
 
+- (void)setBootOption:(NSString*)bootOption {
+  _emulator->getHBIOS()->setBootOption(bootOption ? [bootOption UTF8String] : "");
+}
+
 //=============================================================================
 // Execution Control
 //=============================================================================

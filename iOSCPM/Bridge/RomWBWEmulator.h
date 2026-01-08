@@ -66,8 +66,12 @@ typedef NS_ENUM(NSInteger, RWBControlifyMode) {
 - (void)closeAllDisks;  // Close all disks before reconfiguring
 - (void)setDiskSliceCount:(int)unit slices:(int)slices;  // Set slices for drive letter assignment
 
-// Boot string (auto-type at boot menu)
+// Boot string (auto-type at boot menu) - DEPRECATED: use setBootOption instead
 - (void)setBootString:(NSString*)bootString;
+
+// Boot option - configures NVRAM switches for automatic boot
+// Format: "0" = disk unit 0, "0.2" = disk unit 0 slice 2, "C" = ROM app C
+- (void)setBootOption:(NSString*)bootOption;
 
 // Execution control
 - (void)start;
