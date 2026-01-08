@@ -8,6 +8,7 @@ import UIKit
 
 // Read version from bundle Info.plist
 let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
 
 struct ContentView: View {
     @StateObject private var viewModel = EmulatorViewModel()
@@ -254,7 +255,7 @@ struct AboutView: View {
                     .font(.title)
                     .fontWeight(.bold)
 
-                Text("Version \(appVersion)")
+                Text("Version \(appVersion) (\(appBuild))")
                     .foregroundColor(.secondary)
 
                 Text("Z80/CP/M emulator for iOS and macOS")
