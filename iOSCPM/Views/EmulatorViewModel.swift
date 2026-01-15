@@ -447,17 +447,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
             showError("Failed to load disks: \(diskLoadErrors.joined(separator: ", ")). Try re-downloading from Settings.")
         }
 
-        // Apply boot configuration:
-        // - If user has set a boot option in UI, use that (overrides any saved NVRAM)
-        // - If boot string is empty, clear NVRAM to show boot menu
-        // - NVRAM from SYSCONF is only used if user hasn't touched the UI setting
-        if !bootString.isEmpty {
-            emulator?.setNvramSetting(bootString)
-        } else {
-            // Clear any saved autoboot - user wants the menu
-            emulator?.setNvramSetting("")
-            UserDefaults.standard.removeObject(forKey: Self.nvramKey)
-        }
+        // Apply UI boot setting (clears NVRAM if empty, sets if specified)
+        applyBootSetting()
     }
 
     // MARK: - Local Disk File Management
@@ -1121,9 +1112,23 @@ class EmulatorViewModel: NSObject, ObservableObject {
         saveDownloadedDisks()
 
         emulator?.reset()
+
+        // Apply UI boot setting (clears NVRAM if empty, sets if specified)
+        applyBootSetting()
+
         clearTerminal()
         isRunning = false
         statusText = "Reset - disk changes saved"
+    }
+
+    /// Apply the UI boot setting to the emulator's NVRAM
+    private func applyBootSetting() {
+        if !bootString.isEmpty {
+            emulator?.setNvramSetting(bootString)
+        } else {
+            // UI says no autoboot - clear any SYSCONF settings
+            emulator?.setNvramSetting("")
+        }
     }
 
     func sendKey(_ char: Character) {
