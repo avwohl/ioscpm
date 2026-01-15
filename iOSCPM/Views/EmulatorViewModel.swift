@@ -144,11 +144,24 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var bootString: String = "" {
         didSet {
             UserDefaults.standard.set(bootString, forKey: "bootString")
+            // If cleared, also clear NVRAM immediately
+            if bootString.isEmpty {
+                UserDefaults.standard.removeObject(forKey: Self.nvramKey)
+                emulator?.setNvramSetting("")
+            }
         }
     }
 
     // NVRAM persistence key
     private static let nvramKey = "emulatorNvram"
+
+    /// Clear boot string and all NVRAM settings
+    func clearBootString() {
+        bootString = ""
+        UserDefaults.standard.removeObject(forKey: Self.nvramKey)
+        emulator?.setNvramSetting("")
+        debugPrint("[NVRAM] Cleared boot string and NVRAM")
+    }
 
     // Auto-start settings
     @Published var autoStartEnabled: Bool = false {

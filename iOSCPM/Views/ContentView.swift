@@ -447,16 +447,21 @@ struct SettingsView: View {
                 // Boot Section
                 Section(header: Text("Boot Options")) {
                     HStack {
-                        Text("Boot String")
+                        Text("Auto-Boot")
                         Spacer()
-                        TextField("e.g., 0, C", text: $viewModel.bootString)
+                        TextField("e.g., 0, C, 2.3", text: $viewModel.bootString)
                             .textFieldStyle(.roundedBorder)
-                            .frame(width: 100)
+                            .frame(width: 80)
                             .multilineTextAlignment(.trailing)
                             .disableAutocorrection(true)
                             .autocapitalization(.none)
+                        if !viewModel.bootString.isEmpty {
+                            Button("Clear") {
+                                viewModel.clearBootString()
+                            }
+                        }
                     }
-                    Text("Enter a command to auto-send at boot (e.g., '0' to boot CP/M)")
+                    Text("Boot command: C=CP/M, Z=ZSDOS, 0=disk 0, 2.3=disk 2 slice 3, empty=show menu")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
