@@ -434,12 +434,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
             showError("Failed to load disks: \(diskLoadErrors.joined(separator: ", ")). Try re-downloading from Settings.")
         }
 
-        // Restore NVRAM from previous session (includes SYSCONF changes)
-        loadNvram()
-
-        // If user has set a boot option in UI, apply it (overrides saved NVRAM)
+        // Apply boot configuration:
+        // - If user has set a boot option in UI, use that (overrides any saved NVRAM)
+        // - If boot string is empty, clear NVRAM to show boot menu
+        // - NVRAM from SYSCONF is only used if user hasn't touched the UI setting
         if !bootString.isEmpty {
             emulator?.setNvramSetting(bootString)
+        } else {
+            // Clear any saved autoboot - user wants the menu
+            emulator?.setNvramSetting("")
+            UserDefaults.standard.removeObject(forKey: Self.nvramKey)
         }
     }
 
