@@ -247,6 +247,16 @@ struct ContentView: View {
                     dismissButton: .default(Text("OK"))
                 )
             }
+            .alert(isPresented: $viewModel.showingManifestWriteWarning) {
+                Alert(
+                    title: Text("Disk May Be Overwritten"),
+                    message: Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file."),
+                    primaryButton: .default(Text("OK")),
+                    secondaryButton: .default(Text("Don't Warn Again")) {
+                        viewModel.suppressManifestWriteWarnings()
+                    }
+                )
+            }
             .sheet(isPresented: $showingAbout) {
                 AboutView()
             }
@@ -606,6 +616,16 @@ struct SettingsView: View {
                     title: Text("Error"),
                     message: Text(viewModel.errorMessage),
                     dismissButton: .default(Text("OK"))
+                )
+            }
+            .alert(isPresented: $viewModel.showingManifestWriteWarning) {
+                Alert(
+                    title: Text("Disk May Be Overwritten"),
+                    message: Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file."),
+                    primaryButton: .default(Text("OK")),
+                    secondaryButton: .default(Text("Don't Warn Again")) {
+                        viewModel.suppressManifestWriteWarnings()
+                    }
                 )
             }
         }

@@ -226,7 +226,37 @@ static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
 }
 
 - (void)setBootOption:(NSString*)bootOption {
-  _emulator->getHBIOS()->setBootOption(bootOption ? [bootOption UTF8String] : "");
+  // Deprecated: use setNvramSetting instead
+  _emulator->getHBIOS()->setNvramSetting(bootOption ? [bootOption UTF8String] : "");
+}
+
+- (void)setNvramSetting:(NSString*)setting {
+  _emulator->getHBIOS()->setNvramSetting(setting ? [setting UTF8String] : "");
+}
+
+- (nullable NSString*)getNvramSetting {
+  std::string setting = _emulator->getHBIOS()->getNvramSetting();
+  return setting.empty() ? nil : [NSString stringWithUTF8String:setting.c_str()];
+}
+
+- (BOOL)hasNvramChange {
+  return _emulator->getHBIOS()->hasNvramChange();
+}
+
+- (BOOL)isNvramInitialized {
+  return _emulator->getHBIOS()->isNvramInitialized();
+}
+
+- (void)setDiskIsManifest:(int)unit isManifest:(BOOL)isManifest {
+  _emulator->getHBIOS()->setDiskIsManifest(unit, isManifest);
+}
+
+- (void)setDiskWarningSuppressed:(int)unit suppressed:(BOOL)suppressed {
+  _emulator->getHBIOS()->setDiskWarningSuppressed(unit, suppressed);
+}
+
+- (BOOL)pollManifestWriteWarning {
+  return _emulator->getHBIOS()->pollManifestWriteWarning();
 }
 
 //=============================================================================

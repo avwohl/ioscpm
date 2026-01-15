@@ -73,6 +73,18 @@ typedef NS_ENUM(NSInteger, RWBControlifyMode) {
 // Format: "0" = disk unit 0, "0.2" = disk unit 0 slice 2, "C" = ROM app C
 - (void)setBootOption:(NSString*)bootOption;
 
+// NVRAM boot configuration - string-based interface
+// Format: "C" = CP/M 2.2, "Z" = ZSDOS, "0" = disk 0, "2.3" = disk 2 slice 3, "H" = menu, "" = clear
+- (void)setNvramSetting:(NSString*)setting;
+- (nullable NSString*)getNvramSetting;
+- (BOOL)hasNvramChange;
+- (BOOL)isNvramInitialized;
+
+// Manifest disk write warning - warns when writing to auto-updated disks
+- (void)setDiskIsManifest:(int)unit isManifest:(BOOL)isManifest;
+- (void)setDiskWarningSuppressed:(int)unit suppressed:(BOOL)suppressed;
+- (BOOL)pollManifestWriteWarning;
+
 // Execution control
 - (void)start;
 - (void)stop;

@@ -76,6 +76,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var showingDiskExporter: Bool = false
     @Published var showingError: Bool = false
     @Published var errorMessage: String = ""
+    @Published var showingManifestWriteWarning: Bool = false
     @Published var isDownloading: Bool = false
     @Published var downloadingDiskName: String = ""
     @Published var downloadingProgress: Double = 0
@@ -145,6 +146,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
             UserDefaults.standard.set(bootString, forKey: "bootString")
         }
     }
+
+    // NVRAM persistence key
+    private static let nvramKey = "emulatorNvram"
 
     // Auto-start settings
     @Published var autoStartEnabled: Bool = false {
@@ -430,8 +434,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
             showError("Failed to load disks: \(diskLoadErrors.joined(separator: ", ")). Try re-downloading from Settings.")
         }
 
-        // Set boot option (configures NVRAM switches for auto-boot)
-        emulator?.setBootOption(bootString)
+        // Restore NVRAM from previous session (includes SYSCONF changes)
+        loadNvram()
+
+        // If user has set a boot option in UI, apply it (overrides saved NVRAM)
+        if !bootString.isEmpty {
+            emulator?.setNvramSetting(bootString)
+        }
     }
 
     // MARK: - Local Disk File Management
@@ -999,12 +1008,34 @@ class EmulatorViewModel: NSObject, ObservableObject {
     }
 
     func stop() {
+        // Save NVRAM before stopping (preserves SYSCONF changes)
+        saveNvram()
+
         // Auto-save any modified downloaded disks
         saveDownloadedDisks()
 
         emulator?.stop()
         isRunning = false
         statusText = "Stopped - disk changes saved"
+    }
+
+    // MARK: - NVRAM Persistence
+
+    /// Load NVRAM from UserDefaults (restores boot config from previous session)
+    private func loadNvram() {
+        if let setting = UserDefaults.standard.string(forKey: Self.nvramKey) {
+            emulator?.setNvramSetting(setting)
+            debugPrint("[NVRAM] Loaded setting '\(setting)' from UserDefaults")
+        }
+    }
+
+    /// Save NVRAM to UserDefaults if changed (preserves boot config for next session)
+    private func saveNvram() {
+        if emulator?.hasNvramChange() == true {
+            let setting = emulator?.getNvramSetting() ?? ""
+            UserDefaults.standard.set(setting, forKey: Self.nvramKey)
+            debugPrint("[NVRAM] Saved setting '\(setting)' to UserDefaults")
+        }
     }
 
     /// Public method to save all disk images (called from UI menu)
@@ -1166,6 +1197,18 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private func showError(_ message: String) {
         errorMessage = message
         showingError = true
+    }
+
+    /// Show warning when writing to a manifest-managed disk
+    private func showManifestWriteWarning() {
+        showingManifestWriteWarning = true
+    }
+
+    /// Suppress manifest write warnings for all loaded disks (user chose "Don't warn again")
+    func suppressManifestWriteWarnings() {
+        for unit in 0..<4 {
+            emulator?.setDiskWarningSuppressed(Int32(unit), suppressed: true)
+        }
     }
 
     /// Calculate SHA256 hash of a file
@@ -1492,6 +1535,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
         do {
             let data = try Data(contentsOf: path)
             if emulator?.loadDisk(Int32(unit), from: data) == true {
+                // Mark as manifest disk - warns user if they write to it
+                emulator?.setDiskIsManifest(Int32(unit), isManifest: true)
                 return true
             }
         } catch {
@@ -1573,6 +1618,10 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
     func emulatorVDAWriteChar(_ ch: unichar) {
         DispatchQueue.main.async {
+            // Check for manifest disk write warning
+            if self.emulator?.pollManifestWriteWarning() == true {
+                self.showManifestWriteWarning()
+            }
             self.processCharacter(ch)
             self.checkHostFileState()
         }
