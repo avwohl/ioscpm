@@ -448,11 +448,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
             showError("Failed to load disks: \(diskLoadErrors.joined(separator: ", ")). Try re-downloading from Settings.")
         }
 
-        // Restore saved NVRAM boot setting to emulator
-        if !bootString.isEmpty {
-            emulator?.setNvramSetting(bootString)
-            debugPrint("[NVRAM] Restored boot setting '\(bootString)' to emulator")
-        }
+        // Apply boot setting to emulator - empty means no autoboot
+        emulator?.setNvramSetting(bootString)
+        debugPrint("[NVRAM] Applied boot setting '\(bootString.isEmpty ? "(none)" : bootString)' to emulator")
     }
 
     // MARK: - Local Disk File Management
@@ -1113,10 +1111,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         emulator?.reset()
 
-        // Restore saved boot setting (preserves SYSCONF changes)
-        if !bootString.isEmpty {
-            emulator?.setNvramSetting(bootString)
-        }
+        // Apply boot setting - empty means no autoboot
+        emulator?.setNvramSetting(bootString)
 
         clearTerminal()
         isRunning = false
