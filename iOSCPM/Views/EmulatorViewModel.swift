@@ -152,34 +152,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // NVRAM persistence key
     private static let nvramKey = "emulatorNvram"
 
-    /// Set boot string from UI - updates emulator NVRAM (didSet saves to UserDefaults)
-    func setBootString(_ value: String) {
-        bootString = value
-        emulator?.setNvramSetting(value)
-        debugPrint("[NVRAM] UI set boot string to '\(value)'")
+    /// Clear autoboot setting (NVRAM and persisted value)
+    func clearAutoboot() {
+        bootString = ""
+        emulator?.setNvramSetting("")
+        debugPrint("[NVRAM] Cleared autoboot setting")
     }
-
-    /// Clear boot string and NVRAM
-    func clearBootString() {
-        setBootString("")
-    }
-
-    // Auto-start settings
-    @Published var autoStartEnabled: Bool = false {
-        didSet {
-            UserDefaults.standard.set(autoStartEnabled, forKey: "autoStartEnabled")
-        }
-    }
-    @Published var autoStartDelay: Int = 3 {  // Seconds before auto-start
-        didSet {
-            UserDefaults.standard.set(autoStartDelay, forKey: "autoStartDelay")
-        }
-    }
-
-    // Countdown state for auto-start
-    @Published var isCountingDown: Bool = false
-    @Published var countdownRemaining: Int = 0
-    private var countdownTimer: Timer?
 
     // Debug mode (reduces console spam when off)
     @Published var debugMode: Bool = false {
@@ -256,11 +234,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
         emulator?.delegate = self
 
         setupAudio()
-
-        // Restore auto-start settings
-        autoStartEnabled = UserDefaults.standard.bool(forKey: "autoStartEnabled")
-        autoStartDelay = UserDefaults.standard.integer(forKey: "autoStartDelay")
-        if autoStartDelay == 0 { autoStartDelay = 3 }  // Default to 3 seconds
 
         // Restore boot string from NVRAM key
         bootString = UserDefaults.standard.string(forKey: Self.nvramKey) ?? ""
@@ -373,9 +346,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
         restoreLocalDiskBindings()
 
         statusText = "Ready - Press Play to start"
-
-        // Start auto-start countdown if enabled
-        startAutoStartCountdownIfNeeded()
     }
 
 
@@ -634,80 +604,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
         localDiskURLs[unit] = nil
         saveLocalDiskBindings()
         debugPrint("[LocalDisk] Cleared local disk for slot \(unit)")
-    }
-
-    // MARK: - Auto-Start Countdown
-
-    /// Start the auto-start countdown if enabled
-    func startAutoStartCountdownIfNeeded() {
-        guard autoStartEnabled && !isRunning && !catalogLoading else { return }
-
-        // Check if we have disks ready
-        let hasSelectedDisk = selectedDisks.contains { $0 != nil && !($0?.filename.isEmpty ?? true) }
-        guard hasSelectedDisk else {
-            debugPrint("[AutoStart] No disks selected, skipping auto-start")
-            return
-        }
-
-        debugPrint("[AutoStart] Starting countdown for \(autoStartDelay) seconds")
-        countdownRemaining = autoStartDelay
-        isCountingDown = true
-
-        // Update the startup message to show countdown
-        updateStartupMessageForCountdown()
-
-        // Start timer
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.countdownTick()
-        }
-    }
-
-    /// Cancel the auto-start countdown
-    func cancelAutoStartCountdown() {
-        debugPrint("[AutoStart] Countdown cancelled")
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-        isCountingDown = false
-        countdownRemaining = 0
-
-        // Restore normal startup message
-        showStartupMessage()
-    }
-
-    private func countdownTick() {
-        countdownRemaining -= 1
-        updateStartupMessageForCountdown()
-
-        if countdownRemaining <= 0 {
-            countdownTimer?.invalidate()
-            countdownTimer = nil
-            isCountingDown = false
-            debugPrint("[AutoStart] Countdown finished, starting emulator")
-            start()
-        }
-    }
-
-    private func updateStartupMessageForCountdown() {
-        // Clear terminal and show countdown message
-        for row in 0..<terminalRows {
-            for col in 0..<terminalCols {
-                terminalCells[row][col].character = " "
-            }
-        }
-
-        let message = "Auto-starting in \(countdownRemaining) second\(countdownRemaining == 1 ? "" : "s")..."
-        let startCol = (terminalCols - message.count) / 2
-        let startRow = terminalRows / 2
-
-        for (i, char) in message.enumerated() {
-            terminalCells[startRow][startCol + i].character = char
-        }
-
-        let hint = "Tap Cancel to stop"
-        let hintCol = (terminalCols - hint.count) / 2
-        for (i, char) in hint.enumerated() {
-            terminalCells[startRow + 1][hintCol + i].character = char
-        }
     }
 
     // MARK: - Emulation Control

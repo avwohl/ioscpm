@@ -92,34 +92,6 @@ struct ContentView: View {
                     }
                 }
             )
-            .overlay(
-                // Auto-start countdown overlay
-                Group {
-                    if viewModel.isCountingDown {
-                        VStack(spacing: 16) {
-                            Text("Auto-starting in \(viewModel.countdownRemaining)...")
-                                .font(.system(.headline, design: .monospaced))
-
-                            Button(action: {
-                                viewModel.cancelAutoStartCountdown()
-                            }) {
-                                Text("Cancel")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 32)
-                                    .padding(.vertical, 12)
-                                    .background(Color.red)
-                                    .cornerRadius(8)
-                            }
-                        }
-                        .padding(24)
-                        .frame(minWidth: 200)
-                        .background(Color(.systemBackground).opacity(0.95))
-                        .cornerRadius(12)
-                        .shadow(radius: 10)
-                    }
-                }
-            )
             .navigationTitle("Z80CPM v\(appVersion)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -449,29 +421,22 @@ struct SettingsView: View {
                     HStack {
                         Text("Auto-Boot")
                         Spacer()
-                        TextField("e.g., 0, C, 2.3", text: $viewModel.bootString)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                            .multilineTextAlignment(.trailing)
-                            .disableAutocorrection(true)
-                            .autocapitalization(.none)
-                        if !viewModel.bootString.isEmpty {
-                            Button("Clear") {
-                                viewModel.clearBootString()
-                            }
+                        if viewModel.bootString.isEmpty {
+                            Text("Off (shows menu)")
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text(viewModel.bootString)
+                                .foregroundColor(.primary)
                         }
                     }
-                    Text("Set via ROM 'W' menu, or type here. C=CP/M, 0=disk 0, 2.3=disk 2 slice 3")
+                    Text("Configure via ROM 'W' menu (SYSCONF)")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    Toggle("Auto-Start on Launch", isOn: $viewModel.autoStartEnabled)
-
-                    if viewModel.autoStartEnabled {
-                        Stepper("Countdown: \(viewModel.autoStartDelay)s", value: $viewModel.autoStartDelay, in: 1...10)
-                        Text("Emulator will start automatically after \(viewModel.autoStartDelay) second\(viewModel.autoStartDelay == 1 ? "" : "s")")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                    if !viewModel.bootString.isEmpty {
+                        Button("Clear Auto-Boot") {
+                            viewModel.clearAutoboot()
+                        }
                     }
                 }
 

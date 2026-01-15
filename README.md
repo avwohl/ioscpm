@@ -10,6 +10,7 @@ A Z80/CP/M emulator for iPhone, iPad, and Mac, built on the [RomWBW](https://git
 - **Multiple disk support** - up to 4 disk units with hd1k format (8MB slices)
 - **Download disk images** from RomWBW project - no bundled copyrighted content
 - **Local file support** - open, create, and save disk images
+- **NVRAM boot configuration** - auto-boot settings persist across sessions
 - **Mac Catalyst** - runs natively on macOS
 
 ## Screenshots
@@ -28,10 +29,22 @@ The emulator provides a classic 80x25 terminal display with support for:
 5. At boot menu, press `0` to boot from disk
 
 ### Boot Menu Keys
-- `h` - Help
+- `h` - Help (shows full menu)
 - `l` - List ROM applications
 - `d` - List disk devices
+- `w` - **SYSCONF** - Configure auto-boot settings
 - `0-9` - Boot from device number
+- `C` - Boot CP/M 2.2 from ROM
+
+### Auto-Boot Configuration
+
+Use the ROM's **SYSCONF** utility to configure auto-boot:
+
+1. At boot menu, press `W`
+2. Select boot device and timeout
+3. Settings persist across app restarts
+
+To clear auto-boot settings, go to Settings and tap "Clear Auto-Boot".
 
 ## Disk Images
 
