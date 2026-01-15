@@ -231,7 +231,12 @@ static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
 }
 
 - (void)setNvramSetting:(NSString*)setting {
-  _emulator->getHBIOS()->setNvramSetting(setting ? [setting UTF8String] : "");
+  std::string str = setting ? [setting UTF8String] : "";
+  _emulator->getHBIOS()->setNvramSetting(str);
+  // Also clear legacy boot_string when NVRAM is empty (prevents console key injection)
+  if (str.empty()) {
+    _emulator->setBootString("");
+  }
 }
 
 - (nullable NSString*)getNvramSetting {
