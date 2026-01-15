@@ -10,6 +10,18 @@ import UIKit
 let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
 let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
 
+// Get build date from executable modification time
+var appBuildDate: String {
+    guard let executableURL = Bundle.main.executableURL,
+          let attrs = try? FileManager.default.attributesOfItem(atPath: executableURL.path),
+          let modDate = attrs[.modificationDate] as? Date else {
+        return ""
+    }
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd HH:mm"
+    return formatter.string(from: modDate)
+}
+
 struct ContentView: View {
     @StateObject private var viewModel = EmulatorViewModel()
     @AppStorage("terminalFontSize") private var fontSize: Double = 20
@@ -38,7 +50,7 @@ struct ContentView: View {
 
                 // Status bar
                 HStack {
-                    Text("v\(appVersion)")
+                    Text("v\(appVersion).\(appBuild) \(appBuildDate)")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
