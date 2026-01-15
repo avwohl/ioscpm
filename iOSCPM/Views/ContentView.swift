@@ -461,7 +461,7 @@ struct SettingsView: View {
                             }
                         }
                     }
-                    Text("Boot command: C=CP/M, Z=ZSDOS, 0=disk 0, 2.3=disk 2 slice 3, empty=show menu")
+                    Text("Set via ROM 'W' menu, or type here. C=CP/M, 0=disk 0, 2.3=disk 2 slice 3")
                         .font(.caption)
                         .foregroundColor(.secondary)
 

@@ -140,27 +140,28 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // Disk slot labels
     let diskLabels = ["Disk 0 (OS)", "Disk 1 (OS)", "Disk 2 (OS)", "Disk 3 (Data)"]
 
-    // Boot string for auto-boot
+    // Boot string - reflects the emulator's NVRAM setting
+    // Changed by SYSCONF in ROM or by UI, synced to UserDefaults
     @Published var bootString: String = "" {
         didSet {
-            UserDefaults.standard.set(bootString, forKey: "bootString")
-            // If cleared, also clear NVRAM immediately
-            if bootString.isEmpty {
-                UserDefaults.standard.removeObject(forKey: Self.nvramKey)
-                emulator?.setNvramSetting("")
-            }
+            // Save to UserDefaults whenever it changes (from UI or SYSCONF sync)
+            UserDefaults.standard.set(bootString, forKey: Self.nvramKey)
         }
     }
 
     // NVRAM persistence key
     private static let nvramKey = "emulatorNvram"
 
-    /// Clear boot string and all NVRAM settings
+    /// Set boot string from UI - updates emulator NVRAM (didSet saves to UserDefaults)
+    func setBootString(_ value: String) {
+        bootString = value
+        emulator?.setNvramSetting(value)
+        debugPrint("[NVRAM] UI set boot string to '\(value)'")
+    }
+
+    /// Clear boot string and NVRAM
     func clearBootString() {
-        bootString = ""
-        UserDefaults.standard.removeObject(forKey: Self.nvramKey)
-        emulator?.setNvramSetting("")
-        debugPrint("[NVRAM] Cleared boot string and NVRAM")
+        setBootString("")
     }
 
     // Auto-start settings
@@ -261,8 +262,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
         autoStartDelay = UserDefaults.standard.integer(forKey: "autoStartDelay")
         if autoStartDelay == 0 { autoStartDelay = 3 }  // Default to 3 seconds
 
-        // Restore boot string
-        bootString = UserDefaults.standard.string(forKey: "bootString") ?? ""
+        // Restore boot string from NVRAM key
+        bootString = UserDefaults.standard.string(forKey: Self.nvramKey) ?? ""
     }
 
     private func showStartupMessage() {
@@ -447,8 +448,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
             showError("Failed to load disks: \(diskLoadErrors.joined(separator: ", ")). Try re-downloading from Settings.")
         }
 
-        // Apply UI boot setting (clears NVRAM if empty, sets if specified)
-        applyBootSetting()
+        // Restore saved NVRAM boot setting to emulator
+        if !bootString.isEmpty {
+            emulator?.setNvramSetting(bootString)
+            debugPrint("[NVRAM] Restored boot setting '\(bootString)' to emulator")
+        }
     }
 
     // MARK: - Local Disk File Management
@@ -1016,9 +1020,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
     }
 
     func stop() {
-        // Save NVRAM before stopping (preserves SYSCONF changes)
-        saveNvram()
-
         // Auto-save any modified downloaded disks
         saveDownloadedDisks()
 
@@ -1037,13 +1038,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
     }
 
-    /// Save NVRAM to UserDefaults if changed (preserves boot config for next session)
-    private func saveNvram() {
-        if emulator?.hasNvramChange() == true {
-            let setting = emulator?.getNvramSetting() ?? ""
-            UserDefaults.standard.set(setting, forKey: Self.nvramKey)
-            debugPrint("[NVRAM] Saved setting '\(setting)' to UserDefaults")
-        }
+    /// Sync NVRAM from emulator to UI (called when SYSCONF changes NVRAM)
+    /// Setting bootString triggers didSet which saves to UserDefaults
+    private func syncNvramFromEmulator() {
+        let setting = emulator?.getNvramSetting() ?? ""
+        bootString = setting
+        debugPrint("[NVRAM] Synced from emulator: '\(setting)'")
     }
 
     /// Public method to save all disk images (called from UI menu)
@@ -1113,22 +1113,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         emulator?.reset()
 
-        // Apply UI boot setting (clears NVRAM if empty, sets if specified)
-        applyBootSetting()
+        // Restore saved boot setting (preserves SYSCONF changes)
+        if !bootString.isEmpty {
+            emulator?.setNvramSetting(bootString)
+        }
 
         clearTerminal()
         isRunning = false
         statusText = "Reset - disk changes saved"
-    }
-
-    /// Apply the UI boot setting to the emulator's NVRAM
-    private func applyBootSetting() {
-        if !bootString.isEmpty {
-            emulator?.setNvramSetting(bootString)
-        } else {
-            // UI says no autoboot - clear any SYSCONF settings
-            emulator?.setNvramSetting("")
-        }
     }
 
     func sendKey(_ char: Character) {
@@ -1643,6 +1635,10 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             // Check for manifest disk write warning
             if self.emulator?.pollManifestWriteWarning() == true {
                 self.showManifestWriteWarning()
+            }
+            // Check for NVRAM changes from SYSCONF
+            if self.emulator?.hasNvramChange() == true {
+                self.syncNvramFromEmulator()
             }
             self.processCharacter(ch)
             self.checkHostFileState()
