@@ -963,8 +963,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
         terminalShouldFocus = true  // Auto-focus terminal
         debugPrint("🟢 [START] emulator started, isRunning=\(isRunning)")
 
-        // Start periodic disk auto-save timer (every 30 seconds)
-        diskSaveTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+        // Start periodic disk auto-save timer (every 20 seconds)
+        diskSaveTimer = Timer.scheduledTimer(withTimeInterval: 20.0, repeats: true) { [weak self] _ in
             self?.saveDownloadedDisks()
         }
     }
