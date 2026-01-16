@@ -40,6 +40,9 @@ typedef NS_ENUM(NSInteger, RWBControlifyMode) {
 // Host file transfer (R8/W8 utilities)
 - (void)emulatorHostFileRequestRead:(NSString*)suggestedFilename;
 - (void)emulatorHostFileDownload:(NSString*)filename data:(NSData*)data;
+
+// Disk flush (called on warm boot when program ends)
+- (void)emulatorShouldFlushDisks;
 @end
 
 @interface RomWBWEmulator : NSObject

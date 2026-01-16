@@ -24,6 +24,7 @@ var appBuildDate: String {
 
 struct ContentView: View {
     @StateObject private var viewModel = EmulatorViewModel()
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("terminalFontSize") private var fontSize: Double = 20
     @State private var showingSettings = false
     @State private var showingAbout = false
@@ -231,15 +232,11 @@ struct ContentView: View {
                     dismissButton: .default(Text("OK"))
                 )
             }
-            .alert(isPresented: $viewModel.showingManifestWriteWarning) {
-                Alert(
-                    title: Text("Disk May Be Overwritten"),
-                    message: Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file."),
-                    primaryButton: .default(Text("OK")),
-                    secondaryButton: .default(Text("Don't Warn Again")) {
-                        viewModel.suppressManifestWriteWarnings()
-                    }
-                )
+            .alert("Disk May Be Overwritten", isPresented: $viewModel.showingManifestWriteWarning) {
+                Button("OK") { }
+                    .keyboardShortcut(.defaultAction)
+            } message: {
+                Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file.")
             }
             .sheet(isPresented: $showingAbout) {
                 AboutView()
@@ -257,6 +254,12 @@ struct ContentView: View {
         .navigationViewStyle(.stack)  // Force single column on Mac
         .onAppear {
             viewModel.loadBundledResources()
+        }
+        .onChange(of: scenePhase) { newPhase in
+            print("[ScenePhase] Changed to: \(newPhase)")
+            if newPhase == .background || newPhase == .inactive {
+                viewModel.saveDisksOnBackground()
+            }
         }
     }
 }
@@ -490,6 +493,17 @@ struct SettingsView: View {
                     }
                 }
 
+                // Preferences Section
+                Section(header: Text("Preferences")) {
+                    Toggle("Warn on Downloaded Disk Writes", isOn: Binding(
+                        get: { viewModel.warnManifestWrites },
+                        set: { viewModel.warnManifestWrites = $0 }
+                    ))
+                    Text("Show warning when writing to downloaded disks (changes may be lost on app update)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
                 // Debug Section
                 Section(header: Text("Debug")) {
                     Toggle("Debug Mode", isOn: $viewModel.debugMode)
@@ -600,15 +614,11 @@ struct SettingsView: View {
                     dismissButton: .default(Text("OK"))
                 )
             }
-            .alert(isPresented: $viewModel.showingManifestWriteWarning) {
-                Alert(
-                    title: Text("Disk May Be Overwritten"),
-                    message: Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file."),
-                    primaryButton: .default(Text("OK")),
-                    secondaryButton: .default(Text("Don't Warn Again")) {
-                        viewModel.suppressManifestWriteWarnings()
-                    }
-                )
+            .alert("Disk May Be Overwritten", isPresented: $viewModel.showingManifestWriteWarning) {
+                Button("OK") { }
+                    .keyboardShortcut(.defaultAction)
+            } message: {
+                Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file.")
             }
         }
         .navigationViewStyle(.stack)

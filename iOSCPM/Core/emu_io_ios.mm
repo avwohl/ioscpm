@@ -33,6 +33,9 @@
 
 // Sound
 - (void)emuBeep:(int)durationMs;
+
+// Disk flush (called on warm boot)
+- (void)emuDiskFlush;
 @end
 
 //=============================================================================
@@ -205,6 +208,15 @@ void emu_status(const char* fmt, ...) {
   if (delegate && [delegate respondsToSelector:@selector(emuStatusMessage:)]) {
     dispatch_async(dispatch_get_main_queue(), ^{
       [delegate emuStatusMessage:msg];
+    });
+  }
+}
+
+void emu_disk_flush_all() {
+  id<EMUIODelegate> delegate = g_delegate;
+  if (delegate && [delegate respondsToSelector:@selector(emuDiskFlush)]) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [delegate emuDiskFlush];
     });
   }
 }

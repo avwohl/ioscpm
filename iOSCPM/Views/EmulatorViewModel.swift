@@ -152,6 +152,32 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // NVRAM persistence key
     private static let nvramKey = "emulatorNvram"
 
+    // Manifest disk write warning setting (defaults to true = warnings enabled)
+    private static let warnManifestWritesKey = "warnManifestWrites"
+
+    var warnManifestWrites: Bool {
+        get {
+            // Default to true if not set
+            if UserDefaults.standard.object(forKey: Self.warnManifestWritesKey) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: Self.warnManifestWritesKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.warnManifestWritesKey)
+            // Apply to all disk units immediately
+            applyWarningSuppression()
+        }
+    }
+
+    /// Apply warning suppression setting to all disk units
+    private func applyWarningSuppression() {
+        let suppressed = !warnManifestWrites
+        for unit in 0..<4 {
+            emulator?.setDiskWarningSuppressed(Int32(unit), suppressed: suppressed)
+        }
+    }
+
     /// Clear autoboot setting (NVRAM and persisted value)
     func clearAutoboot() {
         bootString = ""
@@ -200,6 +226,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private var audioEngine: AVAudioEngine?
     private var tonePlayer: AVAudioPlayerNode?
 
+    // Periodic disk auto-save timer
+    private var diskSaveTimer: Timer?
+
     // Terminal dimensions
     let terminalRows = 25
     let terminalCols = 80
@@ -240,6 +269,23 @@ class EmulatorViewModel: NSObject, ObservableObject {
     }
 
     private func showStartupMessage() {
+        // Show version info at top of terminal
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        var buildDate = ""
+        if let executableURL = Bundle.main.executableURL,
+           let attrs = try? FileManager.default.attributesOfItem(atPath: executableURL.path),
+           let modDate = attrs[.modificationDate] as? Date {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm"
+            buildDate = formatter.string(from: modDate)
+        }
+        let versionStr = "Z80CPM v\(version).\(build) \(buildDate)"
+        for (i, char) in versionStr.enumerated() where i < terminalCols {
+            terminalCells[0][i].character = char
+        }
+
+        // Show "Press Play" message centered
         let message = "Press Play to start, then"
         let startCol = (terminalCols - message.count) / 2
         let startRow = terminalRows / 2
@@ -421,6 +467,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // Apply boot setting to emulator - empty means no autoboot
         emulator?.setNvramSetting(bootString)
         debugPrint("[NVRAM] Applied boot setting '\(bootString.isEmpty ? "(none)" : bootString)' to emulator")
+
+        // Apply warning suppression setting to all disk units
+        applyWarningSuppression()
     }
 
     // MARK: - Local Disk File Management
@@ -902,6 +951,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
         debugPrint("🟢 [START] startEmulator called")
         // Clear terminal before starting (removes "Press Play" message)
         clearTerminal()
+        // Print version info to terminal
+        printVersionInfo()
         // Load selected ROM and disks before starting
         debugPrint("🟢 [START] calling loadSelectedResources")
         loadSelectedResources()
@@ -911,9 +962,18 @@ class EmulatorViewModel: NSObject, ObservableObject {
         statusText = "Running"
         terminalShouldFocus = true  // Auto-focus terminal
         debugPrint("🟢 [START] emulator started, isRunning=\(isRunning)")
+
+        // Start periodic disk auto-save timer (every 30 seconds)
+        diskSaveTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+            self?.saveDownloadedDisks()
+        }
     }
 
     func stop() {
+        // Stop auto-save timer
+        diskSaveTimer?.invalidate()
+        diskSaveTimer = nil
+
         // Auto-save any modified downloaded disks
         saveDownloadedDisks()
 
@@ -983,21 +1043,41 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// Save downloaded disk images back to Documents/Disks
     private func saveDownloadedDisks() {
+        print("[SaveDisks] Starting save, emulator running: \(isRunning)")
         for unit in 0..<4 {
             guard let disk = selectedDisks[unit],
-                  disk.isDownloaded,
-                  !disk.filename.isEmpty else { continue }
+                  !disk.filename.isEmpty else {
+                print("[SaveDisks] Unit \(unit): no disk selected")
+                continue
+            }
+
+            // Check if this is a downloaded disk (file exists in downloads directory)
+            let path = downloadsDirectory.appendingPathComponent(disk.filename)
+            let isDownloadedDisk = FileManager.default.fileExists(atPath: path.path)
+            print("[SaveDisks] Unit \(unit): '\(disk.filename)' exists=\(isDownloadedDisk) path=\(path.path)")
+            guard isDownloadedDisk else { continue }
 
             guard let data = emulator?.getDiskData(Int32(unit)),
-                  data.count > 0 else { continue }
+                  data.count > 0 else {
+                print("[SaveDisks] Unit \(unit): no data from emulator")
+                continue
+            }
 
-            let path = downloadsDirectory.appendingPathComponent(disk.filename)
+            print("[SaveDisks] Unit \(unit): got \(data.count) bytes from emulator")
             do {
                 try data.write(to: path)
-                debugPrint("[EmulatorVM] Saved disk \(unit) to \(disk.filename)")
+                print("[SaveDisks] Unit \(unit): saved \(data.count) bytes to \(disk.filename)")
             } catch {
-                debugPrint("[EmulatorVM] Failed to save disk \(unit): \(error)")
+                print("[SaveDisks] Unit \(unit): FAILED to save: \(error)")
             }
+        }
+    }
+
+    /// Public method to save disks (called from app lifecycle)
+    func saveDisksOnBackground() {
+        print("[SaveDisks] saveDisksOnBackground called, isRunning=\(isRunning)")
+        if isRunning {
+            saveDownloadedDisks()
         }
     }
 
@@ -1048,6 +1128,40 @@ class EmulatorViewModel: NSObject, ObservableObject {
         cursorCol = 0
         scrollTop = 0
         scrollBottom = terminalRows - 1
+    }
+
+    /// Write a string to the terminal at the current cursor position
+    private func writeToTerminal(_ text: String) {
+        for char in text {
+            if char == "\n" {
+                cursorRow += 1
+                cursorCol = 0
+                if cursorRow >= terminalRows {
+                    cursorRow = terminalRows - 1
+                }
+            } else {
+                if cursorCol < terminalCols {
+                    terminalCells[cursorRow][cursorCol].character = char
+                    terminalCells[cursorRow][cursorCol].foreground = 7  // White
+                    cursorCol += 1
+                }
+            }
+        }
+    }
+
+    /// Output version and build info to terminal
+    func printVersionInfo() {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        var buildDate = ""
+        if let executableURL = Bundle.main.executableURL,
+           let attrs = try? FileManager.default.attributesOfItem(atPath: executableURL.path),
+           let modDate = attrs[.modificationDate] as? Date {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm"
+            buildDate = formatter.string(from: modDate)
+        }
+        writeToTerminal("Z80CPM v\(version).\(build) \(buildDate)\n")
     }
 
     // MARK: - Disk Management
@@ -1111,10 +1225,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
     }
 
     /// Suppress manifest write warnings for all loaded disks (user chose "Don't warn again")
+    /// Also persists the preference so it survives app restart
     func suppressManifestWriteWarnings() {
-        for unit in 0..<4 {
-            emulator?.setDiskWarningSuppressed(Int32(unit), suppressed: true)
-        }
+        warnManifestWrites = false  // This calls applyWarningSuppression() and persists to UserDefaults
     }
 
     /// Calculate SHA256 hash of a file
@@ -1183,19 +1296,21 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private func checkCatalogVersionAndInvalidate(newVersion: String) {
         let storedVersion = UserDefaults.standard.string(forKey: "catalogVersion") ?? ""
 
+        print("[Catalog] Checking version: stored='\(storedVersion)' new='\(newVersion)'")
+
         if storedVersion.isEmpty {
             // First run - just store the version
-            debugPrint("[Catalog] First run, storing catalog version: '\(newVersion)'")
+            print("[Catalog] First run, storing catalog version: '\(newVersion)'")
             UserDefaults.standard.set(newVersion, forKey: "catalogVersion")
         } else if storedVersion != newVersion {
             // Version changed - delete all downloaded disks
-            debugPrint("[Catalog] Version changed from '\(storedVersion)' to '\(newVersion)' - invalidating downloads")
+            print("[Catalog] ⚠️ VERSION CHANGED from '\(storedVersion)' to '\(newVersion)' - DELETING ALL DISKS")
             deleteAllDownloadedDisks()
             UserDefaults.standard.set(newVersion, forKey: "catalogVersion")
             statusText = "Disk catalog updated - disks need redownload"
             showError("Disk catalog has been updated. Your downloaded disks have been cleared and need to be redownloaded.")
         } else {
-            debugPrint("[Catalog] Version unchanged: '\(newVersion)'")
+            print("[Catalog] Version unchanged: '\(newVersion)'")
         }
     }
 
@@ -1959,6 +2074,15 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         // Clear the bottom lines of the region
         for row in (bottom - lines + 1)...bottom {
             terminalCells[row] = Array(repeating: TerminalCell(), count: terminalCols)
+        }
+    }
+
+    // MARK: - Disk Flush
+
+    func emulatorShouldFlushDisks() {
+        print("[DiskFlush] Warm boot detected - flushing disks")
+        DispatchQueue.main.async {
+            self.saveDownloadedDisks()
         }
     }
 

@@ -82,6 +82,12 @@ extern "C" void emu_io_set_delegate(id delegate);
   }
 }
 
+- (void)emuDiskFlush {
+  if (self.owner.delegate && [self.owner.delegate respondsToSelector:@selector(emulatorShouldFlushDisks)]) {
+    [self.owner.delegate emulatorShouldFlushDisks];
+  }
+}
+
 @end
 
 //=============================================================================
