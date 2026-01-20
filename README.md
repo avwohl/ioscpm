@@ -126,10 +126,14 @@ MIT License
 - **RomWBW**: MIT License
 - **qkz80**: MIT License
 
-## Links
+## Related Projects
 
-- [RomWBW Project](https://github.com/wwarthen/RomWBW) - HBIOS and disk images
-- [iOS/Mac Source](https://github.com/avwohl/ioscpm) - This project
+- [RomWBW](https://github.com/wwarthen/RomWBW) - The original RomWBW project by Wayne Warthen
+- [cpmemu](https://github.com/avwohl/cpmemu) - Portable Z80 CPU emulator core
+- [romwbw_emu](https://github.com/avwohl/romwbw_emu) - CLI emulator for macOS/Linux, Web version
+- [ioscpm](https://github.com/avwohl/ioscpm) - iOS/macOS version
+- [z80cpmw](https://github.com/avwohl/z80cpmw) - Windows GUI version
+- [cpmdroid](https://github.com/avwohl/cpmdroid) - Android version
 
 ## Acknowledgments
 
