@@ -119,12 +119,12 @@ Uses RomWBW hd1k format:
 
 ## License
 
-MIT License
+GPLv3 License
 
 ### Third-Party Licenses
 - **CP/M**: Released by Lineo for non-commercial use
 - **RomWBW**: MIT License
-- **qkz80**: MIT License
+- **qkz80**: GPL v3 License
 
 ## Related Projects
 

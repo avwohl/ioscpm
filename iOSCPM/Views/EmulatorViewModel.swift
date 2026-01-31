@@ -40,7 +40,7 @@ struct DownloadableDisk: Identifiable, Codable {
     let description: String
     let url: String
     let sizeBytes: Int64
-    let license: String  // "MIT", "Free", "User-provided", etc.
+    let license: String  // "GPLv3", "Free", "User-provided", etc.
     let sha256: String?  // Optional SHA256 hash for integrity verification
     let defaultSlot: Int?  // If set, use this disk as default in this slot (0-3) on first launch
 
