@@ -42,6 +42,7 @@ struct ContentView: View {
                     onKeyInput: { char in viewModel.sendKey(char) },
                     onSetControlify: { mode in viewModel.setControlify(mode) },
                     isControlifyActive: viewModel.isControlifyActive,
+                    captureKeyboard: !viewModel.showingManifestWriteWarning,
                     rows: viewModel.terminalRows,
                     cols: viewModel.terminalCols,
                     fontSize: CGFloat(fontSize)
@@ -232,11 +233,12 @@ struct ContentView: View {
                     dismissButton: .default(Text("OK"))
                 )
             }
-            .alert("Disk May Be Overwritten", isPresented: $viewModel.showingManifestWriteWarning) {
-                Button("OK") { }
-                    .keyboardShortcut(.defaultAction)
-            } message: {
-                Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file.")
+            .alert(isPresented: $viewModel.showingManifestWriteWarning) {
+                Alert(
+                    title: Text("Disk May Be Overwritten"),
+                    message: Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file."),
+                    dismissButton: .default(Text("OK"))
+                )
             }
             .sheet(isPresented: $showingAbout) {
                 AboutView()
@@ -614,11 +616,12 @@ struct SettingsView: View {
                     dismissButton: .default(Text("OK"))
                 )
             }
-            .alert("Disk May Be Overwritten", isPresented: $viewModel.showingManifestWriteWarning) {
-                Button("OK") { }
-                    .keyboardShortcut(.defaultAction)
-            } message: {
-                Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file.")
+            .alert(isPresented: $viewModel.showingManifestWriteWarning) {
+                Alert(
+                    title: Text("Disk May Be Overwritten"),
+                    message: Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file."),
+                    dismissButton: .default(Text("OK"))
+                )
             }
         }
         .navigationViewStyle(.stack)

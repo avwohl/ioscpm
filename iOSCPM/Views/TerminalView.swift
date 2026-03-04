@@ -11,6 +11,7 @@ struct TerminalView: UIViewRepresentable {
     @Binding var cursorCol: Int
     @Binding var shouldFocus: Bool
     var onKeyInput: ((Character) -> Void)?
+    var captureKeyboard: Bool = true
 
     let rows: Int
     let cols: Int
@@ -23,6 +24,7 @@ struct TerminalView: UIViewRepresentable {
          cols: Int = 80,
          fontSize: CGFloat = 20,
          shouldFocus: Binding<Bool> = .constant(false),
+         captureKeyboard: Bool = true,
          onKeyInput: ((Character) -> Void)? = nil) {
         self._cells = cells
         self._cursorRow = cursorRow
@@ -31,18 +33,21 @@ struct TerminalView: UIViewRepresentable {
         self.rows = rows
         self.cols = cols
         self.fontSize = fontSize
+        self.captureKeyboard = captureKeyboard
         self.onKeyInput = onKeyInput
     }
 
     func makeUIView(context: Context) -> TerminalUIView {
         let view = TerminalUIView(rows: rows, cols: cols, fontSize: fontSize)
         view.onKeyInput = onKeyInput
+        view.captureKeyboard = captureKeyboard
         return view
     }
 
     func updateUIView(_ uiView: TerminalUIView, context: Context) {
         uiView.updateFontSize(fontSize)
         uiView.updateCells(cells, cursorRow: cursorRow, cursorCol: cursorCol)
+        uiView.captureKeyboard = captureKeyboard
 
         // Auto-focus when shouldFocus becomes true
         if shouldFocus && !uiView.isFirstResponder {
@@ -63,6 +68,7 @@ struct TerminalWithToolbar: View {
     var onKeyInput: ((Character) -> Void)?
     var onSetControlify: ((RWBControlifyMode) -> Void)?
     var isControlifyActive: Bool = false
+    var captureKeyboard: Bool = true
 
     let rows: Int
     let cols: Int
@@ -98,6 +104,7 @@ struct TerminalWithToolbar: View {
                 cols: cols,
                 fontSize: fontSize,
                 shouldFocus: $shouldFocus,
+                captureKeyboard: captureKeyboard,
                 onKeyInput: onKeyInput
             )
         }
@@ -128,6 +135,7 @@ struct ToolbarButton: View {
 
 class TerminalUIView: UIView, UIKeyInput {
     var onKeyInput: ((Character) -> Void)?
+    var captureKeyboard: Bool = true
 
     private let rows: Int
     private let cols: Int
@@ -433,6 +441,12 @@ class TerminalUIView: UIView, UIKeyInput {
     // MARK: - Hardware Keyboard Support
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        // When keyboard capture is disabled (e.g., alert showing), pass to responder chain
+        guard captureKeyboard else {
+            super.pressesBegan(presses, with: event)
+            return
+        }
+
         var handled = false
 
         for press in presses {

@@ -1,5 +1,34 @@
 # Changelog
 
+## Version 1.4.7 (Build 34)
+
+Mac catch-up release: brings Mac to parity with iOS v1.4.6.
+
+### Boot & NVRAM
+- NVRAM persistence: Boot settings from ROM's SYSCONF ('W' menu) now survive app restarts
+- Simplified boot configuration — removed boot string text field, use ROM's SYSCONF menu instead
+- Read-only display of current auto-boot setting with Clear Auto-Boot safety button
+- Fixed autoboot clearing via legacy boot_string mechanism
+- Boot setting now correctly applied on both start and reset
+
+### Disk Management
+- Write protection warning when modifying auto-downloaded disk images ("Don't Warn Again" option)
+- Removed per-disk slice limits — all slices now accessible to OS tools
+- Removed duplicate Infocom disk (already included in Games)
+- Fixed duplicate Games entry in disk manifest
+
+### UI Improvements
+- Build date and number shown in status bar and About box
+- Font size options consolidated into submenu to reduce menu clutter
+- Help menu (Cmd+?) now works properly on Mac Catalyst
+- Better error diagnostics in Help system with HTTP status checking and cache fallback
+- Keyboard handling fix for manifest warning dialog
+
+### Emulator Core
+- Unified RAM bank initialization using shared HBIOSDispatch bitmap
+- Boot disk correctly assigned as A: via upstream CB_BOOTVOL
+- Manifest disk write detection in emulator I/O layer
+
 ## Version 1.4.5 (Build 32)
 - NVRAM boot configuration persists across sessions
 - Simplified boot options UI - configure via ROM's SYSCONF ('W' menu)

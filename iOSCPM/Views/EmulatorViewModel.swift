@@ -40,7 +40,7 @@ struct DownloadableDisk: Identifiable, Codable {
     let description: String
     let url: String
     let sizeBytes: Int64
-    let license: String  // "MIT", "Free", "User-provided", etc.
+    let license: String  // "GPLv3", "Free", "User-provided", etc.
     let sha256: String?  // Optional SHA256 hash for integrity verification
     let defaultSlot: Int?  // If set, use this disk as default in this slot (0-3) on first launch
 
@@ -963,8 +963,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
         terminalShouldFocus = true  // Auto-focus terminal
         debugPrint("🟢 [START] emulator started, isRunning=\(isRunning)")
 
-        // Start periodic disk auto-save timer (every 30 seconds)
-        diskSaveTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+        // Start periodic disk auto-save timer (every 20 seconds)
+        diskSaveTimer = Timer.scheduledTimer(withTimeInterval: 20.0, repeats: true) { [weak self] _ in
             self?.saveDownloadedDisks()
         }
     }
