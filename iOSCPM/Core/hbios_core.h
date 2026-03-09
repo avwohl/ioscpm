@@ -67,6 +67,7 @@ public:
   bool isRunning() const { return running; }
   bool isWaitingForInput() const { return waiting_for_input; }
   void clearWaitingForInput() { waiting_for_input = false; }
+  bool isIdle() const { return hbios.isConsoleIdle(); }
 
   // Run a batch of instructions (call from main loop)
   void runBatch(int count = 50000);

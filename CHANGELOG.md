@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 1.4.8 (Build 35)
+
+### Power Management
+- Console idle detection: emulator sleeps 10ms instead of 0.1ms when guest is polling keyboard with no input, reducing CPU/battery drain at the CP/M prompt
+
 ## Version 1.4.7 (Build 34)
 
 Mac catch-up release: brings Mac to parity with iOS v1.4.6.

@@ -319,18 +319,22 @@ static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
             loopCount, _emulator->getPC(), _emulator->getInstructionCount());
     }
 
-    // If waiting for input, notify delegate and wait a bit
+    // Adaptive sleep for power management:
+    // - Blocked on input (CIOIN/VDAKRD with empty queue): 1ms
+    // - Console idle (polling CIOIST/VDAKST, no key pressed): 10ms
+    // - Active execution (real work in progress): 0.1ms
     if (_emulator->isWaitingForInput()) {
       dispatch_async(dispatch_get_main_queue(), ^{
         if (self.delegate && [self.delegate respondsToSelector:@selector(emulatorDidRequestInput)]) {
           [self.delegate emulatorDidRequestInput];
         }
       });
-
-      // Small sleep to avoid spinning
       [NSThread sleepForTimeInterval:0.001];
+    } else if (_emulator->isIdle()) {
+      // Guest is polling keyboard with no input — save battery
+      [NSThread sleepForTimeInterval:0.010];
     } else {
-      // Very small yield to prevent CPU hogging
+      // Active execution — minimal yield
       [NSThread sleepForTimeInterval:0.0001];
     }
   }
