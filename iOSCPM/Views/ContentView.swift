@@ -164,17 +164,23 @@ struct ContentView: View {
 
                         Divider()
 
-                        Button("Load Disk 0...") {
-                            viewModel.loadDisk(0)
+                        Menu {
+                            ForEach(0..<4, id: \.self) { unit in
+                                Button("Disk \(unit)...") {
+                                    viewModel.loadDisk(unit)
+                                }
+                            }
+                        } label: {
+                            Label("Load Disk", systemImage: "square.and.arrow.down.on.square")
                         }
-                        Button("Load Disk 1...") {
-                            viewModel.loadDisk(1)
-                        }
-                        Button("Export Disk 0...") {
-                            viewModel.saveDisk(0)
-                        }
-                        Button("Export Disk 1...") {
-                            viewModel.saveDisk(1)
+                        Menu {
+                            ForEach(0..<4, id: \.self) { unit in
+                                Button("Disk \(unit)...") {
+                                    viewModel.saveDisk(unit)
+                                }
+                            }
+                        } label: {
+                            Label("Export Disk", systemImage: "square.and.arrow.up.on.square")
                         }
 
                         Divider()
@@ -225,6 +231,23 @@ struct ContentView: View {
                 defaultFilename: "disk\(viewModel.currentDiskUnit).img"
             ) { result in
                 viewModel.handleExportResult(result)
+            }
+            .fileImporter(
+                isPresented: $viewModel.showingOpenDisk,
+                allowedContentTypes: [.data, .item],
+                allowsMultipleSelection: false
+            ) { result in
+                viewModel.handleOpenDiskResult(result)
+            }
+            .fileExporter(
+                isPresented: $viewModel.showingCreateDisk,
+                document: EmptyDiskDocument(),
+                contentType: .data,
+                defaultFilename: "newdisk.img"
+            ) { result in
+                if case .success(let url) = result {
+                    viewModel.createNewDisk(at: url)
+                }
             }
             .alert(isPresented: $viewModel.showingError) {
                 Alert(
@@ -411,11 +434,13 @@ struct SettingsView: View {
                             HStack(spacing: 12) {
                                 Button("Open File...") {
                                     viewModel.openLocalDisk(unit: unit)
+                                    presentationMode.wrappedValue.dismiss()
                                 }
                                 .font(.caption)
 
                                 Button("Create New...") {
                                     viewModel.createLocalDisk(unit: unit)
+                                    presentationMode.wrappedValue.dismiss()
                                 }
                                 .font(.caption)
 
@@ -590,23 +615,6 @@ struct SettingsView: View {
                     Button("Done") {
                         presentationMode.wrappedValue.dismiss()
                     }
-                }
-            }
-            .fileImporter(
-                isPresented: $viewModel.showingOpenDisk,
-                allowedContentTypes: [.data, .item],
-                allowsMultipleSelection: false
-            ) { result in
-                viewModel.handleOpenDiskResult(result)
-            }
-            .fileExporter(
-                isPresented: $viewModel.showingCreateDisk,
-                document: EmptyDiskDocument(),
-                contentType: .data,
-                defaultFilename: "newdisk.img"
-            ) { result in
-                if case .success(let url) = result {
-                    viewModel.createNewDisk(at: url)
                 }
             }
             .alert(isPresented: $viewModel.showingError) {
