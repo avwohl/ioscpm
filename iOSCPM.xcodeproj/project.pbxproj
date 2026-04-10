@@ -22,6 +22,7 @@
 		A1000025 /* hbios_dispatch.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000025 /* hbios_dispatch.cc */; };
 		A1000026 /* hbios_cpu.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000026 /* hbios_cpu.cc */; };
 		A1000027 /* emu_init.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000027 /* emu_init.cc */; };
+		A1000028 /* emu_io_common.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000028 /* emu_io_common.cc */; };
 		A1000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000030 /* Assets.xcassets */; };
 		A1000031 /* emu_hbios.bin in Resources */ = {isa = PBXBuildFile; fileRef = B1000031 /* emu_hbios.bin */; };
 		A1000060 /* emu_avw.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000060 /* emu_avw.rom */; };
@@ -60,6 +61,7 @@
 		B1000053 /* iOSCPM.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iOSCPM.entitlements; sourceTree = "<group>"; };
 		B1000026 /* hbios_cpu.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hbios_cpu.cc; sourceTree = "<group>"; };
 		B1000027 /* emu_init.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = emu_init.cc; sourceTree = "<group>"; };
+		B1000028 /* emu_io_common.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = emu_io_common.cc; sourceTree = "<group>"; };
 		B1000054 /* hbios_cpu.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hbios_cpu.h; sourceTree = "<group>"; };
 		B1000055 /* emu_init.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = emu_init.h; sourceTree = "<group>"; };
 		B1000060 /* emu_avw.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_avw.rom; sourceTree = "<group>"; };
@@ -133,6 +135,7 @@
 			isa = PBXGroup;
 			children = (
 				B1000048 /* emu_io.h */,
+				B1000028 /* emu_io_common.cc */,
 				B1000012 /* emu_io_ios.mm */,
 				B1000047 /* hbios_core.h */,
 				B1000024 /* hbios_core.cc */,
@@ -254,6 +257,7 @@
 				A1000025 /* hbios_dispatch.cc in Sources */,
 				A1000026 /* hbios_cpu.cc in Sources */,
 				A1000027 /* emu_init.cc in Sources */,
+				A1000028 /* emu_io_common.cc in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -269,7 +273,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = iOSCPM/iOSCPM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 37;
+				CURRENT_PROJECT_VERSION = 38;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -288,7 +292,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.4.9;
+				MARKETING_VERSION = 1.4.10;
 				PRODUCT_BUNDLE_IDENTIFIER = com.awohl.cpm;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MACCATALYST = YES;
@@ -309,7 +313,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = iOSCPM/iOSCPM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 37;
+				CURRENT_PROJECT_VERSION = 38;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -328,7 +332,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.4.9;
+				MARKETING_VERSION = 1.4.10;
 				PRODUCT_BUNDLE_IDENTIFIER = com.awohl.cpm;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MACCATALYST = YES;
