@@ -239,6 +239,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
         case escape          // Received ESC
         case csi             // Received ESC [
         case csiParam        // Collecting CSI parameters
+        case vt52Row         // Received ESC Y, expecting the row byte (value + 0x20)
+        case vt52Col         // Received ESC Y <row>, expecting the col byte (value + 0x20)
+        case escConsumeOne   // Swallow one byte (charset/line-size designation)
     }
     private var escapeState: EscapeState = .normal
     private var escapeParams: [Int] = []
@@ -249,6 +252,19 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private var currentAttr: UInt8 = 0x07  // Default: white on black
     private var scrollTop: Int = 0         // Top of scrolling region (0-based)
     private var scrollBottom: Int = 24     // Bottom of scrolling region (0-based, inclusive)
+
+    // Deferred autowrap (VT100 "last column" behavior): after a glyph is written
+    // to the rightmost column the cursor stays put and we only wrap when the next
+    // printable character arrives. Without this, writing to the bottom-right corner
+    // scrolls the screen and corrupts any full-screen layout (WordStar, Zork, the
+    // TERMDEF border test, etc.).
+    private var pendingWrap: Bool = false
+    // VT52 terminal mode. Default is ANSI/VT100. Enabled by ESC[?2l, by ESC Y
+    // (VT52 direct cursor addressing), or by any other VT52-exclusive sequence;
+    // disabled by ESC < or ESC[?2h. Only ESC D / E / H are interpreted differently
+    // by mode, so ANSI behavior is unchanged while this stays false.
+    private var vt52Mode: Bool = false
+    private var vt52CursorRow: Int = 0     // Row latched while parsing ESC Y <row> <col>
 
     override init() {
         super.init()
@@ -1091,6 +1107,10 @@ class EmulatorViewModel: NSObject, ObservableObject {
         emulator?.setNvramSetting(bootString)
 
         clearTerminal()
+        // Cold boot returns the terminal to its ANSI/VT100 default.
+        vt52Mode = false
+        escapeState = .normal
+        currentAttr = 0x07
         isRunning = false
         statusText = "Reset - disk changes saved"
     }
@@ -1128,6 +1148,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         cursorCol = 0
         scrollTop = 0
         scrollBottom = terminalRows - 1
+        pendingWrap = false
     }
 
     /// Write a string to the terminal at the current cursor position
@@ -1696,6 +1717,22 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
         case .csi, .csiParam:
             processCSIChar(ch)
+
+        case .vt52Row:
+            // VT52 direct cursor address: row is the byte value biased by 0x20
+            vt52CursorRow = min(max(Int(ch) - 0x20, 0), terminalRows - 1)
+            escapeState = .vt52Col
+
+        case .vt52Col:
+            // VT52 direct cursor address: col is the byte value biased by 0x20
+            cursorRow = vt52CursorRow
+            cursorCol = min(max(Int(ch) - 0x20, 0), terminalCols - 1)
+            pendingWrap = false
+            escapeState = .normal
+
+        case .escConsumeOne:
+            // Swallow the single parameter byte of a charset/line-size designation.
+            escapeState = .normal
         }
     }
 
@@ -1706,14 +1743,17 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             playBeep(durationMs: 100)
 
         case 0x08: // Backspace
+            pendingWrap = false
             if cursorCol > 0 {
                 cursorCol -= 1
             }
 
         case 0x09: // Tab
+            pendingWrap = false
             cursorCol = min((cursorCol + 8) & ~7, terminalCols - 1)
 
         case 0x0A: // Line feed (with implicit CR for compatibility)
+            pendingWrap = false
             cursorCol = 0  // Reset column for Unix-style LF-only files
             if cursorRow < scrollTop {
                 // Above scrolling region - just move down
@@ -1729,6 +1769,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             // If cursorRow > scrollBottom (below region), do nothing
 
         case 0x0D: // Carriage return
+            pendingWrap = false
             cursorCol = 0
 
         case 0x1B: // ESC - start escape sequence
@@ -1740,18 +1781,26 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         default:
             // Printable character
             if ch >= 0x20 && ch <= 0x7E {
-                let char = Character(UnicodeScalar(ch) ?? UnicodeScalar(32))
-                terminalCells[cursorRow][cursorCol].character = char
-                terminalCells[cursorRow][cursorCol].foreground = currentAttr & 0x0F
-                terminalCells[cursorRow][cursorCol].background = (currentAttr >> 4) & 0x07
-                cursorCol += 1
-                if cursorCol >= terminalCols {
+                // Resolve a deferred wrap left armed by the previous last-column write.
+                if pendingWrap {
                     cursorCol = 0
                     cursorRow += 1
                     if cursorRow >= terminalRows {
                         scrollUp(1)
                         cursorRow = terminalRows - 1
                     }
+                    pendingWrap = false
+                }
+                let char = Character(UnicodeScalar(ch) ?? UnicodeScalar(32))
+                terminalCells[cursorRow][cursorCol].character = char
+                terminalCells[cursorRow][cursorCol].foreground = currentAttr & 0x0F
+                terminalCells[cursorRow][cursorCol].background = (currentAttr >> 4) & 0x07
+                if cursorCol >= terminalCols - 1 {
+                    // At the rightmost column: arm a deferred wrap instead of moving
+                    // now, so writing the corner cell does not scroll the screen.
+                    pendingWrap = true
+                } else {
+                    cursorCol += 1
                 }
             }
         }
@@ -1759,51 +1808,131 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
     /// Process character after ESC received
     private func processEscapeChar(_ ch: unichar) {
+        // Any escape sequence that follows resolves/cancels a pending autowrap.
         switch ch {
         case 0x5B: // '[' - CSI (Control Sequence Introducer)
             escapeState = .csi
+            return  // CSI handler runs; keep collecting, do not fall through
 
         case 0x37: // '7' - DECSC (Save Cursor)
             savedCursorRow = cursorRow
             savedCursorCol = cursorCol
-            escapeState = .normal
 
         case 0x38: // '8' - DECRC (Restore Cursor)
+            pendingWrap = false
             cursorRow = savedCursorRow
             cursorCol = savedCursorCol
-            escapeState = .normal
 
-        case 0x44: // 'D' - Index (move cursor down, scroll if needed)
-            cursorRow += 1
-            if cursorRow >= terminalRows {
-                scrollUp(1)
-                cursorRow = terminalRows - 1
+        case 0x44: // 'D'
+            pendingWrap = false
+            if vt52Mode {
+                // VT52 cursor left
+                if cursorCol > 0 { cursorCol -= 1 }
+            } else {
+                // VT100 Index (move cursor down, scroll if needed)
+                cursorRow += 1
+                if cursorRow >= terminalRows {
+                    scrollUp(1)
+                    cursorRow = terminalRows - 1
+                }
             }
-            escapeState = .normal
 
         case 0x4D: // 'M' - Reverse Index (move cursor up, scroll if needed)
+            pendingWrap = false
             if cursorRow > 0 {
                 cursorRow -= 1
             }
-            escapeState = .normal
 
-        case 0x45: // 'E' - Next Line
-            cursorCol = 0
-            cursorRow += 1
-            if cursorRow >= terminalRows {
-                scrollUp(1)
-                cursorRow = terminalRows - 1
+        case 0x45: // 'E'
+            pendingWrap = false
+            if vt52Mode {
+                // Heath/Zenith VT52: clear screen and home
+                clearTerminal()
+            } else {
+                // VT100 Next Line
+                cursorCol = 0
+                cursorRow += 1
+                if cursorRow >= terminalRows {
+                    scrollUp(1)
+                    cursorRow = terminalRows - 1
+                }
             }
-            escapeState = .normal
+
+        // ---- VT52 escape sequences ----
+        case 0x41: // 'A' - VT52 cursor up
+            vt52Mode = true; pendingWrap = false
+            if cursorRow > 0 { cursorRow -= 1 }
+
+        case 0x42: // 'B' - VT52 cursor down
+            vt52Mode = true; pendingWrap = false
+            cursorRow = min(cursorRow + 1, terminalRows - 1)
+
+        case 0x43: // 'C' - VT52 cursor right
+            vt52Mode = true; pendingWrap = false
+            cursorCol = min(cursorCol + 1, terminalCols - 1)
+
+        case 0x48: // 'H' - VT52 cursor home (no VT100 effect; HTS unsupported)
+            if vt52Mode {
+                pendingWrap = false
+                cursorRow = 0
+                cursorCol = 0
+            }
+
+        case 0x49: // 'I' - VT52 reverse line feed
+            vt52Mode = true; pendingWrap = false
+            if cursorRow > 0 {
+                cursorRow -= 1
+            }
+            // At the top row we have no downward-scroll helper; clamp rather than
+            // scrolling the wrong way.
+
+        case 0x4A: // 'J' - VT52 erase to end of screen
+            vt52Mode = true
+            clearFromCursor()
+
+        case 0x4B: // 'K' - VT52 erase to end of line
+            vt52Mode = true
+            for col in cursorCol..<terminalCols {
+                terminalCells[cursorRow][col] = TerminalCell()
+            }
+
+        case 0x59: // 'Y' - VT52 direct cursor address (two bytes follow)
+            vt52Mode = true
+            escapeState = .vt52Row
+            return  // stay in escape parsing for the row/col bytes
+
+        case 0x46, 0x47: // 'F'/'G' - VT52 enter/exit graphics mode (no glyph remap here)
+            vt52Mode = true
+
+        case 0x5A: // 'Z' - identify
+            if vt52Mode {
+                emulator?.send("\u{1B}/Z")        // VT52 identify response
+            } else {
+                emulator?.send("\u{1B}[?1;0c")    // VT100 DECID response
+            }
+
+        case 0x3C: // '<' - exit VT52, enter ANSI mode
+            vt52Mode = false
+
+        case 0x3D, 0x3E: // '='/'>' - keypad application/numeric mode (ignored)
+            break
+
+        case 0x28, 0x29, 0x2A, 0x2B, 0x23, 0x20:
+            // '(' ')' '*' '+' designate a character set; '#' a line size; ' ' the
+            // 7/8-bit control set. Each takes one trailing byte we don't act on but
+            // must consume so it is not printed as a stray glyph.
+            escapeState = .escConsumeOne
+            return
 
         default:
-            // Unknown escape sequence - return to normal
-            escapeState = .normal
             // Only process control characters, discard unknown printable chars
             if ch < 0x20 {
+                escapeState = .normal
                 processNormalChar(ch)
+                return
             }
         }
+        escapeState = .normal
     }
 
     /// Process character in CSI sequence
@@ -1852,22 +1981,37 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
         switch finalChar {
         case 0x41: // 'A' - Cursor Up
+            pendingWrap = false
             let n = max(p1, 1)
             cursorRow = max(cursorRow - n, 0)
 
         case 0x42: // 'B' - Cursor Down
+            pendingWrap = false
             let n = max(p1, 1)
             cursorRow = min(cursorRow + n, terminalRows - 1)
 
         case 0x43: // 'C' - Cursor Forward
+            pendingWrap = false
             let n = max(p1, 1)
             cursorCol = min(cursorCol + n, terminalCols - 1)
 
         case 0x44: // 'D' - Cursor Back
+            pendingWrap = false
             let n = max(p1, 1)
             cursorCol = max(cursorCol - n, 0)
 
+        case 0x47, 0x60: // 'G' or '`' - Cursor Horizontal Absolute (column)
+            pendingWrap = false
+            let col = max(p1, 1) - 1
+            cursorCol = min(max(col, 0), terminalCols - 1)
+
+        case 0x64: // 'd' - Vertical Position Absolute (row)
+            pendingWrap = false
+            let row = max(p1, 1) - 1
+            cursorRow = min(max(row, 0), terminalRows - 1)
+
         case 0x48, 0x66: // 'H' or 'f' - Cursor Position
+            pendingWrap = false
             let row = max(p1, 1) - 1  // 1-based to 0-based
             let col = max(p2, 1) - 1
             cursorRow = min(max(row, 0), terminalRows - 1)
@@ -1952,12 +2096,14 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             savedCursorCol = cursorCol
 
         case 0x75: // 'u' - Restore cursor position (SCO)
+            pendingWrap = false
             cursorRow = savedCursorRow
             cursorCol = savedCursorCol
 
         case 0x72: // 'r' - Set scrolling region (DECSTBM)
             // ESC[top;bottomr - set scrolling region (1-based)
             // ESC[r - reset to full screen
+            pendingWrap = false
             let top = (escapeParams.count > 0 && escapeParams[0] > 0) ? escapeParams[0] - 1 : 0
             let bottom = (escapeParams.count > 1 && escapeParams[1] > 0) ? escapeParams[1] - 1 : terminalRows - 1
             if top < bottom && bottom < terminalRows {
@@ -1968,19 +2114,36 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
                 cursorCol = 0
             }
 
-        case 0x68: // 'h' - Set Mode
-            if escapePrivateMode {
-                // DEC Private Mode Set (e.g., ESC[?7h = enable line wrap)
-                // We acknowledge these but don't change behavior
+        case 0x6E: // 'n' - Device Status Report (answerback)
+            if !escapePrivateMode {
+                if p1 == 6 {
+                    // CPR: report cursor position, 1-based
+                    emulator?.send("\u{1B}[\(cursorRow + 1);\(cursorCol + 1)R")
+                } else if p1 == 5 {
+                    // DSR: terminal OK
+                    emulator?.send("\u{1B}[0n")
+                }
             }
-            break
+
+        case 0x63: // 'c' - Device Attributes (answerback)
+            if !escapePrivateMode && p1 == 0 {
+                // Identify as a VT100 with no options
+                emulator?.send("\u{1B}[?1;0c")
+            }
+
+        case 0x68: // 'h' - Set Mode
+            if escapePrivateMode && escapeParams.contains(2) {
+                // DECANM set: select ANSI (VT100) mode
+                vt52Mode = false
+            }
+            // Other DEC private modes are acknowledged but not acted upon.
 
         case 0x6C: // 'l' - Reset Mode
-            if escapePrivateMode {
-                // DEC Private Mode Reset (e.g., ESC[?7l = disable line wrap)
-                // We acknowledge these but don't change behavior
+            if escapePrivateMode && escapeParams.contains(2) {
+                // DECANM reset: select VT52 mode
+                vt52Mode = true
             }
-            break
+            // Other DEC private modes are acknowledged but not acted upon.
 
         default:
             // Unknown CSI sequence, ignore

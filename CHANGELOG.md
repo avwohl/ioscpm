@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 1.4.10 (Build 39)
+
+### Terminal Emulation (fixes GitHub #2)
+- Deferred autowrap (VT100 "last column" behavior): writing the rightmost column no longer immediately wraps and scrolls the screen, so full-screen layouts (WordStar, Zork status lines, the TERMDEF border test) render correctly. Also removes a spurious blank line after a full 80-column line.
+- VT52 terminal support: direct cursor addressing (`ESC Y`), cursor moves (`ESC A/B/C/D`), home (`ESC H`), reverse line feed (`ESC I`), erase to end of screen/line (`ESC J`/`ESC K`), Heath/Zenith clear (`ESC E`), identify (`ESC Z`), and ANSI exit (`ESC <`). Mode auto-detects from VT52-exclusive sequences (or `ESC[?2l`); ANSI/VT100 behavior is unchanged until a VT52 sequence appears.
+- Terminal query answerback: responds to cursor-position report (`ESC[6n`), status (`ESC[5n`), and device attributes (`ESC[c`, `ESC Z`).
+- Robustness: charset/line-size designators (`ESC (`, `ESC )`, `ESC #`, …) are now consumed instead of leaking a stray glyph; added absolute cursor positioning (`ESC[G`, `ESC[d`).
+
 ## Version 1.4.8 (Build 35)
 
 ### Power Management
