@@ -126,6 +126,18 @@ void emu_console_clear_queue() {
   while (!g_input_queue.empty()) g_input_queue.pop();
 }
 
+// v1.34 platform contract: these only mean something to a CLI reading a
+// closed pipe/file. An interactive GUI can always receive more input, so both
+// return false (matching the Windows/Android sister ports). They must still be
+// defined or the link against the shared core fails.
+bool emu_console_input_exhausted() {
+  return false;  // GUI: more input can always arrive
+}
+
+bool emu_console_input_eof() {
+  return false;  // GUI: no piped stdin
+}
+
 void emu_console_write_char(uint8_t ch) {
   id<EMUIODelegate> delegate = g_delegate;
   if (delegate && [delegate respondsToSelector:@selector(emuConsoleOutput:)]) {
@@ -410,7 +422,13 @@ void emu_host_file_close_read() {
   g_host_file_state = HOST_FILE_IDLE;
 }
 
-void emu_host_file_close_write() {
+// v1.34: returns bool. A false return would tell the guest (via HBF_HOST_CLOSE)
+// that the export may be truncated. iOS buffers the write and hands it to the
+// OS asynchronously (the Swift layer polls HOST_FILE_WRITE_READY and writes to
+// the Exports folder / share sheet), so the synchronous close always succeeds
+// here -- return true, the same as the browser backend. A late write failure in
+// the Swift layer is surfaced to the user there, not through this return value.
+bool emu_host_file_close_write() {
   if (g_host_file_state == HOST_FILE_WRITING && !g_host_write_buffer.empty()) {
     // Set state to WRITE_READY - UI will poll for this and show save picker
     // Data stays in buffer until emu_host_file_write_done() is called
@@ -420,6 +438,7 @@ void emu_host_file_close_write() {
     g_host_write_filename.clear();
     g_host_file_state = HOST_FILE_IDLE;
   }
+  return true;
 }
 
 void emu_host_file_write_done() {

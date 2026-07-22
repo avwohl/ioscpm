@@ -35,20 +35,40 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 // Terminal display with control key toolbar
                 TerminalWithToolbar(
-                    cells: $viewModel.terminalCells,
+                    cells: Binding(get: { viewModel.displayCells }, set: { _ in }),
                     cursorRow: $viewModel.cursorRow,
                     cursorCol: $viewModel.cursorCol,
                     shouldFocus: $viewModel.terminalShouldFocus,
                     onKeyInput: { char in viewModel.sendKey(char) },
                     onSetControlify: { mode in viewModel.setControlify(mode) },
+                    onScroll: { delta in viewModel.adjustScrollback(byLines: delta) },
+                    onSpecialKey: { key in viewModel.sendSpecialKey(key) },
                     isControlifyActive: viewModel.isControlifyActive,
                     captureKeyboard: !viewModel.showingManifestWriteWarning,
+                    showCursor: !viewModel.isScrolledBack,
                     rows: viewModel.terminalRows,
                     cols: viewModel.terminalCols,
                     fontSize: CGFloat(fontSize)
                 )
                 .id(fontSize)  // Force view recreation when font size changes
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .bottomTrailing) {
+                    if viewModel.isScrolledBack {
+                        Button {
+                            viewModel.scrollToLiveBottom()
+                        } label: {
+                            Label("Live", systemImage: "arrow.down.to.line")
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.3)))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(12)
+                        .transition(.opacity)
+                    }
+                }
 
                 // Status bar
                 HStack {
@@ -529,6 +549,46 @@ struct SettingsView: View {
                     Text("Show warning when writing to downloaded disks (changes may be lost on app update)")
                         .font(.caption)
                         .foregroundColor(.secondary)
+
+                    Toggle("R8/W8 Use File Picker", isOn: Binding(
+                        get: { viewModel.useFilePickerForTransfer },
+                        set: { viewModel.useFilePickerForTransfer = $0 }
+                    ))
+                    Text("R8 imports and W8 exports pick any file via the Files app. Turn off to use the fixed Imports/Exports folders instead.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                // Keyboard mapping Section (external/hardware keyboards)
+                Section(header: Text("Keyboard Mapping")) {
+                    Picker("Navigation Keys", selection: Binding(
+                        get: { viewModel.keyProfile },
+                        set: { viewModel.keyProfile = $0 }
+                    )) {
+                        ForEach(KeyProfile.allCases) { profile in
+                            Text(profile.rawValue).tag(profile)
+                        }
+                    }
+                    Text("Byte sequence each navigation key sends to CP/M (hardware keyboards). Escapes: \\E=Esc, ^X=Ctrl-X, ^?=Del, \\NNN=octal, \\n \\r \\t \\b \\s.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    DisclosureGroup("Customize Keys") {
+                        ForEach(SpecialKey.allCases) { key in
+                            HStack {
+                                Text(key.label)
+                                    .frame(width: 130, alignment: .leading)
+                                TextField("(unbound)", text: Binding(
+                                    get: { viewModel.keyBinding(for: key) },
+                                    set: { viewModel.setKeyBinding(key, to: $0) }
+                                ))
+                                .font(.system(.body, design: .monospaced))
+                                .textFieldStyle(.roundedBorder)
+                                .autocorrectionDisabled(true)
+                                .textInputAutocapitalization(.never)
+                            }
+                        }
+                    }
                 }
 
                 // Debug Section
@@ -833,8 +893,46 @@ extension View {
         transform(self)
     }
 
-    /// Host file modifiers - R8/W8 use folder-based transfer (file pickers crash on Mac Catalyst)
+    /// Host file modifiers - arbitrary-path R8/W8 via the system file picker
+    /// (SwiftUI .fileImporter/.fileExporter, the same proven path the disk
+    /// import/export uses). Folder-based transfer remains available as a
+    /// Settings option (useFilePickerForTransfer).
     func hostFileModifiers(viewModel: EmulatorViewModel) -> some View {
-        self  // No file picker modifiers needed - using Imports/Exports folders instead
+        self
+            // R8: import an arbitrary host file. The v1.34 core has rewound PC
+            // and waits until we provide bytes or cancel.
+            .fileImporter(
+                isPresented: Binding(
+                    get: { viewModel.showingHostFileImporter },
+                    set: { viewModel.showingHostFileImporter = $0 }
+                ),
+                allowedContentTypes: [.data, .item],
+                allowsMultipleSelection: false
+            ) { result in
+                viewModel.handleHostFileImportResult(result)
+            }
+            // W8: save an exported CP/M file to an arbitrary location.
+            .fileExporter(
+                isPresented: Binding(
+                    get: { viewModel.showingHostFileExporter },
+                    set: { viewModel.showingHostFileExporter = $0 }
+                ),
+                document: viewModel.hostFileExportDocument,
+                contentType: .data,
+                defaultFilename: viewModel.hostFileExportFilename
+            ) { result in
+                viewModel.handleHostFileExportResult(result)
+            }
+            // .fileImporter may dismiss on cancel without a completion callback;
+            // release the paused guest so R8 doesn't hang (DOWNSTREAM item #3).
+            // The short delay lets a real selection's completion handler mark the
+            // result delivered first (resolveHostFileImportIfAbandoned no-ops then).
+            .onChange(of: viewModel.showingHostFileImporter) { presented in
+                if !presented {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        viewModel.resolveHostFileImportIfAbandoned()
+                    }
+                }
+            }
     }
 }

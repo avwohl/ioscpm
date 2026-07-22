@@ -90,6 +90,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var showingHostFileMoveExporter: Bool = false
     @Published var showingHostFileSavePrompt: Bool = false  // Alert asking user to save
     private var pendingHostFileData: Data?  // Data waiting to be saved
+    var hostFileImportSuggestedName: String = ""  // R8 filename hint for the picker
 
     // ROM selection
     @Published var selectedROM: ROMOption? {
@@ -178,6 +179,90 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
     }
 
+    // R8/W8 host transfer: use the Files picker to reach arbitrary locations,
+    // versus the fixed Documents/Imports and Documents/Exports folders. Default
+    // is the folder mode: it lives entirely inside the app sandbox container, so
+    // it needs no security-scoped access and has no picker-presentation edge
+    // cases. The picker (arbitrary paths) is opt-in via Settings.
+    private static let useFilePickerForTransferKey = "useFilePickerForTransfer"
+
+    var useFilePickerForTransfer: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: Self.useFilePickerForTransferKey) == nil {
+                return false  // default: sandbox-container folders (proven path)
+            }
+            return UserDefaults.standard.bool(forKey: Self.useFilePickerForTransferKey)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: Self.useFilePickerForTransferKey) }
+    }
+
+    // Guards the R8 import picker's abandoned-dismiss handling against a race
+    // with the completion callback (see resolveHostFileImportIfAbandoned).
+    private var hostFileImportResultDelivered = false
+
+    // MARK: - Configurable Keyboard Mapping
+
+    private static let keyProfileKey = "keyProfile"
+    private static let keyBindingsKey = "keyBindings"
+
+    // Effective per-key termcap-style bindings (SpecialKey.rawValue -> string).
+    private var currentKeyBindings: [SpecialKey: String] = KeyProfile.wordStar.bindings ?? [:]
+
+    /// Selected profile. Choosing a preset resets the bindings to that preset;
+    /// editing an individual key switches the profile to `.custom`.
+    @Published var keyProfile: KeyProfile = .wordStar {
+        didSet {
+            UserDefaults.standard.set(keyProfile.rawValue, forKey: Self.keyProfileKey)
+            if let preset = keyProfile.bindings {
+                currentKeyBindings = preset
+                persistKeyBindings()
+            }
+        }
+    }
+
+    var keyMap: KeyMap { KeyMap(bindings: currentKeyBindings) }
+
+    func keyBinding(for key: SpecialKey) -> String { currentKeyBindings[key] ?? "" }
+
+    func setKeyBinding(_ key: SpecialKey, to value: String) {
+        currentKeyBindings[key] = value
+        if keyProfile != .custom {
+            keyProfile = .custom  // didSet won't clobber currentKeyBindings (custom has nil bindings)
+        }
+        persistKeyBindings()
+        objectWillChange.send()
+    }
+
+    private func persistKeyBindings() {
+        var dict: [String: String] = [:]
+        for (k, v) in currentKeyBindings { dict[k.rawValue] = v }
+        UserDefaults.standard.set(dict, forKey: Self.keyBindingsKey)
+    }
+
+    /// Restore the saved keyboard mapping (call once during init).
+    private func loadKeyMapping() {
+        let profRaw = UserDefaults.standard.string(forKey: Self.keyProfileKey) ?? KeyProfile.wordStar.rawValue
+        let prof = KeyProfile(rawValue: profRaw) ?? .wordStar
+        if let preset = prof.bindings {
+            currentKeyBindings = preset
+        } else if let stored = UserDefaults.standard.dictionary(forKey: Self.keyBindingsKey) as? [String: String] {
+            var m: [SpecialKey: String] = [:]
+            for (k, v) in stored { if let sk = SpecialKey(rawValue: k) { m[sk] = v } }
+            currentKeyBindings = m
+        }
+        // Assign without persisting a redundant write via the observed setter is
+        // fine here; the values already match what was stored.
+        keyProfile = prof
+    }
+
+    /// Send a remapped navigation key's byte sequence to the guest.
+    func sendSpecialKey(_ key: SpecialKey) {
+        scrollToLiveBottom()
+        for b in keyMap.bytes(for: key) {
+            emulator?.sendCharacter(unichar(b))
+        }
+    }
+
     /// Clear autoboot setting (NVRAM and persisted value)
     func clearAutoboot() {
         bootString = ""
@@ -219,6 +304,42 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var terminalCells: [[TerminalCell]] = []
     @Published var cursorRow: Int = 0
     @Published var cursorCol: Int = 0
+
+    // Scrollback: full lines that have scrolled off the top of the live viewport.
+    private var scrollbackLines: [[TerminalCell]] = []
+    private let scrollbackMax = 2000
+    // How many lines the user has scrolled up from the live bottom (0 = live).
+    @Published var scrollbackOffset: Int = 0
+
+    var isScrolledBack: Bool { scrollbackOffset > 0 }
+    var scrollbackAvailable: Int { scrollbackLines.count }
+
+    /// The `terminalRows` rows currently visible: the live grid when at the
+    /// bottom, or a window into (scrollback + live) when scrolled up.
+    var displayCells: [[TerminalCell]] {
+        guard scrollbackOffset > 0 else { return terminalCells }
+        let total = scrollbackLines + terminalCells
+        let bottomExclusive = max(0, total.count - scrollbackOffset)
+        let start = max(0, bottomExclusive - terminalRows)
+        var slice = Array(total[start..<bottomExclusive])
+        if slice.count > terminalRows { slice = Array(slice.suffix(terminalRows)) }
+        while slice.count < terminalRows {
+            slice.append(Array(repeating: TerminalCell(), count: terminalCols))
+        }
+        return slice
+    }
+
+    /// Scroll the viewport by `lines` (positive = back into history, negative =
+    /// toward the live bottom). Clamped to the available scrollback.
+    func adjustScrollback(byLines lines: Int) {
+        let clamped = min(max(0, scrollbackOffset + lines), scrollbackLines.count)
+        if clamped != scrollbackOffset { scrollbackOffset = clamped }
+    }
+
+    /// Snap back to the live bottom of the terminal.
+    func scrollToLiveBottom() {
+        if scrollbackOffset != 0 { scrollbackOffset = 0 }
+    }
 
     private var emulator: RomWBWEmulator?
 
@@ -282,6 +403,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         // Restore boot string from NVRAM key
         bootString = UserDefaults.standard.string(forKey: Self.nvramKey) ?? ""
+
+        // Restore the configurable keyboard mapping
+        loadKeyMapping()
     }
 
     private func showStartupMessage() {
@@ -1107,6 +1231,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
         emulator?.setNvramSetting(bootString)
 
         clearTerminal()
+        // A cold boot starts a fresh session — drop the old scrollback history.
+        scrollbackLines.removeAll()
+        scrollbackOffset = 0
         // Cold boot returns the terminal to its ANSI/VT100 default.
         vt52Mode = false
         escapeState = .normal
@@ -1116,12 +1243,15 @@ class EmulatorViewModel: NSObject, ObservableObject {
     }
 
     func sendKey(_ char: Character) {
+        // Typing returns the view to the live bottom.
+        scrollToLiveBottom()
         // Only send ASCII characters (0-127) to CP/M
         guard let code = char.asciiValue else { return }
         emulator?.sendCharacter(unichar(code))
     }
 
     func sendString(_ str: String) {
+        scrollToLiveBottom()
         emulator?.send(str)
     }
 
@@ -1687,22 +1817,41 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             let data = Data(bytes: dataPtr, count: size)
             let filename = String(cString: namePtr)
 
-            // Save directly to Documents/Exports folder
-            let fm = FileManager.default
-            let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
-            let exportsDir = docs.appendingPathComponent("Exports", isDirectory: true)
-            try? fm.createDirectory(at: exportsDir, withIntermediateDirectories: true)
-
-            let destURL = exportsDir.appendingPathComponent(filename)
-            do {
-                try? fm.removeItem(at: destURL)
-                try data.write(to: destURL)
+            if useFilePickerForTransfer {
+                // Arbitrary-path mode: copy the bytes out, release the emulator
+                // buffer immediately, then let the user save anywhere via the
+                // Files picker. (Safe to release now: the data is copied into the
+                // export document, so a cancelled picker cannot lose guest state.)
+                hostFileExportDocument = DiskImageDocument(data: data)
+                hostFileExportFilename = filename.isEmpty ? "export.txt" : filename
                 emu_host_file_write_done_c()
-                statusText = "W8: Saved \(filename) to Exports folder"
-            } catch {
-                emu_host_file_write_done_c()
-                statusText = "W8: Failed to save \(filename)"
+                showingHostFileExporter = true
+                statusText = "W8: Choose where to save \(hostFileExportFilename)…"
+                return
             }
+
+            // Legacy mode: save directly to Documents/Exports folder
+            emu_host_file_write_done_c()
+            saveToExportsFolder(data: data, filename: filename)
+        }
+    }
+
+    /// Write W8 output into the sandbox Documents/Exports folder. Used as the
+    /// default (folder) mode and as the fallback when the user cancels the
+    /// arbitrary-path save picker, so an export is never silently lost.
+    private func saveToExportsFolder(data: Data, filename: String) {
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let exportsDir = docs.appendingPathComponent("Exports", isDirectory: true)
+        try? fm.createDirectory(at: exportsDir, withIntermediateDirectories: true)
+        let name = filename.isEmpty ? "export.txt" : filename
+        let destURL = exportsDir.appendingPathComponent(name)
+        do {
+            try? fm.removeItem(at: destURL)
+            try data.write(to: destURL)
+            statusText = "W8: Saved \(name) to Exports folder"
+        } catch {
+            statusText = "W8: Failed to save \(name)"
         }
     }
 
@@ -2219,10 +2368,25 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
     private func scrollUp(_ lines: Int) {
         guard lines > 0 else { return }
 
-        for row in 0..<(terminalRows - lines) {
+        // Preserve the rows scrolling off the top into the scrollback buffer.
+        let captured = min(lines, terminalRows)
+        for row in 0..<captured {
+            scrollbackLines.append(terminalCells[row])
+        }
+        if scrollbackLines.count > scrollbackMax {
+            scrollbackLines.removeFirst(scrollbackLines.count - scrollbackMax)
+        }
+        // Keep the visible window anchored to the same content while the user is
+        // reading history (up to the buffer cap).
+        if scrollbackOffset > 0 {
+            scrollbackOffset = min(scrollbackOffset + captured, scrollbackLines.count)
+        }
+
+        let keep = max(0, terminalRows - lines)
+        for row in 0..<keep {
             terminalCells[row] = terminalCells[row + lines]
         }
-        for row in (terminalRows - lines)..<terminalRows {
+        for row in keep..<terminalRows {
             terminalCells[row] = Array(repeating: TerminalCell(), count: terminalCols)
         }
     }
@@ -2261,7 +2425,19 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
     func emulatorHostFileRequestRead(_ suggestedFilename: String) {
         DispatchQueue.main.async {
-            // Read from Documents/Imports folder (file pickers crash on Mac Catalyst)
+            // Arbitrary-path mode: let the user pick any file via the Files
+            // picker. The v1.34 core has already rewound PC and is waiting; the
+            // guest stays paused until handleHostFileImportResult provides bytes
+            // or resolveHostFileImportIfAbandoned cancels (picker dismissed).
+            if self.useFilePickerForTransfer {
+                self.hostFileImportSuggestedName = suggestedFilename
+                self.hostFileImportResultDelivered = false
+                self.showingHostFileImporter = true
+                self.statusText = "R8: Choose a file to import…"
+                return
+            }
+
+            // Legacy mode: read from the Documents/Imports folder.
             let fm = FileManager.default
             let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
             let importsDir = docs.appendingPathComponent("Imports", isDirectory: true)
@@ -2336,15 +2512,24 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         }
     }
 
-    /// Handle result from host file exporter (W8) - legacy, keeping for compatibility
+    /// Handle result from the arbitrary-path W8 exporter.
     func handleHostFileExportResult(_ result: Result<URL, Error>) {
+        // Capture the payload before clearing, so a cancel can fall back to the
+        // Exports folder instead of silently dropping the export (the guest was
+        // already told the close succeeded, per the async close_write contract).
+        let pendingData = hostFileExportDocument?.data
+        let pendingName = hostFileExportFilename
         hostFileExportDocument = nil
         switch result {
         case .success(let url):
             statusText = "W8: Saved to \(url.lastPathComponent)"
         case .failure(let error):
             if (error as NSError).code == NSUserCancelledError {
-                statusText = "W8: Save cancelled"
+                if let data = pendingData {
+                    saveToExportsFolder(data: data, filename: pendingName)  // no silent loss
+                } else {
+                    statusText = "W8: Save cancelled"
+                }
             } else {
                 showError("Failed to save: \(error.localizedDescription)")
             }
@@ -2353,6 +2538,9 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
     /// Handle result from host file importer (R8)
     func handleHostFileImportResult(_ result: Result<[URL], Error>) {
+        // Mark delivered up front so the abandoned-dismiss guard never races
+        // with (and cancels) a real selection, even if the data read is slow.
+        hostFileImportResultDelivered = true
         switch result {
         case .success(let urls):
             guard let url = urls.first else {
@@ -2396,6 +2584,20 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
     func handleHostFileImportCancel() {
         emu_host_file_cancel()
         statusText = "R8: Cancelled"
+    }
+
+    /// Called when the R8 import picker dismisses. SwiftUI's .fileImporter does
+    /// not reliably deliver a completion callback on cancel, so if the guest is
+    /// still paused waiting for the file we release it here — otherwise v1.34's
+    /// PC-rewind wait would hang forever. Guarded by hostFileImportResultDelivered
+    /// (set at the start of handleHostFileImportResult) so a real selection is
+    /// never cancelled, regardless of callback vs. onChange ordering.
+    func resolveHostFileImportIfAbandoned() {
+        guard !hostFileImportResultDelivered else { return }
+        if emu_host_file_get_state_c() == Int32(HOST_FILE_WAITING_READ.rawValue) {
+            emu_host_file_cancel()
+            statusText = "R8: Cancelled"
+        }
     }
 }
 

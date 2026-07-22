@@ -1,5 +1,61 @@
 # Changelog
 
+## Version 1.4.11 (Build 40)
+
+### Emulator Core Sync (romwbw_emu v1.34)
+
+Brings the iOS/macOS port up to the v1.34 platform contract so it builds and
+runs against the current shared core. See romwbw_emu `DOWNSTREAM.md` and
+`docs/DOWNSTREAM_2026-07-21.md`.
+
+- **Platform API (required):** `emu_host_file_close_write()` now returns `bool`.
+  iOS buffers the W8 export and hands it to the OS asynchronously (Exports
+  folder / share sheet), so the synchronous close reports success like the
+  browser backend; a late write failure is surfaced in the Swift layer.
+- **Platform API (required):** added `emu_console_input_exhausted()` and
+  `emu_console_input_eof()` (both return `false` — only a CLI reading a closed
+  pipe can exhaust input). Without these the port would not link against v1.34.
+- **R8 host-file read:** verified against v1.34's new behavior — the core now
+  rewinds PC and waits for the host file to be provided or cancelled instead of
+  importing a 0-byte file. The port's folder-based reader already resolves the
+  wait on every path (`emu_host_file_load` on success, `emu_host_file_cancel`
+  on missing/unreadable file), so no code change was required.
+
+Inherited automatically from the shared core (no port changes needed): 64-bit
+disk offsets, `HBR_IO` on host disk-write failures instead of silent data loss,
+bounded writes to in-memory disk images, and the `emu_file_load_to_mem` /
+`emu_load_romldr_rom` hardening. Disk persistence on background, the manifest
+write warning, the NVRAM string API, and unified RAM-bank init were already in
+place and remain compatible.
+
+### New: Terminal Scrollback
+
+- Scroll back through output history by dragging the terminal (or trackpad /
+  mouse-wheel on Mac). A ring buffer keeps the last 2000 lines that scroll off
+  the top. A "Live" pill appears while viewing history; tap it — or type any
+  key — to snap back to the bottom. The cursor is hidden while scrolled back.
+  History is preserved across screen clears (CLS) and dropped on a cold boot.
+
+### New: Configurable Keyboard Mapping
+
+- The navigation keys (arrows, Home/End, Page Up/Down, Insert, Forward Delete)
+  on a hardware/external keyboard can be remapped to arbitrary byte sequences,
+  using the same termcap-style escape schema as the z80cpmw / romwbw_emu family
+  (`\E`, `^X`, `^?`, `\NNN` octal, `\n \r \t \b \s`). Preset profiles:
+  **WordStar** (the historical default — arrows send Ctrl-E/S/D/X, unchanged),
+  **VT100/ANSI**, and **VT52**; plus per-key customization in Settings. The
+  selection persists.
+
+### New: Arbitrary-path R8/W8 (opt-in)
+
+- R8/W8 host file transfer can now reach any location via the system Files
+  picker (sandbox-safe security-scoped access), instead of only the fixed
+  Documents/Imports and Documents/Exports folders. Off by default (the folder
+  mode stays the proven path); enable "R8/W8 Use File Picker" in Settings. The
+  R8 picker resolves the v1.34 guest wait on every dismissal path (pick, cancel,
+  or silent dismiss) so the guest never hangs; a cancelled W8 save falls back to
+  the Exports folder so an export is never silently lost.
+
 ## Version 1.4.10 (Build 39)
 
 ### Terminal Emulation (fixes GitHub #2)

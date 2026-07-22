@@ -5,13 +5,133 @@
 import SwiftUI
 import UIKit
 
+// MARK: - Configurable Key Mapping
+//
+// CP/M is pure ASCII and has no navigation/function keys; each terminal defines
+// its own escape bytes. These types let the user bind the navigation keys to
+// arbitrary byte sequences, using the same termcap-style escape-string schema as
+// the z80cpmw / romwbw_emu family so configs stay conceptually portable.
+
+/// Special (non-ASCII) keys from a hardware/external keyboard that can be
+/// remapped to arbitrary byte sequences sent to the guest.
+enum SpecialKey: String, CaseIterable, Identifiable {
+    case up, down, left, right, home, end, pageUp, pageDown, insert, delete
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .up: return "Up Arrow"
+        case .down: return "Down Arrow"
+        case .left: return "Left Arrow"
+        case .right: return "Right Arrow"
+        case .home: return "Home"
+        case .end: return "End"
+        case .pageUp: return "Page Up"
+        case .pageDown: return "Page Down"
+        case .insert: return "Insert"
+        case .delete: return "Forward Delete"
+        }
+    }
+}
+
+/// A named keyboard profile. Preset profiles supply termcap-style bindings;
+/// `.custom` means the user has edited them.
+enum KeyProfile: String, CaseIterable, Identifiable {
+    case wordStar = "WordStar"
+    case vt100 = "VT100/ANSI"
+    case vt52 = "VT52"
+    case custom = "Custom"
+    var id: String { rawValue }
+
+    /// Termcap-style bindings for preset profiles, or nil for `.custom`.
+    var bindings: [SpecialKey: String]? {
+        switch self {
+        case .wordStar:
+            // WordStar "diamond" — the port's historical default arrow behavior.
+            return [.up: "^E", .down: "^X", .left: "^S", .right: "^D",
+                    .home: "^Q^S", .end: "^Q^D", .pageUp: "^R", .pageDown: "^C",
+                    .insert: "^V", .delete: "^G"]
+        case .vt100:
+            return [.up: "\\E[A", .down: "\\E[B", .right: "\\E[C", .left: "\\E[D",
+                    .home: "\\E[H", .end: "\\E[F", .pageUp: "\\E[5~", .pageDown: "\\E[6~",
+                    .insert: "\\E[2~", .delete: "\\E[3~"]
+        case .vt52:
+            return [.up: "\\EA", .down: "\\EB", .right: "\\EC", .left: "\\ED",
+                    .home: "\\EH", .end: "", .pageUp: "", .pageDown: "",
+                    .insert: "", .delete: "^?"]
+        case .custom:
+            return nil
+        }
+    }
+}
+
+/// Resolves termcap-style escape strings into the byte sequences sent to the
+/// guest. Schema (matches the z80cpmw / romwbw_emu family):
+///   \E = 0x1B, \n \r \t \b \f, \s = space, \\ = backslash, \NNN = octal byte,
+///   ^X = control (X & 0x1F), ^? = 0x7F (DEL); any other char is a literal.
+struct KeyMap {
+    var bindings: [SpecialKey: String]
+
+    func bytes(for key: SpecialKey) -> [UInt8] { KeyMap.expand(bindings[key] ?? "") }
+
+    static func expand(_ s: String) -> [UInt8] {
+        var out: [UInt8] = []
+        let chars = Array(s)
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if c == "\\" && i + 1 < chars.count {
+                let n = chars[i + 1]
+                switch n {
+                case "E", "e": out.append(0x1B); i += 2
+                case "n": out.append(0x0A); i += 2
+                case "r": out.append(0x0D); i += 2
+                case "t": out.append(0x09); i += 2
+                case "b": out.append(0x08); i += 2
+                case "f": out.append(0x0C); i += 2
+                case "s": out.append(0x20); i += 2
+                case "\\": out.append(0x5C); i += 2
+                case "0", "1", "2", "3", "4", "5", "6", "7":
+                    var j = i + 1, val = 0, count = 0
+                    while j < chars.count, count < 3, chars[j].isASCII,
+                          let d = chars[j].wholeNumberValue, (0...7).contains(d) {
+                        val = val * 8 + d; j += 1; count += 1
+                    }
+                    out.append(UInt8(val & 0xFF)); i = j
+                default:
+                    if let a = n.asciiValue { out.append(a) }
+                    i += 2
+                }
+            } else if c == "^" && i + 1 < chars.count {
+                let n = chars[i + 1]
+                if n == "?" {
+                    out.append(0x7F); i += 2
+                } else if let a = n.asciiValue {
+                    out.append(a & 0x1F); i += 2
+                } else {
+                    i += 2
+                }
+            } else {
+                if let a = c.asciiValue { out.append(a) }
+                i += 1
+            }
+        }
+        return out
+    }
+}
+
 struct TerminalView: UIViewRepresentable {
     @Binding var cells: [[TerminalCell]]
     @Binding var cursorRow: Int
     @Binding var cursorCol: Int
     @Binding var shouldFocus: Bool
     var onKeyInput: ((Character) -> Void)?
+    // Called when the user pans / scroll-wheels the terminal. Positive = back
+    // into scrollback history, negative = toward the live bottom.
+    var onScroll: ((Int) -> Void)?
+    // Called when a remappable navigation key is pressed on a hardware keyboard.
+    var onSpecialKey: ((SpecialKey) -> Void)?
     var captureKeyboard: Bool = true
+    var showCursor: Bool = true
 
     let rows: Int
     let cols: Int
@@ -25,7 +145,10 @@ struct TerminalView: UIViewRepresentable {
          fontSize: CGFloat = 20,
          shouldFocus: Binding<Bool> = .constant(false),
          captureKeyboard: Bool = true,
-         onKeyInput: ((Character) -> Void)? = nil) {
+         showCursor: Bool = true,
+         onKeyInput: ((Character) -> Void)? = nil,
+         onScroll: ((Int) -> Void)? = nil,
+         onSpecialKey: ((SpecialKey) -> Void)? = nil) {
         self._cells = cells
         self._cursorRow = cursorRow
         self._cursorCol = cursorCol
@@ -34,18 +157,28 @@ struct TerminalView: UIViewRepresentable {
         self.cols = cols
         self.fontSize = fontSize
         self.captureKeyboard = captureKeyboard
+        self.showCursor = showCursor
         self.onKeyInput = onKeyInput
+        self.onScroll = onScroll
+        self.onSpecialKey = onSpecialKey
     }
 
     func makeUIView(context: Context) -> TerminalUIView {
         let view = TerminalUIView(rows: rows, cols: cols, fontSize: fontSize)
         view.onKeyInput = onKeyInput
+        view.onScroll = onScroll
+        view.onSpecialKey = onSpecialKey
         view.captureKeyboard = captureKeyboard
+        view.showCursor = showCursor
         return view
     }
 
     func updateUIView(_ uiView: TerminalUIView, context: Context) {
         uiView.updateFontSize(fontSize)
+        uiView.onKeyInput = onKeyInput
+        uiView.onScroll = onScroll
+        uiView.onSpecialKey = onSpecialKey
+        uiView.showCursor = showCursor
         uiView.updateCells(cells, cursorRow: cursorRow, cursorCol: cursorCol)
         uiView.captureKeyboard = captureKeyboard
 
@@ -67,8 +200,11 @@ struct TerminalWithToolbar: View {
     @Binding var shouldFocus: Bool
     var onKeyInput: ((Character) -> Void)?
     var onSetControlify: ((RWBControlifyMode) -> Void)?
+    var onScroll: ((Int) -> Void)?
+    var onSpecialKey: ((SpecialKey) -> Void)?
     var isControlifyActive: Bool = false
     var captureKeyboard: Bool = true
+    var showCursor: Bool = true
 
     let rows: Int
     let cols: Int
@@ -105,7 +241,10 @@ struct TerminalWithToolbar: View {
                 fontSize: fontSize,
                 shouldFocus: $shouldFocus,
                 captureKeyboard: captureKeyboard,
-                onKeyInput: onKeyInput
+                showCursor: showCursor,
+                onKeyInput: onKeyInput,
+                onScroll: onScroll,
+                onSpecialKey: onSpecialKey
             )
         }
     }
@@ -135,7 +274,14 @@ struct ToolbarButton: View {
 
 class TerminalUIView: UIView, UIKeyInput {
     var onKeyInput: ((Character) -> Void)?
+    var onScroll: ((Int) -> Void)?
+    var onSpecialKey: ((SpecialKey) -> Void)?
     var captureKeyboard: Bool = true
+    var showCursor: Bool = true {
+        didSet { if oldValue != showCursor { setNeedsDisplay() } }
+    }
+    // Accumulated whole-row translation already reported during the current pan.
+    private var panReportedLines: Int = 0
 
     private let rows: Int
     private let cols: Int
@@ -194,6 +340,31 @@ class TerminalUIView: UIView, UIKeyInput {
         // Add long press gesture for copy menu
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
         addGestureRecognizer(longPress)
+
+        // Pan / scroll-wheel gesture for scrollback history
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.allowedScrollTypesMask = .all  // trackpad two-finger + mouse wheel on Mac Catalyst
+        addGestureRecognizer(pan)
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        // One on-screen text row of vertical movement = one scrollback line.
+        let rowHeight = bounds.height / CGFloat(max(rows, 1))
+        guard rowHeight > 0 else { return }
+        let translationY = gesture.translation(in: self).y
+        // Dragging down (positive y) reveals older content -> scroll into history.
+        let totalLines = Int(translationY / rowHeight)
+        let delta = totalLines - panReportedLines
+        if delta != 0 {
+            onScroll?(delta)
+            panReportedLines = totalLines
+        }
+        switch gesture.state {
+        case .ended, .cancelled, .failed:
+            panReportedLines = 0
+        default:
+            break
+        }
     }
 
     override func layoutSubviews() {
@@ -311,23 +482,25 @@ class TerminalUIView: UIView, UIKeyInput {
             }
         }
 
-        // Draw cursor (blinking block)
-        let cursorX = CGFloat(cursorCol) * charWidth
-        let cursorY = CGFloat(cursorRow) * charHeight
+        // Draw cursor (blinking block) — hidden while viewing scrollback history
+        if showCursor {
+            let cursorX = CGFloat(cursorCol) * charWidth
+            let cursorY = CGFloat(cursorRow) * charHeight
 
-        // Simple block cursor
-        UIColor.green.withAlphaComponent(0.7).setFill()
-        context.fill(CGRect(x: cursorX, y: cursorY, width: charWidth, height: charHeight))
+            // Simple block cursor
+            UIColor.green.withAlphaComponent(0.7).setFill()
+            context.fill(CGRect(x: cursorX, y: cursorY, width: charWidth, height: charHeight))
 
-        // Redraw character at cursor position in black so it's visible
-        if cursorRow < cells.count && cursorCol < cells[cursorRow].count {
-            let cell = cells[cursorRow][cursorCol]
-            let charAttrs: [NSAttributedString.Key: Any] = [
-                .font: font,
-                .foregroundColor: UIColor.black
-            ]
-            let str = String(cell.character) as NSString
-            str.draw(at: CGPoint(x: cursorX, y: cursorY), withAttributes: charAttrs)
+            // Redraw character at cursor position in black so it's visible
+            if cursorRow < cells.count && cursorCol < cells[cursorRow].count {
+                let cell = cells[cursorRow][cursorCol]
+                let charAttrs: [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: UIColor.black
+                ]
+                let str = String(cell.character) as NSString
+                str.draw(at: CGPoint(x: cursorX, y: cursorY), withAttributes: charAttrs)
+            }
         }
 
         context.restoreGState()
@@ -350,13 +523,11 @@ class TerminalUIView: UIView, UIKeyInput {
     // MARK: - Key Commands
 
     override var keyCommands: [UIKeyCommand]? {
+        // Arrow / navigation keys are handled in pressesBegan via key codes so
+        // they can be remapped (see onSpecialKey). Only fixed shortcuts remain.
         var commands = [
             UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(enterPressed)),
             UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escapePressed)),
-            UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(upArrowPressed)),
-            UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(downArrowPressed)),
-            UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(leftArrowPressed)),
-            UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(rightArrowPressed)),
             // Copy/Paste support
             UIKeyCommand(input: "c", modifierFlags: .command, action: #selector(copyText)),
             UIKeyCommand(input: "v", modifierFlags: .command, action: #selector(pasteText))
@@ -412,21 +583,21 @@ class TerminalUIView: UIView, UIKeyInput {
         onKeyInput?(Character(UnicodeScalar(27)))
     }
 
-    @objc private func upArrowPressed() {
-        // Send ANSI up arrow or Ctrl-E for WordStar
-        onKeyInput?(Character(UnicodeScalar(5))) // Ctrl-E
-    }
-
-    @objc private func downArrowPressed() {
-        onKeyInput?(Character(UnicodeScalar(24))) // Ctrl-X
-    }
-
-    @objc private func leftArrowPressed() {
-        onKeyInput?(Character(UnicodeScalar(19))) // Ctrl-S
-    }
-
-    @objc private func rightArrowPressed() {
-        onKeyInput?(Character(UnicodeScalar(4))) // Ctrl-D
+    /// Map a hardware key code to a remappable navigation key, if applicable.
+    private static func specialKey(for code: UIKeyboardHIDUsage) -> SpecialKey? {
+        switch code {
+        case .keyboardUpArrow: return .up
+        case .keyboardDownArrow: return .down
+        case .keyboardLeftArrow: return .left
+        case .keyboardRightArrow: return .right
+        case .keyboardHome: return .home
+        case .keyboardEnd: return .end
+        case .keyboardPageUp: return .pageUp
+        case .keyboardPageDown: return .pageDown
+        case .keyboardInsert: return .insert
+        case .keyboardDeleteForward: return .delete
+        default: return nil
+        }
     }
 
     @objc private func ctrlKeyPressed(_ command: UIKeyCommand) {
@@ -451,6 +622,16 @@ class TerminalUIView: UIView, UIKeyInput {
 
         for press in presses {
             guard let key = press.key else { continue }
+
+            // Remappable navigation keys (arrows, Home/End, Page Up/Down,
+            // Insert, Forward Delete) — resolved to a configurable byte sequence.
+            // Command-modified nav keys are left to the system.
+            if !key.modifierFlags.contains(.command),
+               let special = Self.specialKey(for: key.keyCode) {
+                onSpecialKey?(special)
+                handled = true
+                continue
+            }
 
             // Get the characters from the key press
             let chars = key.characters
