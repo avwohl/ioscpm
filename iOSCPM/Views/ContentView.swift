@@ -206,6 +206,11 @@ struct ContentView: View {
                         Divider()
 
                         Button {
+                            viewModel.showingImportToInbox = true
+                        } label: {
+                            Label("Import File… (for R8)", systemImage: "square.and.arrow.down")
+                        }
+                        Button {
                             viewModel.openImportsFolder()
                         } label: {
                             Label("Open Imports Folder", systemImage: "folder")
@@ -549,14 +554,6 @@ struct SettingsView: View {
                     Text("Show warning when writing to downloaded disks (changes may be lost on app update)")
                         .font(.caption)
                         .foregroundColor(.secondary)
-
-                    Toggle("R8/W8 Use File Picker", isOn: Binding(
-                        get: { viewModel.useFilePickerForTransfer },
-                        set: { viewModel.useFilePickerForTransfer = $0 }
-                    ))
-                    Text("R8 imports and W8 exports pick any file via the Files app. Turn off to use the fixed Imports/Exports folders instead.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
 
                 // Keyboard mapping Section (external/hardware keyboards)
@@ -893,46 +890,21 @@ extension View {
         transform(self)
     }
 
-    /// Host file modifiers - arbitrary-path R8/W8 via the system file picker
-    /// (SwiftUI .fileImporter/.fileExporter, the same proven path the disk
-    /// import/export uses). Folder-based transfer remains available as a
-    /// Settings option (useFilePickerForTransfer).
+    /// "Import File…" — stage arbitrary host file(s) into the Imports folder so a
+    /// later R8 can read them. This is user-initiated and independent of the guest:
+    /// R8/W8 transfers themselves always use the Imports/Exports folders (no picker),
+    /// so a batch/scripted build never triggers a file dialog.
     func hostFileModifiers(viewModel: EmulatorViewModel) -> some View {
         self
-            // R8: import an arbitrary host file. The v1.34 core has rewound PC
-            // and waits until we provide bytes or cancel.
             .fileImporter(
                 isPresented: Binding(
-                    get: { viewModel.showingHostFileImporter },
-                    set: { viewModel.showingHostFileImporter = $0 }
+                    get: { viewModel.showingImportToInbox },
+                    set: { viewModel.showingImportToInbox = $0 }
                 ),
                 allowedContentTypes: [.data, .item],
-                allowsMultipleSelection: false
+                allowsMultipleSelection: true
             ) { result in
-                viewModel.handleHostFileImportResult(result)
-            }
-            // W8: save an exported CP/M file to an arbitrary location.
-            .fileExporter(
-                isPresented: Binding(
-                    get: { viewModel.showingHostFileExporter },
-                    set: { viewModel.showingHostFileExporter = $0 }
-                ),
-                document: viewModel.hostFileExportDocument,
-                contentType: .data,
-                defaultFilename: viewModel.hostFileExportFilename
-            ) { result in
-                viewModel.handleHostFileExportResult(result)
-            }
-            // .fileImporter may dismiss on cancel without a completion callback;
-            // release the paused guest so R8 doesn't hang (DOWNSTREAM item #3).
-            // The short delay lets a real selection's completion handler mark the
-            // result delivered first (resolveHostFileImportIfAbandoned no-ops then).
-            .onChange(of: viewModel.showingHostFileImporter) { presented in
-                if !presented {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        viewModel.resolveHostFileImportIfAbandoned()
-                    }
-                }
+                viewModel.handleImportToInbox(result)
             }
     }
 }

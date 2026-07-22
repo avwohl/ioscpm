@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 1.4.11 (Build 40)
+## Version 1.4.11 (Build 41)
 
 ### Emulator Core Sync (romwbw_emu v1.34)
 
@@ -46,15 +46,15 @@ place and remain compatible.
   **VT100/ANSI**, and **VT52**; plus per-key customization in Settings. The
   selection persists.
 
-### New: Arbitrary-path R8/W8 (opt-in)
+### New: Import File… (stage arbitrary host files for R8)
 
-- R8/W8 host file transfer can now reach any location via the system Files
-  picker (sandbox-safe security-scoped access), instead of only the fixed
-  Documents/Imports and Documents/Exports folders. Off by default (the folder
-  mode stays the proven path); enable "R8/W8 Use File Picker" in Settings. The
-  R8 picker resolves the v1.34 guest wait on every dismissal path (pick, cancel,
-  or silent dismiss) so the guest never hangs; a cancelled W8 save falls back to
-  the Exports folder so an export is never silently lost.
+- R8/W8 transfers always use the sandbox Documents/Imports and Documents/Exports
+  folders, so a batch or scripted build (e.g. one that ends in several W8s)
+  never triggers a file dialog. To bring in a file from anywhere, **Import
+  File…** copies the picked file(s) into Imports (a later `R8` reads them), and
+  **Open Exports Folder** surfaces W8 output for sharing. The file picker only
+  appears when you invoke Import File… — it is never driven by the guest, so it
+  can neither interrupt a batch transfer nor stall the emulator.
 
 ## Version 1.4.10 (Build 39)
 

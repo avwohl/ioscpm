@@ -90,7 +90,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var showingHostFileMoveExporter: Bool = false
     @Published var showingHostFileSavePrompt: Bool = false  // Alert asking user to save
     private var pendingHostFileData: Data?  // Data waiting to be saved
-    var hostFileImportSuggestedName: String = ""  // R8 filename hint for the picker
+    // Toggles the "Import File…" picker that stages an arbitrary host file into
+    // the Imports folder (so a later R8 can read it). Not tied to any guest wait.
+    @Published var showingImportToInbox: Bool = false
 
     // ROM selection
     @Published var selectedROM: ROMOption? {
@@ -179,26 +181,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
     }
 
-    // R8/W8 host transfer: use the Files picker to reach arbitrary locations,
-    // versus the fixed Documents/Imports and Documents/Exports folders. Default
-    // is the folder mode: it lives entirely inside the app sandbox container, so
-    // it needs no security-scoped access and has no picker-presentation edge
-    // cases. The picker (arbitrary paths) is opt-in via Settings.
-    private static let useFilePickerForTransferKey = "useFilePickerForTransfer"
-
-    var useFilePickerForTransfer: Bool {
-        get {
-            if UserDefaults.standard.object(forKey: Self.useFilePickerForTransferKey) == nil {
-                return false  // default: sandbox-container folders (proven path)
-            }
-            return UserDefaults.standard.bool(forKey: Self.useFilePickerForTransferKey)
-        }
-        set { UserDefaults.standard.set(newValue, forKey: Self.useFilePickerForTransferKey) }
-    }
-
-    // Guards the R8 import picker's abandoned-dismiss handling against a race
-    // with the completion callback (see resolveHostFileImportIfAbandoned).
-    private var hostFileImportResultDelivered = false
+    // Host file transfer (R8/W8) always uses the sandbox Documents/Imports and
+    // Documents/Exports folders, so batch/scripted transfers never trigger a
+    // picker. Reaching arbitrary host locations is a separate user action:
+    // "Import File…" stages a picked file into Imports; "Open Exports Folder"
+    // surfaces W8 output for sharing.
 
     // MARK: - Configurable Keyboard Mapping
 
@@ -1817,20 +1804,9 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             let data = Data(bytes: dataPtr, count: size)
             let filename = String(cString: namePtr)
 
-            if useFilePickerForTransfer {
-                // Arbitrary-path mode: copy the bytes out, release the emulator
-                // buffer immediately, then let the user save anywhere via the
-                // Files picker. (Safe to release now: the data is copied into the
-                // export document, so a cancelled picker cannot lose guest state.)
-                hostFileExportDocument = DiskImageDocument(data: data)
-                hostFileExportFilename = filename.isEmpty ? "export.txt" : filename
-                emu_host_file_write_done_c()
-                showingHostFileExporter = true
-                statusText = "W8: Choose where to save \(hostFileExportFilename)…"
-                return
-            }
-
-            // Legacy mode: save directly to Documents/Exports folder
+            // W8 always writes to the Documents/Exports folder — no interaction,
+            // so a build that ends in several W8s just drops several files there.
+            // Share them out afterward via "Open Exports Folder".
             emu_host_file_write_done_c()
             saveToExportsFolder(data: data, filename: filename)
         }
@@ -2425,19 +2401,10 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
     func emulatorHostFileRequestRead(_ suggestedFilename: String) {
         DispatchQueue.main.async {
-            // Arbitrary-path mode: let the user pick any file via the Files
-            // picker. The v1.34 core has already rewound PC and is waiting; the
-            // guest stays paused until handleHostFileImportResult provides bytes
-            // or resolveHostFileImportIfAbandoned cancels (picker dismissed).
-            if self.useFilePickerForTransfer {
-                self.hostFileImportSuggestedName = suggestedFilename
-                self.hostFileImportResultDelivered = false
-                self.showingHostFileImporter = true
-                self.statusText = "R8: Choose a file to import…"
-                return
-            }
-
-            // Legacy mode: read from the Documents/Imports folder.
+            // R8 always reads from the Documents/Imports folder — a batch/scripted
+            // build that does many R8s never triggers a picker. Use "Import File…"
+            // (a user-initiated action) to stage an arbitrary host file into
+            // Imports beforehand.
             let fm = FileManager.default
             let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
             let importsDir = docs.appendingPathComponent("Imports", isDirectory: true)
@@ -2536,67 +2503,42 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         }
     }
 
-    /// Handle result from host file importer (R8)
-    func handleHostFileImportResult(_ result: Result<[URL], Error>) {
-        // Mark delivered up front so the abandoned-dismiss guard never races
-        // with (and cancels) a real selection, even if the data read is slow.
-        hostFileImportResultDelivered = true
+    /// Handle the "Import File…" picker: copy the chosen host file(s) into the
+    /// Documents/Imports folder so a later R8 can read them. This is a purely
+    /// user-initiated staging action — it never touches emulator host-file state,
+    /// so it can neither stall nor be driven by the guest.
+    func handleImportToInbox(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            guard let url = urls.first else {
-                emu_host_file_cancel()
-                statusText = "R8: Cancelled"
-                return
-            }
+            let fm = FileManager.default
+            let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let importsDir = docs.appendingPathComponent("Imports", isDirectory: true)
+            try? fm.createDirectory(at: importsDir, withIntermediateDirectories: true)
 
-            guard url.startAccessingSecurityScopedResource() else {
-                emu_host_file_cancel()
-                showError("Cannot access file: \(url.lastPathComponent)")
-                return
-            }
-            defer { url.stopAccessingSecurityScopedResource() }
-
-            do {
-                let data = try Data(contentsOf: url)
-                // Provide data to emulator
-                data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
-                    if let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt8.self) {
-                        emu_host_file_load(ptr, data.count)
-                    }
+            var imported: [String] = []
+            for url in urls {
+                guard url.startAccessingSecurityScopedResource() else { continue }
+                defer { url.stopAccessingSecurityScopedResource() }
+                do {
+                    let data = try Data(contentsOf: url)
+                    let dest = importsDir.appendingPathComponent(url.lastPathComponent)
+                    try? fm.removeItem(at: dest)
+                    try data.write(to: dest)
+                    imported.append(url.lastPathComponent)
+                } catch {
+                    showError("Could not import \(url.lastPathComponent): \(error.localizedDescription)")
                 }
-                statusText = "R8: Loaded \(url.lastPathComponent) (\(data.count) bytes)"
-            } catch {
-                emu_host_file_cancel()
-                showError("Failed to read file: \(error.localizedDescription)")
+            }
+            if imported.count == 1 {
+                statusText = "Imported \(imported[0]) — run R8 to read it"
+            } else if imported.count > 1 {
+                statusText = "Imported \(imported.count) files to Imports — run R8 to read them"
             }
 
         case .failure(let error):
-            emu_host_file_cancel()
             if (error as NSError).code != NSUserCancelledError {
                 showError("Import failed: \(error.localizedDescription)")
-            } else {
-                statusText = "R8: Cancelled"
             }
-        }
-    }
-
-    /// Handle cancellation of host file importer
-    func handleHostFileImportCancel() {
-        emu_host_file_cancel()
-        statusText = "R8: Cancelled"
-    }
-
-    /// Called when the R8 import picker dismisses. SwiftUI's .fileImporter does
-    /// not reliably deliver a completion callback on cancel, so if the guest is
-    /// still paused waiting for the file we release it here — otherwise v1.34's
-    /// PC-rewind wait would hang forever. Guarded by hostFileImportResultDelivered
-    /// (set at the start of handleHostFileImportResult) so a real selection is
-    /// never cancelled, regardless of callback vs. onChange ordering.
-    func resolveHostFileImportIfAbandoned() {
-        guard !hostFileImportResultDelivered else { return }
-        if emu_host_file_get_state_c() == Int32(HOST_FILE_WAITING_READ.rawValue) {
-            emu_host_file_cancel()
-            statusText = "R8: Cancelled"
         }
     }
 }
