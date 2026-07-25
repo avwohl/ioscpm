@@ -623,6 +623,36 @@ class TerminalUIView: UIView, UIKeyInput {
         for press in presses {
             guard let key = press.key else { continue }
 
+            // Host-side scrollback navigation from a hardware keyboard. Consumed
+            // here and never forwarded to the guest; plain (unmodified) Page/Home/
+            // End keys fall through to onSpecialKey so they still reach CP/M
+            // (matching the z80cpmw behaviour). adjustScrollback() clamps the
+            // delta, so an out-of-range magnitude lands exactly on an edge.
+            if !key.modifierFlags.contains(.command) {
+                let mods = key.modifierFlags
+                let page = max(rows - 1, 1)   // one screen = rows-1 lines
+                switch key.keyCode {
+                case .keyboardPageUp where mods.contains(.shift):
+                    onScroll?(page)          // page back into history
+                    handled = true
+                    continue
+                case .keyboardPageDown where mods.contains(.shift):
+                    onScroll?(-page)         // page toward live
+                    handled = true
+                    continue
+                case .keyboardHome where mods.contains(.control):
+                    onScroll?(Int.max / 2)   // clamp -> oldest retained line
+                    handled = true
+                    continue
+                case .keyboardEnd where mods.contains(.control):
+                    onScroll?(Int.min / 2)   // clamp -> live bottom
+                    handled = true
+                    continue
+                default:
+                    break
+                }
+            }
+
             // Remappable navigation keys (arrows, Home/End, Page Up/Down,
             // Insert, Forward Delete) — resolved to a configurable byte sequence.
             // Command-modified nav keys are left to the system.

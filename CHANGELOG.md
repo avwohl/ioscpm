@@ -1,5 +1,27 @@
 # Changelog
 
+## Version 1.5.1 (Build 43)
+
+### Terminal Scrollback: keyboard navigation + configurable size
+
+Brings iOS/macOS scrollback to full parity with the Windows (z80cpmw) port.
+
+- **Hardware-keyboard navigation** (new): **Shift+PageUp / Shift+PageDown** page
+  through history one screen at a time; **Ctrl+Home / Ctrl+End** jump to the
+  oldest retained line / live bottom. Plain PageUp/PageDown/Home/End still go to
+  CP/M as before. Touch drag and trackpad / mouse-wheel scrolling are unchanged.
+- **Configurable capacity** (new): Settings → Preferences → **Scrollback** sets
+  the history size (Off / 500 / 1000 / 2000 / 5000 / 10000 lines); 0 disables
+  capture. Persisted as `scrollbackLines`. The default is now **1000 lines**
+  (matching the other ports), down from the previous fixed 2000.
+
+### Disk catalog pinned to an explicit release
+
+- The downloadable disk catalog is now pinned to ioscpm release **v1.4.5**
+  instead of floating on `releases/latest`, matching the Windows/Android ports.
+  This guarantees downloaded disks match the embedded RomWBW v3.5.1 ROM (no
+  HBIOS/CBIOS version-mismatch warning at boot). Help content still floats.
+
 ## Version 1.4.11 (Build 41)
 
 ### Emulator Core Sync (romwbw_emu v1.34)

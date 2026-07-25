@@ -299,7 +299,23 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     // Scrollback: full lines that have scrolled off the top of the live viewport.
     private var scrollbackLines: [[TerminalCell]] = []
-    private let scrollbackMax = 2000
+    // Scrollback capacity in lines. User-configurable (Settings); 0 disables
+    // capture. Persisted under `scrollbackLines` and clamped 0...100000, matching
+    // the z80cpmw `display.scrollbackLines` schema (default 1000).
+    static let scrollbackCapacityKey = "scrollbackLines"
+    static let scrollbackCapacityDefault = 1000
+    static func loadScrollbackCapacity() -> Int {
+        let v = UserDefaults.standard.object(forKey: scrollbackCapacityKey) as? Int ?? scrollbackCapacityDefault
+        return min(max(0, v), 100000)
+    }
+    @Published var scrollbackCapacity: Int = EmulatorViewModel.loadScrollbackCapacity() {
+        didSet {
+            let clamped = min(max(0, scrollbackCapacity), 100000)
+            if clamped != scrollbackCapacity { scrollbackCapacity = clamped; return }
+            UserDefaults.standard.set(clamped, forKey: Self.scrollbackCapacityKey)
+            applyScrollbackCapacity()
+        }
+    }
     // How many lines the user has scrolled up from the live bottom (0 = live).
     @Published var scrollbackOffset: Int = 0
 
@@ -331,6 +347,19 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// Snap back to the live bottom of the terminal.
     func scrollToLiveBottom() {
         if scrollbackOffset != 0 { scrollbackOffset = 0 }
+    }
+
+    /// Apply a changed capacity to the existing buffer: 0 clears history, a
+    /// smaller cap trims the oldest lines. New captures honour the cap in scrollUp.
+    private func applyScrollbackCapacity() {
+        let cap = scrollbackCapacity
+        if cap == 0 {
+            if !scrollbackLines.isEmpty { scrollbackLines.removeAll() }
+            if scrollbackOffset != 0 { scrollbackOffset = 0 }
+        } else if scrollbackLines.count > cap {
+            scrollbackLines.removeFirst(scrollbackLines.count - cap)
+            if scrollbackOffset > cap { scrollbackOffset = cap }
+        }
     }
 
     private var emulator: RomWBWEmulator?
@@ -2350,17 +2379,21 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         guard lines > 0 else { return }
 
         // Preserve the rows scrolling off the top into the scrollback buffer.
-        let captured = min(lines, terminalRows)
-        for row in 0..<captured {
-            scrollbackLines.append(terminalCells[row])
-        }
-        if scrollbackLines.count > scrollbackMax {
-            scrollbackLines.removeFirst(scrollbackLines.count - scrollbackMax)
-        }
-        // Keep the visible window anchored to the same content while the user is
-        // reading history (up to the buffer cap).
-        if scrollbackOffset > 0 {
-            scrollbackOffset = min(scrollbackOffset + captured, scrollbackLines.count)
+        // Capacity 0 disables capture entirely (z80cpmw parity).
+        let cap = scrollbackCapacity
+        if cap > 0 {
+            let captured = min(lines, terminalRows)
+            for row in 0..<captured {
+                scrollbackLines.append(terminalCells[row])
+            }
+            if scrollbackLines.count > cap {
+                scrollbackLines.removeFirst(scrollbackLines.count - cap)
+            }
+            // Keep the visible window anchored to the same content while the user
+            // is reading history (up to the buffer cap).
+            if scrollbackOffset > 0 {
+                scrollbackOffset = min(scrollbackOffset + captured, scrollbackLines.count)
+            }
         }
 
         let keep = max(0, terminalRows - lines)

@@ -554,6 +554,22 @@ struct SettingsView: View {
                     Text("Show warning when writing to downloaded disks (changes may be lost on app update)")
                         .font(.caption)
                         .foregroundColor(.secondary)
+
+                    Picker("Scrollback", selection: Binding(
+                        get: { viewModel.scrollbackCapacity },
+                        set: { viewModel.scrollbackCapacity = $0 }
+                    )) {
+                        Text("Off").tag(0)
+                        Text("500 lines").tag(500)
+                        Text("1000 lines").tag(1000)
+                        Text("2000 lines").tag(2000)
+                        Text("5000 lines").tag(5000)
+                        Text("10000 lines").tag(10000)
+                    }
+                    .pickerStyle(.menu)
+                    Text("Lines of terminal history kept for scrollback (0 disables). Scroll with two-finger drag / mouse wheel; on a hardware keyboard, Shift+PageUp/PageDown page and Ctrl+Home/End jump to oldest/live.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
 
                 // Keyboard mapping Section (external/hardware keyboards)
