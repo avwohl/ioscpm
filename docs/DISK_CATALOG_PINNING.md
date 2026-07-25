@@ -1,6 +1,14 @@
 # iOS: pin the disk catalog to an explicit ioscpm release
 
-**Status:** TODO (do this on the Mac). Low risk, one file.
+**Status:** Code change applied in `EmulatorViewModel.swift` (pinned to `v1.4.5`);
+syntax-verified and the pinned `disks.xml` + `hd1k_combo.img` URLs both return 200.
+Mismatch check (verify step 3) **confirmed**: the pinned v1.4.5 Combo (sha256
+`be19984e…`, byte-exact to disks.xml) boots against the shipped `emu_avw.rom`
+(HBIOS SYSVER 0x3510 = v3.5.1.0) with CBIOS v3.5.1 and **no** HBIOS/CBIOS
+mismatch banner — verified headlessly in the native `romwbw_emu` CLI, which
+shares the exact core the iOS app compiles (see memory `ioscpm-native-boot-verify`).
+Remaining: on-device **Build & run** in the app UI (verify step 1) once the iOS
+platform SDK finishes installing. Low risk, one file.
 **Why now:** the Windows (z80cpmw) and Android (cpmdroid) ports pin the disk
 catalog to an explicit release tag; iOS is the only port still floating on
 `releases/latest`. This doc says exactly what to change and why.

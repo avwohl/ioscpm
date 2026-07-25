@@ -120,9 +120,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
         DiskOption(name: "None", filename: ""),
     ]
 
-    // Downloadable disk catalog - fetched from disks.xml in GitHub releases
-    private static let catalogURL = "https://github.com/avwohl/ioscpm/releases/latest/download/disks.xml"
-    private static let releaseBaseURL = "https://github.com/avwohl/ioscpm/releases/latest/download"
+    // Downloadable disk catalog - pinned to an explicit ioscpm release (matching
+    // the Windows/Android ports). The core's HBIOS identifies as RomWBW v3.5.1;
+    // disks from a different RomWBW release print an HBIOS/CBIOS mismatch warning
+    // at boot. Bump this tag together with core/ROM upgrades. Help (HelpView)
+    // deliberately stays on releases/latest — help floats, disks are pinned.
+    private static let releaseTag = "v1.4.5"
+    private static let catalogURL = "https://github.com/avwohl/ioscpm/releases/download/\(releaseTag)/disks.xml"
+    private static let releaseBaseURL = "https://github.com/avwohl/ioscpm/releases/download/\(releaseTag)"
 
     @Published var diskCatalog: [DownloadableDisk] = []
     @Published var catalogLoading: Bool = false
