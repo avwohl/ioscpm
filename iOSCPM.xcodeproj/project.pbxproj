@@ -24,7 +24,6 @@
 		A1000027 /* emu_init.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000027 /* emu_init.cc */; };
 		A1000028 /* emu_io_common.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000028 /* emu_io_common.cc */; };
 		A1000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000030 /* Assets.xcassets */; };
-		A1000031 /* emu_hbios.bin in Resources */ = {isa = PBXBuildFile; fileRef = B1000031 /* emu_hbios.bin */; };
 		A1000060 /* emu_avw.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000060 /* emu_avw.rom */; };
 /* End PBXBuildFile section */
 
@@ -44,7 +43,6 @@
 		B1000024 /* hbios_core.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hbios_core.cc; sourceTree = "<group>"; };
 		B1000025 /* hbios_dispatch.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hbios_dispatch.cc; sourceTree = "<group>"; };
 		B1000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		B1000031 /* emu_hbios.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = emu_hbios.bin; sourceTree = "<group>"; };
 		B1000040 /* qkz80.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80.h; sourceTree = "<group>"; };
 		B1000041 /* qkz80_mem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80_mem.h; sourceTree = "<group>"; };
 		B1000042 /* qkz80_reg_set.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qkz80_reg_set.h; sourceTree = "<group>"; };
@@ -164,7 +162,6 @@
 		E1000007 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				B1000031 /* emu_hbios.bin */,
 				B1000060 /* emu_avw.rom */,
 			);
 			path = Resources;
@@ -230,7 +227,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000030 /* Assets.xcassets in Resources */,
-				A1000031 /* emu_hbios.bin in Resources */,
 				A1000060 /* emu_avw.rom in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
