@@ -1,5 +1,29 @@
 # Changelog
 
+## Version 1.5.1 (Build 45)
+
+### Synced to the romwbw_emu v1.35 core
+
+- **The bundled ROM is refreshed.** `emu_avw.rom` was intact but predated the
+  upstream rebuild; the app now ships the ROM that reproduces from
+  `src/emu_hbios.asm`. Verified with `romwbw_emu/roms/verify_romwbw_pin.sh`,
+  which passes this tree with no warnings.
+- **A corrupt file was being shipped inside the app bundle.**
+  `iOSCPM/Resources/emu_hbios.bin` had a damaged HBIOS configuration block
+  (`57 b8 36 2b` — bad marker, nonsense version) and was copied into the app by
+  the Resources build phase, while no Swift or Objective-C++ referenced it. It
+  was a stale build intermediate riding along in every release. Removed, with
+  its four `project.pbxproj` entries.
+- The core now pins the RomWBW release it emulates (v3.5.1) in
+  `romwbw_pin.h` and refuses a ROM built for a different release, or one whose
+  configuration block is corrupt, instead of starting a CPU that produces no
+  output. `Core/romwbw_pin.h` is symlinked alongside the other core files —
+  without it the build fails with `'romwbw_pin.h' file not found`.
+- Inherited by recompiling: `emu_file_load()` no longer terminates the process
+  on an unseekable path (a document handed over by a file picker is exactly
+  that case), `emu_file_save()` is atomic instead of truncating its target
+  before writing, and the disk read/write paths check their seeks.
+
 ## Version 1.5.1 (Build 43)
 
 ### Terminal Scrollback: keyboard navigation + configurable size
