@@ -1,0 +1,65 @@
+Todo list:
+
+- checked ^R across the ports after a windows user reported "Ctrl R exits me
+from CPM". ioscpm is fine, no fix needed here, and do NOT port z80cpmw's new
+ctrlRToCpm setting - there is nothing to switch off. TerminalView.swift:525-544
+registers a UIKeyCommand for every Ctrl+letter a-z, but only so
+ctrlKeyPressed (TerminalView.swift:603-610) can fold it to 0x01-0x1A and hand
+it to the guest; 'r' gives 0x12. traced it the whole way: ContentView.swift:42
+-> EmulatorViewModel.sendKey (:1266) -> RomWBWEmulator.mm:348 -> queueInput
+(hbios_core.cc:165) -> emu_console_queue_char (emu_io_ios.mm:118). nothing
+filters by byte value, and the CLI's ^C-quits hatch is stubbed off here
+(emu_io_ios.mm:151-160 both return false). the only app shortcuts in the whole
+tree use Command, never Control: Cmd+C, Cmd+V and Cmd+? (iOSCPMApp.swift:23).
+the WordStar default makes ^R doubly a guest key - the profile binds Page Up to
+"^R" (TerminalView.swift:46-52), so we manufacture 0x12 on purpose.
+
+- mac catalyst was the one thing that could have flipped this and it checks
+out. SUPPORTS_MACCATALYST=YES (project.pbxproj:298,338), and appkit's emacs
+StandardKeyBinding bindings (Ctrl+A/B/E/F/N/P/D/K...) would eat Ctrl-letters -
+but only for UITextInput responders. TerminalUIView (TerminalView.swift:275) is
+a plain UIView + UIKeyInput, so it gets none of them, and its own keyCommands
+sit on the first responder which UIKit consults first. still worth one live
+pass on a mac with WordStar: ^A ^D ^E ^F ^K ^P ^R ^S ^V ^X ^Y ^QS. if any turn
+out to be swallowed, set cmd.wantsPriorityOverSystemBehavior = true in the loop
+at TerminalView.swift:537-541 (nothing in the repo sets it today).
+
+- real gap, small: Ctrl with anything that is not a letter is dropped. the
+guard at TerminalView.swift:669-673 sends every .control press off to
+keyCommands, and keyCommands only covers a-z, so Ctrl+[ (ESC), Ctrl+\, Ctrl+],
+Ctrl+^, Ctrl+_, Ctrl+@ (NUL), Ctrl+Shift+letter, Ctrl+Backspace and
+Ctrl+Delete all reach nothing. better fix than adding more key commands:
+replace that `continue` with a general fold - if .control and not .command,
+take the first scalar of charactersIgnoringModifiers, uppercase it, and if it
+lands in 0x40...0x5F send scalar & 0x1F (0x7F for "?"). that covers everything
+in one place and lets the 26 synthetic key commands be deleted.
+
+- Alt/Option+letter is silently dead. it is not in that guard, so it reaches
+key.characters, composes a glyph (Alt+R -> "R"), and then
+`guard let code = char.asciiValue` in sendKey throws it away.
+
+- Reset has no confirmation. ContentView.swift:153-157 is a bare toolbar button
+that calls viewModel.reset(), which cold-boots and drops the whole scrollback
+(EmulatorViewModel.swift:1245-1264). the risk here is a fat-fingered tap next
+to play/stop, not a keystroke - but it is the same "lost my work" complaint the
+windows ^R report was. a .confirmationDialog while isRunning would match what
+z80cpmw and cpmdroid both ended up doing. (cpmdroid already ships this.)
+
+- Ctrl+Home / Ctrl+End and Shift+PageUp / Shift+PageDown are consumed for host
+scrollback and never forwarded (TerminalView.swift:635-650). intended, and
+plain PageUp/PageDown still send ^R/^C under the WordStar profile, so nothing
+is actually lost - noting it so the next audit does not re-flag it.
+
+- modifiers are discarded on the nav keys: TerminalView.swift:658-663 only
+tests for .command, so Ctrl+Left and Shift+Up emit the same bytes as the plain
+key. cosmetic, but surprising.
+
+- where these should live long term: KNOWN_PROBLEMS.md is this repo's backlog
+and has no Keyboard section yet. this file is a scratch list from the ^R sweep;
+fold the real items into KNOWN_PROBLEMS.md and describe anything shipped in
+CHANGELOG.md.
+
+- reminder before touching anything under iOSCPM/Core/ from a windows machine:
+read docs/notes_to_windos.md and check `git ls-files -s iOSCPM/Core/ | grep
+^120000` first - those are symlinks into romwbw_emu and have been flattened
+once already. none of the above touches Core.
