@@ -1,5 +1,22 @@
 # Changelog
 
+## Version 1.5.1 (Build 48)
+
+### Disk capacity is no longer narrowed silently (shared core)
+
+- **`disk.size / 512` was truncated into a 32-bit sector count** at two points
+  in the HBIOS dispatcher, which the compiler reported as
+  "implicit conversion loses integer precision". A truncating conversion keeps
+  the remainder, so an image just past 2 TiB would have reported as nearly
+  empty rather than as huge, and `DIOCAP` would have handed the guest a
+  capacity unrelated to the disk. `HBDisk` now has a `total_sectors()`
+  accessor - matching `MemDiskState::total_sectors()` beside it - which clamps
+  at the largest sector count HBIOS can express instead of wrapping.
+- No behaviour change for any disk that can exist today; a 49 MB six-slice
+  hd1k image still mounts and reports 8176 KB per slice under `STAT DSK:`.
+- Fixed in the shared `romwbw_emu` core (`5667a34`), so it reaches the other
+  ports too.
+
 ## Version 1.5.1 (Build 47)
 
 ### An erase no longer decides we are a VT52 (issue #2)
