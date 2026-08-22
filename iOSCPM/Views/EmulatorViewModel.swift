@@ -401,11 +401,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // scrolls the screen and corrupts any full-screen layout (WordStar, Zork, the
     // TERMDEF border test, etc.).
     private var pendingWrap: Bool = false
-    // VT52 terminal mode. Default is ANSI/VT100. Enabled by ESC[?2l, by ESC Y
-    // (VT52 direct cursor addressing), or by any other VT52-exclusive sequence;
-    // disabled by ESC < or ESC[?2h. Only ESC D / E / H are interpreted differently
-    // by mode, so ANSI behavior is unchanged while this stays false.
-    private var vt52Mode: Bool = false
+    // Which terminal we are pretending to be. Default is ANSI/VT100; see
+    // TerminalDialect for how a stream switches it and why that is delicate.
+    // Only ESC D / E / H and the ESC Z reply differ by dialect, so ANSI
+    // behavior is unchanged while this stays .ansi.
+    private var dialect = TerminalDialect()
     private var vt52CursorRow: Int = 0     // Row latched while parsing ESC Y <row> <col>
 
     override init() {
@@ -1256,7 +1256,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         scrollbackLines.removeAll()
         scrollbackOffset = 0
         // Cold boot returns the terminal to its ANSI/VT100 default.
-        vt52Mode = false
+        dialect.reset()
         escapeState = .normal
         currentAttr = 0x07
         isRunning = false
@@ -1967,6 +1967,11 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
     /// Process character after ESC received
     private func processEscapeChar(_ ch: unichar) {
+        // Settle the dialect first, so the cases below read a current answer.
+        // This subsumes the per-case assignments the VT52 branches used to
+        // make; TerminalDialect owns which bytes are taken as proof.
+        dialect.noteEscapeByte(ch)
+
         // Any escape sequence that follows resolves/cancels a pending autowrap.
         switch ch {
         case 0x5B: // '[' - CSI (Control Sequence Introducer)
@@ -1984,7 +1989,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
         case 0x44: // 'D'
             pendingWrap = false
-            if vt52Mode {
+            if dialect.isVT52 {
                 // VT52 cursor left
                 if cursorCol > 0 { cursorCol -= 1 }
             } else {
@@ -2004,7 +2009,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
         case 0x45: // 'E'
             pendingWrap = false
-            if vt52Mode {
+            if dialect.isVT52 {
                 // Heath/Zenith VT52: clear screen and home
                 clearTerminal()
             } else {
@@ -2019,26 +2024,26 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
         // ---- VT52 escape sequences ----
         case 0x41: // 'A' - VT52 cursor up
-            vt52Mode = true; pendingWrap = false
+            pendingWrap = false
             if cursorRow > 0 { cursorRow -= 1 }
 
         case 0x42: // 'B' - VT52 cursor down
-            vt52Mode = true; pendingWrap = false
+            pendingWrap = false
             cursorRow = min(cursorRow + 1, terminalRows - 1)
 
         case 0x43: // 'C' - VT52 cursor right
-            vt52Mode = true; pendingWrap = false
+            pendingWrap = false
             cursorCol = min(cursorCol + 1, terminalCols - 1)
 
         case 0x48: // 'H' - VT52 cursor home (no VT100 effect; HTS unsupported)
-            if vt52Mode {
+            if dialect.isVT52 {
                 pendingWrap = false
                 cursorRow = 0
                 cursorCol = 0
             }
 
         case 0x49: // 'I' - VT52 reverse line feed
-            vt52Mode = true; pendingWrap = false
+            pendingWrap = false
             if cursorRow > 0 {
                 cursorRow -= 1
             }
@@ -2046,32 +2051,25 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             // scrolling the wrong way.
 
         case 0x4A: // 'J' - VT52 erase to end of screen
-            vt52Mode = true
             clearFromCursor()
 
         case 0x4B: // 'K' - VT52 erase to end of line
-            vt52Mode = true
             for col in cursorCol..<terminalCols {
                 terminalCells[cursorRow][col] = TerminalCell()
             }
 
         case 0x59: // 'Y' - VT52 direct cursor address (two bytes follow)
-            vt52Mode = true
             escapeState = .vt52Row
             return  // stay in escape parsing for the row/col bytes
 
         case 0x46, 0x47: // 'F'/'G' - VT52 enter/exit graphics mode (no glyph remap here)
-            vt52Mode = true
+            break
 
         case 0x5A: // 'Z' - identify
-            if vt52Mode {
-                emulator?.send("\u{1B}/Z")        // VT52 identify response
-            } else {
-                emulator?.send("\u{1B}[?1;0c")    // VT100 DECID response
-            }
+            emulator?.send(dialect.identifyReply)
 
-        case 0x3C: // '<' - exit VT52, enter ANSI mode
-            vt52Mode = false
+        case 0x3C: // '<' - exit VT52, enter ANSI mode (handled above)
+            break
 
         case 0x3D, 0x3E: // '='/'>' - keypad application/numeric mode (ignored)
             break
@@ -2293,14 +2291,14 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         case 0x68: // 'h' - Set Mode
             if escapePrivateMode && escapeParams.contains(2) {
                 // DECANM set: select ANSI (VT100) mode
-                vt52Mode = false
+                dialect.noteDECANM(selectsANSI: true)
             }
             // Other DEC private modes are acknowledged but not acted upon.
 
         case 0x6C: // 'l' - Reset Mode
             if escapePrivateMode && escapeParams.contains(2) {
                 // DECANM reset: select VT52 mode
-                vt52Mode = true
+                dialect.noteDECANM(selectsANSI: false)
             }
             // Other DEC private modes are acknowledged but not acted upon.
 
