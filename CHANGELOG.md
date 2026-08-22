@@ -1,5 +1,37 @@
 # Changelog
 
+## Version 1.5.1 (Build 47)
+
+### An erase no longer decides we are a VT52 (issue #2)
+
+- **A single `ESC K` switched the terminal for the rest of the session.** The
+  VT52 choice was inferred from ordinary output, applied globally, and never
+  expired. `ESC J` and `ESC K` - erase to end of screen, erase to end of line -
+  counted as proof of VT52, but they are the erase commands of the ADM-3A,
+  Televideo, Hazeltine and Heath families too, so a CP/M program installed for
+  any of those emits them constantly while meaning nothing about VT52. Measured
+  on build 46: `ESC Z` answered `<27>[?1;0c` at the MBASIC prompt, an unrelated
+  statement printed `ESC K`, and the same `ESC Z` then answered `<27>/Z`.
+- **Why all three terminal settings failed the same way.** The dialect is
+  global, so once it was wrong, reinstalling WordStar for vt100, ansi or vt52
+  made no difference - which is what issue #2 reported.
+- **What changed.** `ESC J` and `ESC K` no longer switch the dialect. What still
+  does is what a VT100-configured program has no reason to emit: it spells
+  cursor movement `CSI A/B/C`, not `ESC A/B/C`. `ESC Y` direct cursor addressing
+  is unmistakable and is the sequence a real VT52 program cannot avoid, so
+  genuine VT52 still works, and `ESC <` still returns to ANSI.
+- **Why erring toward ANSI is safe.** The VT52 action sequences never consult
+  the dialect - `ESC A/B/C/I/J/K` and `ESC Y` are carried out either way. Only
+  `ESC D`, `ESC E`, `ESC H` and the `ESC Z` reply depend on it, and guessing
+  VT52 wrongly is the destructive direction: it turns `ESC E` from Next Line
+  into clear-the-screen.
+
+### First tests in the repo
+
+- `Tests/run_tests.sh` compiles and runs host-side unit tests with `swiftc` - no
+  Xcode test target, no simulator, no display. `Tests/TerminalDialectTests.swift`
+  covers the above in 40 checks.
+
 ## Version 1.5.1 (Build 45)
 
 ### Synced to the romwbw_emu v1.35 core
