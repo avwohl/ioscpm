@@ -77,13 +77,19 @@ run_core_suite() {
 # passes every test below - it just stops tracking upstream. Check the shape
 # before checking the behaviour.
 printf '%s\n' "=== CoreSymlinks ==="
-links=$(cd "$ROOT" && git ls-files -s iOSCPM/Core/ | grep -c '^120000' || true)
-if [ "$links" -eq 21 ]; then
-    echo "PASS: all 21 iOSCPM/Core entries are still symlinks"
+# The index is the thing that records the flattening, so this half needs a
+# checkout. An exported tree has no index to consult and is not a failure.
+if (cd "$ROOT" && git rev-parse --is-inside-work-tree >/dev/null 2>&1); then
+    links=$( (cd "$ROOT" && git ls-files -s iOSCPM/Core/ | grep -c '^120000') || true)
+    if [ "${links:-0}" -eq 21 ]; then
+        echo "PASS: all 21 iOSCPM/Core entries are still symlinks"
+    else
+        echo "FAIL: expected 21 symlinks under iOSCPM/Core, found ${links:-0}"
+        echo "      a flattened copy compiles and passes - and stops tracking upstream"
+        status=1
+    fi
 else
-    echo "FAIL: expected 21 symlinks under iOSCPM/Core, found $links"
-    echo "      a flattened copy compiles and passes - and stops tracking upstream"
-    status=1
+    echo "SKIP: not a git checkout, cannot tell a symlink from a flattened copy"
 fi
 broken=$(find "$ROOT/iOSCPM/Core" -type l ! -exec test -e {} \; -print 2>/dev/null || true)
 if [ -z "$broken" ]; then
