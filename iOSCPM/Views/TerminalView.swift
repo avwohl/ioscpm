@@ -5,119 +5,9 @@
 import SwiftUI
 import UIKit
 
-// MARK: - Configurable Key Mapping
-//
-// CP/M is pure ASCII and has no navigation/function keys; each terminal defines
-// its own escape bytes. These types let the user bind the navigation keys to
-// arbitrary byte sequences, using the same termcap-style escape-string schema as
-// the z80cpmw / romwbw_emu family so configs stay conceptually portable.
-
-/// Special (non-ASCII) keys from a hardware/external keyboard that can be
-/// remapped to arbitrary byte sequences sent to the guest.
-enum SpecialKey: String, CaseIterable, Identifiable {
-    case up, down, left, right, home, end, pageUp, pageDown, insert, delete
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .up: return "Up Arrow"
-        case .down: return "Down Arrow"
-        case .left: return "Left Arrow"
-        case .right: return "Right Arrow"
-        case .home: return "Home"
-        case .end: return "End"
-        case .pageUp: return "Page Up"
-        case .pageDown: return "Page Down"
-        case .insert: return "Insert"
-        case .delete: return "Forward Delete"
-        }
-    }
-}
-
-/// A named keyboard profile. Preset profiles supply termcap-style bindings;
-/// `.custom` means the user has edited them.
-enum KeyProfile: String, CaseIterable, Identifiable {
-    case wordStar = "WordStar"
-    case vt100 = "VT100/ANSI"
-    case vt52 = "VT52"
-    case custom = "Custom"
-    var id: String { rawValue }
-
-    /// Termcap-style bindings for preset profiles, or nil for `.custom`.
-    var bindings: [SpecialKey: String]? {
-        switch self {
-        case .wordStar:
-            // WordStar "diamond" — the port's historical default arrow behavior.
-            return [.up: "^E", .down: "^X", .left: "^S", .right: "^D",
-                    .home: "^Q^S", .end: "^Q^D", .pageUp: "^R", .pageDown: "^C",
-                    .insert: "^V", .delete: "^G"]
-        case .vt100:
-            return [.up: "\\E[A", .down: "\\E[B", .right: "\\E[C", .left: "\\E[D",
-                    .home: "\\E[H", .end: "\\E[F", .pageUp: "\\E[5~", .pageDown: "\\E[6~",
-                    .insert: "\\E[2~", .delete: "\\E[3~"]
-        case .vt52:
-            return [.up: "\\EA", .down: "\\EB", .right: "\\EC", .left: "\\ED",
-                    .home: "\\EH", .end: "", .pageUp: "", .pageDown: "",
-                    .insert: "", .delete: "^?"]
-        case .custom:
-            return nil
-        }
-    }
-}
-
-/// Resolves termcap-style escape strings into the byte sequences sent to the
-/// guest. Schema (matches the z80cpmw / romwbw_emu family):
-///   \E = 0x1B, \n \r \t \b \f, \s = space, \\ = backslash, \NNN = octal byte,
-///   ^X = control (X & 0x1F), ^? = 0x7F (DEL); any other char is a literal.
-struct KeyMap {
-    var bindings: [SpecialKey: String]
-
-    func bytes(for key: SpecialKey) -> [UInt8] { KeyMap.expand(bindings[key] ?? "") }
-
-    static func expand(_ s: String) -> [UInt8] {
-        var out: [UInt8] = []
-        let chars = Array(s)
-        var i = 0
-        while i < chars.count {
-            let c = chars[i]
-            if c == "\\" && i + 1 < chars.count {
-                let n = chars[i + 1]
-                switch n {
-                case "E", "e": out.append(0x1B); i += 2
-                case "n": out.append(0x0A); i += 2
-                case "r": out.append(0x0D); i += 2
-                case "t": out.append(0x09); i += 2
-                case "b": out.append(0x08); i += 2
-                case "f": out.append(0x0C); i += 2
-                case "s": out.append(0x20); i += 2
-                case "\\": out.append(0x5C); i += 2
-                case "0", "1", "2", "3", "4", "5", "6", "7":
-                    var j = i + 1, val = 0, count = 0
-                    while j < chars.count, count < 3, chars[j].isASCII,
-                          let d = chars[j].wholeNumberValue, (0...7).contains(d) {
-                        val = val * 8 + d; j += 1; count += 1
-                    }
-                    out.append(UInt8(val & 0xFF)); i = j
-                default:
-                    if let a = n.asciiValue { out.append(a) }
-                    i += 2
-                }
-            } else if c == "^" && i + 1 < chars.count {
-                let n = chars[i + 1]
-                if n == "?" {
-                    out.append(0x7F); i += 2
-                } else if let a = n.asciiValue {
-                    out.append(a & 0x1F); i += 2
-                } else {
-                    i += 2
-                }
-            } else {
-                if let a = c.asciiValue { out.append(a) }
-                i += 1
-            }
-        }
-        return out
-    }
-}
+// The key-map types (SpecialKey, KeyProfile, KeyMap) live in KeyMap.swift -
+// they are pure and therefore testable. specialKey(for:) below is the half that
+// needs UIKit and stays here.
 
 struct TerminalView: UIViewRepresentable {
     @Binding var cells: [[TerminalCell]]
@@ -616,6 +506,18 @@ class TerminalUIView: UIView, UIKeyInput {
         case .keyboardPageDown: return .pageDown
         case .keyboardInsert: return .insert
         case .keyboardDeleteForward: return .delete
+        case .keyboardF1: return .f1
+        case .keyboardF2: return .f2
+        case .keyboardF3: return .f3
+        case .keyboardF4: return .f4
+        case .keyboardF5: return .f5
+        case .keyboardF6: return .f6
+        case .keyboardF7: return .f7
+        case .keyboardF8: return .f8
+        case .keyboardF9: return .f9
+        case .keyboardF10: return .f10
+        case .keyboardF11: return .f11
+        case .keyboardF12: return .f12
         default: return nil
         }
     }

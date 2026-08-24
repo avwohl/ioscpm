@@ -198,6 +198,64 @@ class HelpViewModel: ObservableObject {
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }
 
+    // MARK: - Bundled fallback
+    //
+    // The index and topics are fetched from `releases/latest`, which is
+    // deliberate - a correction can reach users without an app update. What that
+    // costs is a hard dependency on the newest release having the help assets
+    // attached, and on the user having a network. Neither is guaranteed, and the
+    // failure is silent: a missing topic looks exactly like being offline.
+    //
+    // cpmdroid shipped precisely this arrangement with no bundled copy, the
+    // assets stopped being attached after v1.11, and every build from then on
+    // had no help at all with nothing failing anywhere to say so (z80cpmw's
+    // FEATURE_PARITY.md item 6 writes it up). The cache is not a defence: it only
+    // helps someone who already loaded help successfully once.
+    //
+    // So the bundle sits behind the cache as the last resort. Download first,
+    // cache second, shipped copy third - never the shipped copy first, or
+    // corrections would stop reaching anyone.
+
+    private func bundledIndex() -> HelpIndex? {
+        guard let url = Bundle.main.url(forResource: "help_index", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let index = try? JSONDecoder().decode(HelpIndex.self, from: data) else {
+            return nil
+        }
+        return index
+    }
+
+    private func bundledContent(_ filename: String) -> String? {
+        // Topic filenames carry their extension ("help_cpm22.md"); Bundle wants
+        // the two halves separately.
+        let name = (filename as NSString).deletingPathExtension
+        let ext = (filename as NSString).pathExtension
+        guard !name.isEmpty,
+              let url = Bundle.main.url(forResource: name,
+                                        withExtension: ext.isEmpty ? nil : ext),
+              let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return nil
+        }
+        return text
+    }
+
+    /// Cached index if there is one, else the shipped one.
+    private func offlineIndex(_ cachedURL: URL) -> HelpIndex? {
+        if let data = try? Data(contentsOf: cachedURL),
+           let index = try? JSONDecoder().decode(HelpIndex.self, from: data) {
+            return index
+        }
+        return bundledIndex()
+    }
+
+    /// Cached topic if there is one, else the shipped one.
+    private func offlineContent(_ cachedURL: URL, _ filename: String) -> String? {
+        if let text = try? String(contentsOf: cachedURL, encoding: .utf8) {
+            return text
+        }
+        return bundledContent(filename)
+    }
+
     func contentState(for topicId: String) -> LoadState<String> {
         return contentCache[topicId] ?? .loading
     }
@@ -216,9 +274,8 @@ class HelpViewModel: ObservableObject {
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 if let error = error {
-                    // Try cache on network error
-                    if let cachedData = try? Data(contentsOf: cachedIndexURL),
-                       let index = try? JSONDecoder().decode(HelpIndex.self, from: cachedData) {
+                    // Cache, then the shipped copy, then give up.
+                    if let index = self?.offlineIndex(cachedIndexURL) {
                         self?.baseURL = index.base_url
                         self?.indexState = .loaded(index)
                     } else {
@@ -230,9 +287,10 @@ class HelpViewModel: ObservableObject {
                 // Check HTTP status code
                 if let httpResponse = response as? HTTPURLResponse,
                    httpResponse.statusCode != 200 {
-                    // Try cache on HTTP error
-                    if let cachedData = try? Data(contentsOf: cachedIndexURL),
-                       let index = try? JSONDecoder().decode(HelpIndex.self, from: cachedData) {
+                    // A 404 here is the "assets not attached to the newest
+                    // release" case, which is why the bundle has to be reachable
+                    // from this arm and not only from the network-error one.
+                    if let index = self?.offlineIndex(cachedIndexURL) {
                         self?.baseURL = index.base_url
                         self?.indexState = .loaded(index)
                     } else {
@@ -242,7 +300,12 @@ class HelpViewModel: ObservableObject {
                 }
 
                 guard let data = data, !data.isEmpty else {
-                    self?.indexState = .error("No data received from server")
+                    if let index = self?.offlineIndex(cachedIndexURL) {
+                        self?.baseURL = index.base_url
+                        self?.indexState = .loaded(index)
+                    } else {
+                        self?.indexState = .error("No data received from server")
+                    }
                     return
                 }
 
@@ -281,9 +344,8 @@ class HelpViewModel: ObservableObject {
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 if let error = error {
-                    // Try cache on network error
-                    if let cachedContent = try? String(contentsOf: cachedFileURL, encoding: .utf8) {
-                        self?.contentCache[topic.id] = .loaded(cachedContent)
+                    if let text = self?.offlineContent(cachedFileURL, topic.filename) {
+                        self?.contentCache[topic.id] = .loaded(text)
                     } else {
                         self?.contentCache[topic.id] = .error("Network: \(error.localizedDescription)")
                     }
@@ -293,8 +355,8 @@ class HelpViewModel: ObservableObject {
                 // Check HTTP status code
                 if let httpResponse = response as? HTTPURLResponse,
                    httpResponse.statusCode != 200 {
-                    if let cachedContent = try? String(contentsOf: cachedFileURL, encoding: .utf8) {
-                        self?.contentCache[topic.id] = .loaded(cachedContent)
+                    if let text = self?.offlineContent(cachedFileURL, topic.filename) {
+                        self?.contentCache[topic.id] = .loaded(text)
                     } else {
                         self?.contentCache[topic.id] = .error("HTTP \(httpResponse.statusCode)")
                     }

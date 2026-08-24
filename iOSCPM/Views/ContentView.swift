@@ -55,7 +55,7 @@ struct ContentView: View {
                     onSpecialKey: { key in viewModel.sendSpecialKey(key) },
                     isControlifyActive: viewModel.isControlifyActive,
                     captureKeyboard: !modalHasKeyboard,
-                    showCursor: !viewModel.isScrolledBack,
+                    showCursor: !viewModel.isScrolledBack && viewModel.cursorVisible,
                     rows: viewModel.terminalRows,
                     cols: viewModel.terminalCols,
                     fontSize: CGFloat(fontSize)

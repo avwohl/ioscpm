@@ -14,6 +14,7 @@
 		A1000005 /* HelpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000005 /* HelpView.swift */; };
 		A1000006 /* TerminalDialect.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000006 /* TerminalDialect.swift */; };
 		A1000007 /* ControlKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000007 /* ControlKey.swift */; };
+		A1000008 /* KeyMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000008 /* KeyMap.swift */; };
 		A1000010 /* RomWBWEmulator.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000010 /* RomWBWEmulator.mm */; };
 		A1000011 /* emu_io_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000012 /* emu_io_ios.mm */; };
 		A1000020 /* qkz80.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000020 /* qkz80.cc */; };
@@ -27,6 +28,14 @@
 		A1000028 /* emu_io_common.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000028 /* emu_io_common.cc */; };
 		A1000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000030 /* Assets.xcassets */; };
 		A1000060 /* emu_avw.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000060 /* emu_avw.rom */; };
+		A1000070 /* help_index.json in Resources */ = {isa = PBXBuildFile; fileRef = B1000070 /* help_index.json */; };
+		A1000071 /* help_quick_start.md in Resources */ = {isa = PBXBuildFile; fileRef = B1000071 /* help_quick_start.md */; };
+		A1000072 /* help_cpm22.md in Resources */ = {isa = PBXBuildFile; fileRef = B1000072 /* help_cpm22.md */; };
+		A1000073 /* help_file_transfer.md in Resources */ = {isa = PBXBuildFile; fileRef = B1000073 /* help_file_transfer.md */; };
+		A1000074 /* help_nzcom.md in Resources */ = {isa = PBXBuildFile; fileRef = B1000074 /* help_nzcom.md */; };
+		A1000075 /* help_qpm.md in Resources */ = {isa = PBXBuildFile; fileRef = B1000075 /* help_qpm.md */; };
+		A1000076 /* help_zpm3.md in Resources */ = {isa = PBXBuildFile; fileRef = B1000076 /* help_zpm3.md */; };
+		A1000077 /* help_zsdos.md in Resources */ = {isa = PBXBuildFile; fileRef = B1000077 /* help_zsdos.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +46,7 @@
 		B1000005 /* HelpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpView.swift; sourceTree = "<group>"; };
 		B1000006 /* TerminalDialect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDialect.swift; sourceTree = "<group>"; };
 		B1000007 /* ControlKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlKey.swift; sourceTree = "<group>"; };
+		B1000008 /* KeyMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyMap.swift; sourceTree = "<group>"; };
 		B1000010 /* RomWBWEmulator.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomWBWEmulator.mm; sourceTree = "<group>"; };
 		B1000011 /* RomWBWEmulator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomWBWEmulator.h; sourceTree = "<group>"; };
 		B1000012 /* emu_io_ios.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = emu_io_ios.mm; sourceTree = "<group>"; };
@@ -67,6 +77,14 @@
 		B1000054 /* hbios_cpu.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hbios_cpu.h; sourceTree = "<group>"; };
 		B1000055 /* emu_init.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = emu_init.h; sourceTree = "<group>"; };
 		B1000060 /* emu_avw.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_avw.rom; sourceTree = "<group>"; };
+		B1000070 /* help_index.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = help_index.json; path = release_assets/help_index.json; sourceTree = SOURCE_ROOT; };
+		B1000071 /* help_quick_start.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = help_quick_start.md; path = release_assets/help_quick_start.md; sourceTree = SOURCE_ROOT; };
+		B1000072 /* help_cpm22.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = help_cpm22.md; path = release_assets/help_cpm22.md; sourceTree = SOURCE_ROOT; };
+		B1000073 /* help_file_transfer.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = help_file_transfer.md; path = release_assets/help_file_transfer.md; sourceTree = SOURCE_ROOT; };
+		B1000074 /* help_nzcom.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = help_nzcom.md; path = release_assets/help_nzcom.md; sourceTree = SOURCE_ROOT; };
+		B1000075 /* help_qpm.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = help_qpm.md; path = release_assets/help_qpm.md; sourceTree = SOURCE_ROOT; };
+		B1000076 /* help_zpm3.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = help_zpm3.md; path = release_assets/help_zpm3.md; sourceTree = SOURCE_ROOT; };
+		B1000077 /* help_zsdos.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = help_zsdos.md; path = release_assets/help_zsdos.md; sourceTree = SOURCE_ROOT; };
 		C1000001 /* iOSCPM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iOSCPM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -122,6 +140,7 @@
 				B1000005 /* HelpView.swift */,
 				B1000006 /* TerminalDialect.swift */,
 				B1000007 /* ControlKey.swift */,
+				B1000008 /* KeyMap.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -169,6 +188,14 @@
 			isa = PBXGroup;
 			children = (
 				B1000060 /* emu_avw.rom */,
+				B1000070 /* help_index.json */,
+				B1000071 /* help_quick_start.md */,
+				B1000072 /* help_cpm22.md */,
+				B1000073 /* help_file_transfer.md */,
+				B1000074 /* help_nzcom.md */,
+				B1000075 /* help_qpm.md */,
+				B1000076 /* help_zpm3.md */,
+				B1000077 /* help_zsdos.md */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -234,6 +261,14 @@
 			files = (
 				A1000030 /* Assets.xcassets in Resources */,
 				A1000060 /* emu_avw.rom in Resources */,
+				A1000070 /* help_index.json in Resources */,
+				A1000071 /* help_quick_start.md in Resources */,
+				A1000072 /* help_cpm22.md in Resources */,
+				A1000073 /* help_file_transfer.md in Resources */,
+				A1000074 /* help_nzcom.md in Resources */,
+				A1000075 /* help_qpm.md in Resources */,
+				A1000076 /* help_zpm3.md in Resources */,
+				A1000077 /* help_zsdos.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -251,6 +286,7 @@
 				A1000005 /* HelpView.swift in Sources */,
 				A1000006 /* TerminalDialect.swift in Sources */,
 				A1000007 /* ControlKey.swift in Sources */,
+				A1000008 /* KeyMap.swift in Sources */,
 				A1000010 /* RomWBWEmulator.mm in Sources */,
 				A1000011 /* emu_io_ios.mm in Sources */,
 				A1000020 /* qkz80.cc in Sources */,
@@ -277,7 +313,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = iOSCPM/iOSCPM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 50;
+				CURRENT_PROJECT_VERSION = 51;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -317,7 +353,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = iOSCPM/iOSCPM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 50;
+				CURRENT_PROJECT_VERSION = 51;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;

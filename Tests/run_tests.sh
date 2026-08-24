@@ -109,6 +109,10 @@ run_suite ControlKeyTests \
     "$ROOT/iOSCPM/Views/ControlKey.swift" \
     "$ROOT/Tests/ControlKeyTests.swift"
 
+run_suite KeyMapTests \
+    "$ROOT/iOSCPM/Views/KeyMap.swift" \
+    "$ROOT/Tests/KeyMapTests.swift"
+
 run_core_suite CoreKeyboardTests \
     "$ROOT/Tests/CoreKeyboardTests.cc"
 

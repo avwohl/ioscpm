@@ -1,5 +1,47 @@
 # Changelog
 
+## Version 1.5.1 (Build 51)
+
+### Three parity gaps closed
+
+- **F1-F12 are bindable.** `SpecialKey` was ten cases; it is twenty-two now, the
+  same set `z80cpmw/Keymap.h` defines, with the same VT220/xterm sequences byte
+  for byte - `\EOP` through `\EOS` for F1-F4, then `\E[15~`, `\E[17~` and up,
+  skipping 16 and 22 as a real VT220 does. That was the reason key maps were not
+  interchangeable between the ports. The VT52 profile is the exception on
+  purpose: a VT52 has four keypad function keys as `ESC P`..`ESC S` and no
+  others, so F5-F12 send nothing there rather than borrowing a VT100 sequence a
+  VT52 program cannot be expecting.
+- **The terminal gained the editing finals it was missing** - `@` ICH, `P` DCH,
+  `X` ECH, `S` SU, `T` SD - and now acts on two DEC private modes it previously
+  only parsed: DECAWM (`?7`), so a guest can turn autowrap off and have the last
+  column overwrite instead of wrapping, and DECTCEM (`?25`), so a full-screen
+  program can hide the cursor while it redraws. Both reset to their power-on
+  state on cold boot, so a guest that hides the cursor and then dies does not
+  leave it hidden for the next session. SU sends lines to scrollback only when
+  the region is the whole screen, matching what LF already did - lines pushed out
+  of a status-line window were never history.
+- **Help works offline.** The index and all seven topics now ship inside the app.
+  The download still comes first and the cache second, so a correction published
+  to a release still reaches users without an app update - but a first run with
+  no network, or a release whose help assets were not attached, no longer leaves
+  the user with nothing. That second case is not hypothetical: `cpmdroid` shipped
+  this exact arrangement with no bundled copy, its assets stopped being attached
+  after v1.11, and every build from then on had no help at all with nothing
+  failing anywhere to say so.
+
+### Also
+
+- `KeyMap.swift` is split out of `TerminalView.swift`. None of it touches UIKit,
+  and that made it testable - `Tests/KeyMapTests.swift` adds 34 checks, which
+  assert the F-key bytes against z80cpmw's table rather than against "something
+  reasonable", since a plausible but different sequence is exactly what would
+  make maps silently non-portable again.
+- The root `disks.xml` is deleted. It was byte-identical to
+  `release_assets/disks.xml` and had no consumer - the app builds its catalog URL
+  from the pinned release tag.
+- The test suite is 150 checks, from 116.
+
 ## Version 1.5.1 (Build 50)
 
 ### The VDA keyboard works, and there are tests that say so

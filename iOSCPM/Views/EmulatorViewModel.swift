@@ -400,6 +400,17 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// survive the round trip.
     private var reverseVideo = false
 
+    /// DECAWM (ESC[?7h / l). On - the default, and what a VT100 powers up as -
+    /// writing the last column arms `pendingWrap`. Off, the cursor stays put and
+    /// each further character overwrites the last cell.
+    private var autoWrap = true
+
+    /// DECTCEM (ESC[?25h / l). Full-screen programs hide the cursor while they
+    /// redraw so it does not strobe around the screen. Kept separate from the
+    /// blink phase and from `isScrolledBack`, which suppress drawing for their
+    /// own reasons.
+    @Published var cursorVisible = true
+
     /// currentAttr as it should actually be drawn.
     private var displayAttr: UInt8 {
         reverseVideo ? Self.swapNibbles(currentAttr) : currentAttr
@@ -1291,6 +1302,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
         escapeState = .normal
         currentAttr = 0x07
         reverseVideo = false
+        // Both DEC modes back to power-on: a guest that hid the cursor and then
+        // died must not leave it hidden for the next session, and DECAWM off is
+        // just as sticky.
+        autoWrap = true
+        cursorVisible = true
         isRunning = false
         statusText = "Reset - disk changes saved"
     }
@@ -1988,9 +2004,11 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
                 terminalCells[cursorRow][cursorCol].foreground = attr & 0x0F
                 terminalCells[cursorRow][cursorCol].background = (attr >> 4) & 0x07
                 if cursorCol >= terminalCols - 1 {
-                    // At the rightmost column: arm a deferred wrap instead of moving
-                    // now, so writing the corner cell does not scroll the screen.
-                    pendingWrap = true
+                    // At the rightmost column: arm a deferred wrap instead of
+                    // moving now, so writing the corner cell does not scroll the
+                    // screen. With DECAWM off there is no wrap to arm and the
+                    // cursor simply stays on the last column, overwriting it.
+                    if autoWrap { pendingWrap = true }
                 } else {
                     cursorCol += 1
                 }
@@ -2302,6 +2320,84 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
                 }
             }
 
+        // The five editing finals below blank cells with a default TerminalCell,
+        // matching clearFromCursor/clearToCursor and the rest of the erase family
+        // in this file. A strict VT would paint the current SGR background
+        // instead; changing that is a decision for the whole erase family at
+        // once, not something to introduce in half of it.
+        case 0x40: // '@' - ICH (Insert Character)
+            // Shift the rest of the line right by n, blanking what opens up.
+            // Characters pushed past the last column are lost, not wrapped:
+            // ICH is defined within the line.
+            if cursorRow < terminalRows, cursorCol < terminalCols {
+                let n = min(max(p1, 1), terminalCols - cursorCol)
+                var row = terminalCells[cursorRow]
+                if terminalCols - cursorCol - n > 0 {
+                    for col in stride(from: terminalCols - 1, through: cursorCol + n, by: -1) {
+                        row[col] = row[col - n]
+                    }
+                }
+                for col in cursorCol..<(cursorCol + n) {
+                    row[col] = TerminalCell()
+                }
+                terminalCells[cursorRow] = row
+            }
+
+        case 0x50: // 'P' - DCH (Delete Character)
+            // Shift the rest of the line left by n; the tail becomes blanks.
+            if cursorRow < terminalRows, cursorCol < terminalCols {
+                let n = min(max(p1, 1), terminalCols - cursorCol)
+                var row = terminalCells[cursorRow]
+                for col in cursorCol..<(terminalCols - n) {
+                    row[col] = row[col + n]
+                }
+                for col in max(terminalCols - n, cursorCol)..<terminalCols {
+                    row[col] = TerminalCell()
+                }
+                terminalCells[cursorRow] = row
+            }
+
+        case 0x58: // 'X' - ECH (Erase Character)
+            // Blank n cells from the cursor without moving anything: unlike DCH
+            // the rest of the line stays where it is, and unlike EL the erase
+            // stops after n.
+            if cursorRow < terminalRows, cursorCol < terminalCols {
+                let n = min(max(p1, 1), terminalCols - cursorCol)
+                for col in cursorCol..<(cursorCol + n) {
+                    terminalCells[cursorRow][col] = TerminalCell()
+                }
+            }
+
+        case 0x53: // 'S' - SU (Scroll Up)
+            // Scroll the region up n lines. Content leaving the top of a full
+            // screen goes to scrollback; content leaving a partial region does
+            // not, matching what LF does - lines pushed out of a status-line
+            // window were never history.
+            // Whole screen goes through scrollUp() so the top line reaches
+            // scrollback; a partial region goes through scrollRegion(), which
+            // deliberately does not - lines pushed out of a status-line window
+            // were never history.
+            let lines = max(p1, 1)
+            if scrollTop == 0 && scrollBottom == terminalRows - 1 {
+                scrollUp(lines)
+            } else {
+                scrollRegion(scrollTop, scrollBottom, min(lines, scrollBottom - scrollTop + 1))
+            }
+
+        case 0x54: // 'T' - SD (Scroll Down)
+            // The reverse: blank lines enter at the top of the region and the
+            // bottom line falls off. Never touches scrollback in either
+            // direction - nothing is leaving the top.
+            for _ in 0..<max(p1, 1) {
+                let top = scrollTop, bottom = scrollBottom
+                if top <= bottom {
+                    for row in stride(from: bottom, through: top + 1, by: -1) {
+                        terminalCells[row] = terminalCells[row - 1]
+                    }
+                    terminalCells[top] = Array(repeating: TerminalCell(), count: terminalCols)
+                }
+            }
+
         case 0x6D: // 'm' - SGR (Select Graphic Rendition)
             if escapeParams.isEmpty {
                 // ESC[m = reset
@@ -2354,16 +2450,36 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             }
 
         case 0x68: // 'h' - Set Mode
-            if escapePrivateMode && escapeParams.contains(2) {
-                // DECANM set: select ANSI (VT100) mode
-                dialect.noteDECANM(selectsANSI: true)
+            if escapePrivateMode {
+                if escapeParams.contains(2) {
+                    // DECANM set: select ANSI (VT100) mode
+                    dialect.noteDECANM(selectsANSI: true)
+                }
+                if escapeParams.contains(7) {
+                    autoWrap = true     // DECAWM
+                }
+                if escapeParams.contains(25) {
+                    cursorVisible = true  // DECTCEM
+                }
             }
             // Other DEC private modes are acknowledged but not acted upon.
 
         case 0x6C: // 'l' - Reset Mode
-            if escapePrivateMode && escapeParams.contains(2) {
-                // DECANM reset: select VT52 mode
-                dialect.noteDECANM(selectsANSI: false)
+            if escapePrivateMode {
+                if escapeParams.contains(2) {
+                    // DECANM reset: select VT52 mode
+                    dialect.noteDECANM(selectsANSI: false)
+                }
+                if escapeParams.contains(7) {
+                    // DECAWM off: writing the last column overwrites it instead
+                    // of wrapping. Clear any wrap already armed, or a pending
+                    // one from before the mode change would still fire.
+                    autoWrap = false
+                    pendingWrap = false
+                }
+                if escapeParams.contains(25) {
+                    cursorVisible = false  // DECTCEM
+                }
             }
             // Other DEC private modes are acknowledged but not acted upon.
 

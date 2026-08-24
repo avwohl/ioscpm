@@ -1,8 +1,10 @@
 Todo list:
 
 Open items only. Finished work is in CHANGELOG.md - the ^R sweep that filled
-this file shipped in build 49, and build 50 took romwbw_emu's VDA keyboard fix
-and grew the test suite from 40 checks to 116. What the sweep found that was
+this file shipped in build 49, build 50 took romwbw_emu's VDA keyboard fix and
+grew the test suite from 40 checks to 116, and build 51 closed three parity
+gaps (F1-F12, the terminal editing finals, bundled offline help) and took it to
+150. What the sweep found that was
 deliberate rather than broken is in the Keyboard section of KNOWN_PROBLEMS.md,
 so the next audit does not re-flag it. What is left:
 
@@ -33,29 +35,43 @@ so the next audit does not re-flag it. What is left:
   does not. Small, and it needs a decision about which convention to follow
   rather than an implementation - written up in KNOWN_PROBLEMS.md.
 
-- F1-F12 are not bindable. SpecialKey has ten cases and specialKey(for:) ten
-  HID arms; the key map is otherwise the same termcap-style schema as z80cpmw
-  and romwbw_emu, so maps are not portable between the ports while the F-keys
-  are missing on this side. z80cpmw's FEATURE_PARITY.md item 1 tracks it.
+- the parity items still genuinely absent, in rough order of how much they are
+  missed. Each is a feature, not a sync gap - none block taking a core release.
+  - no on-screen navigation/function key row, so the key map is unreachable on a
+    touch-only device. This is now the largest gap: build 51 gave the map all 22
+    keys including F1-F12, and on an iPhone or a keyboard-less iPad there is
+    still no way to press any of them. cpmdroid's buildKeyRow (MainActivity.kt),
+    backed by TerminalView.sendNamedKey, is the worked example, and
+    SpecialKey.functionKeys exists to feed exactly this.
+  - no configuration profiles - named sets of ROM, disks, boot string, terminal
+    and key map. KeyProfile is only the key-map half.
+  - no Catalyst window-state persistence and no Emulator menu. Note this row is
+    NOT N/A the way it is for mobile: a Catalyst window is a resizable desktop
+    window that opens at the system default every launch.
 
-- the parity items that are genuinely absent here rather than stale, in rough
-  order of how much they are missed: no on-screen navigation/function key row,
-  so the key map is unreachable on a touch-only device; no bundled offline help
-  fallback, so a 404 or a first run without network leaves no help at all; the
-  terminal has no ICH/DCH/ECH/SU/SD and ignores DECAWM and DECTCEM; no
-  configuration profiles; no Catalyst window-state persistence or Emulator menu.
-  Each is a feature, not a sync gap - none of them block taking a core release.
+- the terminal's remaining divergence from a strict VT, now that build 51 added
+  the editing finals: the erase family (ED, EL, ICH, DCH, ECH) blanks with a
+  default cell rather than painting the current SGR background. A strict VT
+  paints it. Changing that is a decision for the whole family at once - doing it
+  to half would be worse than the current consistent-but-wrong behaviour.
+
+- the terminal parser has no unit tests, and build 51's editing finals were
+  verified by building and by reading, not by running. The obstacle is that the
+  parser lives in EmulatorViewModel, which is UIKit-bound; TerminalDialect,
+  ControlKey and KeyMap were each split out precisely so they could be tested,
+  and the screen model is the next candidate. It is a bigger extraction than
+  those three - it owns terminalCells, the cursor, the scrolling region and
+  scrollback - which is why it has not been done rather than that it should not
+  be.
 
 - release chore, not code: release_assets/help_quick_start.md was corrected in
   build 49 (it advertised a Ctrl+E emulator console that does not exist, which
-  is actively harmful because ^E is WordStar cursor-up). The help system reads
-  from releases/latest, so the fix does not reach users until the file is
-  re-attached to the newest release.
-
-- the root disks.xml is now byte-identical to release_assets/disks.xml and has
-  no consumer in the repo - the app builds its catalog URL from the pinned
-  release tag. It is a candidate for git rm, kept for now because the content is
-  correct and deleting a tracked file is a separate decision.
+  is actively harmful because ^E is WordStar cursor-up). Build 51 bundles the
+  corrected copy into the app, so an offline user and a user hitting a 404 both
+  get the right text now - but the download still takes priority when it
+  succeeds, which is deliberate, so a user WITH a network still sees the stale
+  published copy until the file is re-attached to the newest release. Less
+  harmful, not fixed.
 
 - reminder before touching anything under iOSCPM/Core/ from a windows machine:
   read docs/notes_to_windos.md. All 21 of those are symlinks into ../romwbw_emu
