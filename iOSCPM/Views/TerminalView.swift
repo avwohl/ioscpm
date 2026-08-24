@@ -629,27 +629,17 @@ class TerminalUIView: UIView, UIKeyInput {
 
     /// Fold a Ctrl-modified hardware key to the ASCII control byte CP/M expects.
     ///
-    /// charactersIgnoringModifiers keeps Shift, so Ctrl+A gives "a" and
-    /// Ctrl+Shift+A gives "A"; upper-casing first lands both on 0x01. Same
-    /// arithmetic as the on-screen Ctrl button (hbios_core.cc queueInput) and as
-    /// KeyMap's `^X` / `^?` escapes.
+    /// The decision itself is `ControlKey.byte(forScalar:)`, which is pure and
+    /// tested (Tests/ControlKeyTests.swift). What is left here is the part that
+    /// needs UIKit: a UIKey cannot be built in a test.
     private static func controlByte(for key: UIKey) -> UInt8? {
-        // Backspace composes "\u{8}", which never reaches the 0x40...0x5F range.
-        if key.keyCode == .keyboardDeleteOrBackspace { return 0x7F }  // Ctrl+BS -> DEL
-        guard var value = key.charactersIgnoringModifiers.unicodeScalars.first?.value else {
+        // Backspace composes "\u{8}", which never reaches the 0x40...0x5F range
+        // the fold covers, so it has to be caught by key code first.
+        if key.keyCode == .keyboardDeleteOrBackspace { return ControlKey.delete }
+        guard let value = key.charactersIgnoringModifiers.unicodeScalars.first?.value else {
             return nil
         }
-        // Fold ASCII only. String.uppercased() applies full Unicode case
-        // mapping, which would turn a German "ß" into "SS" and hand the guest
-        // ^S - a key that produced nothing before, now producing the wrong byte.
-        if value >= 0x61 && value <= 0x7A { value -= 0x20 }  // a-z -> A-Z
-        switch value {
-        case 0x40...0x5F: return UInt8(value & 0x1F)         // @ A-Z [ \ ] ^ _ -> 0x00-0x1F
-        case 0x3F:        return 0x7F                        // Ctrl+?     -> DEL
-        case 0x2F:        return 0x1F                        // Ctrl+/     -> US
-        case 0x20:        return 0x00                        // Ctrl+Space -> NUL
-        default:          return nil
-        }
+        return ControlKey.byte(forScalar: value)
     }
 
     // MARK: - Hardware Keyboard Support

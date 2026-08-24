@@ -1,5 +1,60 @@
 # Changelog
 
+## Version 1.5.1 (Build 50)
+
+### The VDA keyboard works, and there are tests that say so
+
+A cross-port audit of this repo against `romwbw_emu`, `cpmemu` and `z80cpmw`
+found the core current — the 21 symlinks in `iOSCPM/Core/` were already
+resolving to `romwbw_emu` v1.36 and every item on its migration checklist was
+done — and turned up two bugs in the shared HBIOS dispatcher instead. Both are
+fixed upstream in `romwbw_emu` `bf03758` and arrive here through the symlinks;
+this build is the one that carries them.
+
+- **`VDAKST` said "no key" however much was queued.** It set the pending count
+  in `E` but left the status byte in `A` at zero, and `A` is what a caller
+  tests. Its `CIO` twin, `CIOIST`, has always set both.
+- **`VDAKRD` handed the guest a stale byte.** With no key pending it flagged the
+  wait and returned *without rewinding PC*. Dispatch is a two-byte
+  `OUT (0xEF),A` followed by the Z80 proxy's own `RET`, so skipping the rewind
+  let that `RET` fire immediately with `E` still holding whatever the previous
+  call left there — the guest read it as a keystroke and never came back for the
+  real one. `CIOIN` has rewound since the non-blocking path was added, and this
+  port runs non-blocking (`hbios_core.cc` calls `setBlockingAllowed(false)`,
+  because the UI thread cannot stop for a key), which is exactly the arm where
+  it mattered.
+
+Neither is reached by the normal serial-console boot, which is why nothing had
+been reported. But `SYSGET_VDACNT` reports one VDA to every port, so any guest
+that used the video keyboard hit both.
+
+### Tests
+
+`Tests/run_tests.sh` grew from 40 checks to 116, in three suites plus a
+structural check:
+
+- **CoreSymlinks** — asserts all 21 entries under `iOSCPM/Core/` are still
+  symlinks and still resolve. They have been flattened into stale copies once
+  before (`docs/notes_to_windos.md`), and a flattened copy compiles and passes
+  every behavioural test; it just quietly stops tracking upstream.
+- **CoreKeyboardTests** (new, C++, 24 checks) — compiles the shared core
+  *through those symlinks* and drives HBIOS the way the Z80 proxy does, in the
+  non-blocking mode this app uses. Covers `CIOIN`/`CIOIST`/`VDAKRD`/`VDAKST`,
+  the PC rewind, the whole WordStar diamond surviving `CIOIN` unchanged, and
+  `CIOOUT` buffering rather than writing behind the UI thread's back. This is
+  the first test in the repo that touches the emulator at all.
+- **ControlKeyTests** (new, Swift, 50 checks) — the Ctrl fold build 49 added.
+  The arithmetic moved out of `TerminalUIView` into `ControlKey.swift` so it
+  could be tested at all, the same split that made `TerminalDialect` testable;
+  `controlByte(for: UIKey)` still does the UIKit half. Covers every letter in
+  both cases, the non-letter combinations build 49 added, and the hazard that
+  commit called out by name and nothing verified: `uppercased()` maps a German
+  `ß` to `SS`, so a full Unicode fold would hand the guest `^S` — WordStar
+  cursor-left — from a key that used to send nothing.
+- **TerminalDialectTests** — unchanged, 40 checks.
+
+No user-visible change beyond the two fixes above.
+
 ## Version 1.5.1 (Build 49)
 
 ### Synced to the romwbw_emu v1.36 core - control keys belong to the guest

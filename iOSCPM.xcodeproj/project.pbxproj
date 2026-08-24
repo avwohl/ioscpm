@@ -13,6 +13,7 @@
 		A1000004 /* EmulatorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000004 /* EmulatorViewModel.swift */; };
 		A1000005 /* HelpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000005 /* HelpView.swift */; };
 		A1000006 /* TerminalDialect.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000006 /* TerminalDialect.swift */; };
+		A1000007 /* ControlKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000007 /* ControlKey.swift */; };
 		A1000010 /* RomWBWEmulator.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000010 /* RomWBWEmulator.mm */; };
 		A1000011 /* emu_io_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000012 /* emu_io_ios.mm */; };
 		A1000020 /* qkz80.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000020 /* qkz80.cc */; };
@@ -35,6 +36,7 @@
 		B1000004 /* EmulatorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmulatorViewModel.swift; sourceTree = "<group>"; };
 		B1000005 /* HelpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpView.swift; sourceTree = "<group>"; };
 		B1000006 /* TerminalDialect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDialect.swift; sourceTree = "<group>"; };
+		B1000007 /* ControlKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlKey.swift; sourceTree = "<group>"; };
 		B1000010 /* RomWBWEmulator.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomWBWEmulator.mm; sourceTree = "<group>"; };
 		B1000011 /* RomWBWEmulator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomWBWEmulator.h; sourceTree = "<group>"; };
 		B1000012 /* emu_io_ios.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = emu_io_ios.mm; sourceTree = "<group>"; };
@@ -119,6 +121,7 @@
 				B1000004 /* EmulatorViewModel.swift */,
 				B1000005 /* HelpView.swift */,
 				B1000006 /* TerminalDialect.swift */,
+				B1000007 /* ControlKey.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -247,6 +250,7 @@
 				A1000004 /* EmulatorViewModel.swift in Sources */,
 				A1000005 /* HelpView.swift in Sources */,
 				A1000006 /* TerminalDialect.swift in Sources */,
+				A1000007 /* ControlKey.swift in Sources */,
 				A1000010 /* RomWBWEmulator.mm in Sources */,
 				A1000011 /* emu_io_ios.mm in Sources */,
 				A1000020 /* qkz80.cc in Sources */,
@@ -273,7 +277,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = iOSCPM/iOSCPM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 49;
+				CURRENT_PROJECT_VERSION = 50;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -313,7 +317,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = iOSCPM/iOSCPM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 49;
+				CURRENT_PROJECT_VERSION = 50;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
