@@ -4,7 +4,12 @@ This document explains how disk images are managed, distributed, and consumed by
 
 ## Overview
 
-Disk images and manifests are stored in this repository under `/release_assets/` and distributed via GitHub Releases. Clients fetch the manifest and download disks on-demand from the GitHub Releases "latest" endpoint.
+The manifest and the help content are stored in this repository under
+`/release_assets/`. The disk images themselves are **not** in the repo — they
+exist only as GitHub Release assets (they were removed from `release_assets/` in
+f570676). Clients fetch the manifest and download disks on-demand from a
+**pinned** release tag, not from the "latest" endpoint; only the help system
+still floats on `latest`.
 
 ## Repository Structure
 
@@ -12,7 +17,6 @@ Disk images and manifests are stored in this repository under `/release_assets/`
 release_assets/
 ├── disks.xml              # Disk catalog manifest
 ├── help_index.json        # Help system index
-├── hd1k_*.img             # Disk image files (28 disks)
 └── help_*.md              # Help topic markdown files
 ```
 
@@ -22,14 +26,14 @@ The manifest is an XML file listing all available disk images:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<disks version="10">
+<disks version="13">
     <disk>
         <filename>hd1k_combo.img</filename>
         <name>Combo (Recommended)</name>
         <description>49MB multi-slice disk with CP/M 2.2, games, utilities...</description>
         <size>51380224</size>
         <license>Mixed</license>
-        <sha256>c14b9bef3eca03523c059b6c5eb4921e66323921dc481ebf5f84fb378627fb0f</sha256>
+        <sha256>be19984edbcbb901973c268b870587235ea128e3c5e13b80a35d8c9488ec6d6e</sha256>
         <defaultSlot>0</defaultSlot>
     </disk>
     <!-- more disks... -->
@@ -59,16 +63,22 @@ The `<disks version="N">` attribute tracks catalog changes. When the version cha
 
 ### Release URLs
 
-Clients use these hardcoded URLs:
+Clients read the catalog and the images from an explicit, pinned release tag —
+`releaseTag` in `EmulatorViewModel.swift:128`, currently `v1.4.5`:
 ```
-Catalog:  https://github.com/avwohl/ioscpm/releases/latest/download/disks.xml
-Base URL: https://github.com/avwohl/ioscpm/releases/latest/download/
+Catalog:  https://github.com/avwohl/ioscpm/releases/download/v1.4.5/disks.xml
+Base URL: https://github.com/avwohl/ioscpm/releases/download/v1.4.5
 ```
 
-Individual disk downloads append the filename to the base URL:
+Individual disk downloads append `/` plus the filename to the base URL:
 ```
-https://github.com/avwohl/ioscpm/releases/latest/download/hd1k_combo.img
+https://github.com/avwohl/ioscpm/releases/download/v1.4.5/hd1k_combo.img
 ```
+
+The help system is deliberately *not* pinned: `HelpView.swift:187-188` still
+fetches `help_index.json` and the `help_*.md` topics from
+`https://github.com/avwohl/ioscpm/releases/latest/download/`. Help content is not
+version-locked to the ROM; disk images are. See `docs/DISK_CATALOG_PINNING.md`.
 
 ### Creating a Release
 
@@ -77,15 +87,22 @@ When creating a new GitHub release:
 1. Update `release_assets/disks.xml` if adding/modifying disks:
    - Add new `<disk>` entries
    - Update the `version` attribute
-   - Generate SHA256 checksums: `shasum -a 256 hd1k_*.img`
+   - Generate SHA256 checksums over the built images, wherever they were staged:
+     `shasum -a 256 hd1k_*.img`
 
-2. Create the GitHub release and attach all files from `/release_assets/`:
-   - `disks.xml`
-   - `help_index.json`
-   - All `hd1k_*.img` files
-   - All `help_*.md` files
+2. Create the GitHub release and attach:
+   - `disks.xml` and `help_index.json` from `/release_assets/`
+   - All `help_*.md` files from `/release_assets/`
+   - All `hd1k_*.img` files from your disk-build output — these are not repo
+     files, so they have to come from wherever the images were built or
+     downloaded
 
-3. The release should be tagged appropriately (clients use `/latest/`)
+3. The disk catalog does not follow `/latest/` (only the help system does).
+   Clients read the pinned tag `v1.4.5`; a new release tag reaches no installed
+   client until `releaseTag` in `EmulatorViewModel.swift:128` is bumped and a
+   new app build ships. The
+   `v1.4.5` release is intentionally marked **prerelease** so it never becomes
+   the repo's "Latest". See `docs/DISK_CATALOG_PINNING.md`.
 
 ## Client Implementation
 
@@ -124,7 +141,7 @@ All downloads are verified against the manifest's SHA256 checksum:
 
 1. Create the disk image with proper format (8MB or 49MB multislice)
 2. Name it following the pattern: `hd1k_<name>.img`
-3. Place it in `/release_assets/`
+3. Attach it to the GitHub release — do **not** commit the image to the repo
 4. Add entry to `disks.xml`:
    ```xml
    <disk>
@@ -137,12 +154,14 @@ All downloads are verified against the manifest's SHA256 checksum:
    </disk>
    ```
 5. Increment the `version` attribute in `<disks>`
-6. Create a new GitHub release with all assets
+6. Upload the updated `disks.xml` alongside the image (see "Creating a Release")
 
 ## Generating SHA256 Checksums
 
+The images are not in the repo, so run this against your disk-build output
+directory (or a directory you have downloaded the release assets into):
+
 ```bash
-cd release_assets
 shasum -a 256 hd1k_*.img
 ```
 

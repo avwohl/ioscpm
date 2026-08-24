@@ -512,7 +512,10 @@ class TerminalUIView: UIView, UIKeyInput {
 
     func insertText(_ text: String) {
         for char in text {
-            onKeyInput?(char)
+            // The software keyboard's Return arrives here as LF. CP/M wants CR,
+            // and this is the only place that knows the LF meant "Enter" - the
+            // byte-level paths below must leave a real 0x0A (Ctrl+J) alone.
+            onKeyInput?(char == "\n" ? "\r" : char)
         }
     }
 
@@ -524,20 +527,37 @@ class TerminalUIView: UIView, UIKeyInput {
 
     override var keyCommands: [UIKeyCommand]? {
         // Arrow / navigation keys are handled in pressesBegan via key codes so
-        // they can be remapped (see onSpecialKey). Only fixed shortcuts remain.
+        // they can be remapped (see onSpecialKey).
+        //
+        // While a dialog has taken the keyboard, claim nothing: a priority
+        // Escape here would outrank the alert it is meant to dismiss.
+        guard captureKeyboard else { return nil }
+
+        // ESC is a live CP/M key. On Mac Catalyst it is also the system's
+        // leave-full-screen gesture, so it has to be asked for explicitly.
+        let escape = UIKeyCommand(input: UIKeyCommand.inputEscape,
+                                  modifierFlags: [],
+                                  action: #selector(escapePressed))
+        escape.wantsPriorityOverSystemBehavior = true
+
         var commands = [
             UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(enterPressed)),
-            UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escapePressed)),
+            escape,
             // Copy/Paste support
             UIKeyCommand(input: "c", modifierFlags: .command, action: #selector(copyText)),
             UIKeyCommand(input: "v", modifierFlags: .command, action: #selector(pasteText))
         ]
 
-        // Add Ctrl+key commands for common CP/M usage
+        // Ctrl+letter is also folded generally in pressesBegan, so these 26 are
+        // redundant on iOS. They are kept for Mac Catalyst, where an explicitly
+        // claimed key command is the reliable way to be sure AppKit's own
+        // Ctrl-letter bindings never get a chance at the WordStar diamond.
+        // UIKit matches key commands before pressesBegan, so there is no
+        // double-send: a matched letter never reaches the fold.
         for char in "abcdefghijklmnopqrstuvwxyz" {
-            if char.asciiValue != nil {
-                commands.append(UIKeyCommand(input: String(char), modifierFlags: .control, action: #selector(ctrlKeyPressed(_:))))
-            }
+            commands.append(UIKeyCommand(input: String(char),
+                                         modifierFlags: .control,
+                                         action: #selector(ctrlKeyPressed(_:))))
         }
 
         return commands
@@ -601,11 +621,34 @@ class TerminalUIView: UIView, UIKeyInput {
     }
 
     @objc private func ctrlKeyPressed(_ command: UIKeyCommand) {
-        guard let input = command.input, let firstChar = input.first else { return }
-        // Convert to control character (A=1, B=2, etc.)
-        if let ascii = firstChar.asciiValue {
-            let ctrlCode = ascii - 96  // 'a' (97) -> 1, 'b' (98) -> 2, etc.
-            onKeyInput?(Character(UnicodeScalar(ctrlCode)))
+        guard let input = command.input, let firstChar = input.first,
+              let ascii = firstChar.asciiValue else { return }
+        // Registered lower-case, so 'a' (97) -> 0x01, 'b' (98) -> 0x02, ...
+        onKeyInput?(Character(UnicodeScalar(ascii - 96)))
+    }
+
+    /// Fold a Ctrl-modified hardware key to the ASCII control byte CP/M expects.
+    ///
+    /// charactersIgnoringModifiers keeps Shift, so Ctrl+A gives "a" and
+    /// Ctrl+Shift+A gives "A"; upper-casing first lands both on 0x01. Same
+    /// arithmetic as the on-screen Ctrl button (hbios_core.cc queueInput) and as
+    /// KeyMap's `^X` / `^?` escapes.
+    private static func controlByte(for key: UIKey) -> UInt8? {
+        // Backspace composes "\u{8}", which never reaches the 0x40...0x5F range.
+        if key.keyCode == .keyboardDeleteOrBackspace { return 0x7F }  // Ctrl+BS -> DEL
+        guard var value = key.charactersIgnoringModifiers.unicodeScalars.first?.value else {
+            return nil
+        }
+        // Fold ASCII only. String.uppercased() applies full Unicode case
+        // mapping, which would turn a German "ß" into "SS" and hand the guest
+        // ^S - a key that produced nothing before, now producing the wrong byte.
+        if value >= 0x61 && value <= 0x7A { value -= 0x20 }  // a-z -> A-Z
+        switch value {
+        case 0x40...0x5F: return UInt8(value & 0x1F)         // @ A-Z [ \ ] ^ _ -> 0x00-0x1F
+        case 0x3F:        return 0x7F                        // Ctrl+?     -> DEL
+        case 0x2F:        return 0x1F                        // Ctrl+/     -> US
+        case 0x20:        return 0x00                        // Ctrl+Space -> NUL
+        default:          return nil
         }
     }
 
@@ -663,14 +706,22 @@ class TerminalUIView: UIView, UIKeyInput {
                 continue
             }
 
-            // Get the characters from the key press
-            let chars = key.characters
+            // Command belongs to the app and the system (Cmd+C, Cmd+V, Cmd+?);
+            // let keyCommands and the responder chain have it.
+            if key.modifierFlags.contains(.command) { continue }
 
-            // Check for modifier keys that we handle via keyCommands
-            if key.modifierFlags.contains(.command) || key.modifierFlags.contains(.control) {
-                // Let keyCommands handle these
+            // Control belongs to the guest, whatever it is combined with.
+            if key.modifierFlags.contains(.control) {
+                if let byte = Self.controlByte(for: key) {
+                    onKeyInput?(Character(UnicodeScalar(byte)))
+                    handled = true
+                }
+                // Never fall through as text: Ctrl+A must not type "a".
                 continue
             }
+
+            // Get the characters from the key press
+            let chars = key.characters
 
             // Handle regular character input from hardware keyboard
             if !chars.isEmpty {

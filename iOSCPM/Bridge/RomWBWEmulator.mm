@@ -7,6 +7,8 @@
 #import "RomWBWEmulator.h"
 #include "hbios_core.h"
 #include "emu_io.h"
+#include "emu_init.h"
+#include "romwbw_pin.h"
 #include <memory>
 
 // Forward declare the delegate setter from emu_io_ios.mm
@@ -102,6 +104,10 @@ extern "C" void emu_io_set_delegate(id delegate);
   BOOL _debug;
 }
 
++ (NSString*)romWBWPin {
+  return @ROMWBW_PIN_STR;
+}
+
 - (instancetype)init {
   self = [super init];
   if (self) {
@@ -134,6 +140,7 @@ extern "C" void emu_io_set_delegate(id delegate);
   NSString* path = [[NSBundle mainBundle] pathForResource:name ofType:ext];
   if (!path) {
     NSLog(@"[RomWBW] ROM not found in bundle: %@", filename);
+    _lastROMError = [NSString stringWithFormat:@"%@ is not in the app bundle", filename];
     return NO;
   }
   if (_debug) NSLog(@"[RomWBW] ROM path: %@", path);
@@ -144,6 +151,7 @@ extern "C" void emu_io_set_delegate(id delegate);
   NSData* data = [NSData dataWithContentsOfFile:path];
   if (!data) {
     NSLog(@"[RomWBW] Failed to read ROM file: %@", path);
+    _lastROMError = @"the ROM file could not be read";
     return NO;
   }
   if (_debug) NSLog(@"[RomWBW] Read %lu bytes from ROM file", (unsigned long)data.length);
@@ -151,8 +159,22 @@ extern "C" void emu_io_set_delegate(id delegate);
 }
 
 - (BOOL)loadROMFromData:(NSData*)data {
+  // Validate before loading so the reason survives. The core runs the same
+  // check inside emu_load_rom_from_buffer and would just return false; running
+  // it here on the raw buffer keeps the message, and matches what z80cpmw does.
+  // (The core truncates to 512KB before validating, so an oversized image would
+  // otherwise be judged on the truncated copy - the header bytes are identical
+  // either way, but validating the raw buffer keeps the two checks in step.)
+  const char* problem = emu_validate_rom_hcb((const uint8_t*)data.bytes, data.length);
+  if (problem) {
+    NSLog(@"[RomWBW] ROM rejected: %s", problem);
+    _lastROMError = @(problem);
+    return NO;
+  }
+
   BOOL result = _emulator->loadROM((const uint8_t*)data.bytes, data.length);
   if (_debug) NSLog(@"[RomWBW] loadROM returned: %@", result ? @"YES" : @"NO");
+  _lastROMError = result ? nil : @"the emulator core rejected the ROM image";
   return result;
 }
 

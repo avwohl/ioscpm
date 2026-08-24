@@ -2,19 +2,26 @@
 
 This file documents cross-platform pitfalls discovered while syncing iOSCPM
 between macOS and Windows. Read this before touching files that come from
-the sister `romwbw_emu` repo or before committing anything that involves
-symlinks or filenames.
+a sibling repo (`romwbw_emu` or `cpmemu`) or before committing anything that
+involves symlinks or filenames.
 
 ## Symlinks: do not edit them as if they were files
 
 Several files under `iOSCPM/Core/` are git **symlinks** (mode 120000) that
-point to source files in the sister `romwbw_emu` repo. As of this writing,
-they include at least:
+point to source files in TWO sibling repos: `romwbw_emu` (the RomWBW/HBIOS
+layer) and `cpmemu` (the qkz80 CPU core). As of this writing, they include at
+least:
 
     iOSCPM/Core/hbios_cpu.cc      -> ../../../romwbw_emu/src/hbios_cpu.cc
     iOSCPM/Core/hbios_cpu.h       -> ../../../romwbw_emu/src/hbios_cpu.h
     iOSCPM/Core/hbios_dispatch.cc -> ../../../romwbw_emu/src/hbios_dispatch.cc
     iOSCPM/Core/hbios_dispatch.h  -> ../../../romwbw_emu/src/hbios_dispatch.h
+    iOSCPM/Core/qkz80.cc          -> ../../../cpmemu/src/qkz80.cc
+    iOSCPM/Core/qkz80.h           -> ../../../cpmemu/src/qkz80.h
+
+Every `qkz80*` file in `iOSCPM/Core/` is a symlink into `../../../cpmemu/src`
+(11 of them at present); the rest of the 120000 entries point into
+`../../../romwbw_emu/src`.
 
 Always verify the current set with:
 
@@ -37,8 +44,10 @@ recovered with a plumbing-level merge (acb114b).
 ### Rules
 
 1. **Never edit a 120000-mode file directly.** If you need to change the
-   content, edit the real file in `../romwbw_emu/src/` and commit it in
-   that repo. The symlink will pick up the change automatically.
+   content, edit the real file in whichever sibling repo the symlink points
+   at - `readlink` it, it is either `../romwbw_emu/src/` or `../cpmemu/src/`
+   - and commit it in that repo. The symlink will pick up the change
+   automatically.
 
 2. **Never run a "sync" script that copies files into a 120000 path.**
    The point of the symlinks is that no sync is needed.
@@ -64,6 +73,40 @@ recovered with a plumbing-level merge (acb114b).
 
    and re-checkout the affected paths. Then editors will refuse to open
    the symlink as text and the footgun goes away.
+
+## Symlinks resolve to a working tree, not to a pinned commit
+
+The other half of the symlink arrangement, and the one that bites on any
+machine: a symlink points at a *path* in the sibling checkout, so a build
+compiles whatever those working trees currently have checked out. There is no
+submodule, no pinned SHA, and nothing in the Xcode project records which
+sibling commit went into a build. A topic branch left checked out in
+`../cpmemu` or `../romwbw_emu` ships into the app with no signal at all, and a
+released build has no record of what it contains.
+
+This was live as of 2026-08-24: `../cpmemu` was on `posix-console` (55cc13f),
+not `main` (1dd6a8e). It happened to be harmless - that branch is one commit
+ahead of `main` and touches only `src/os/linux/platform.cc`, tests, and notes
+(README, docs/BUILDING.md, todo.txt), none of which ioscpm symlinks or builds -
+but nothing detected it, and nothing would have detected it if the branch had
+touched `src/qkz80*`.
+
+Check both siblings before building or releasing:
+
+    git -C ../cpmemu     rev-parse --abbrev-ref HEAD    # expect main
+    git -C ../romwbw_emu rev-parse --abbrev-ref HEAD    # expect main
+
+and, if either is not on its default branch, confirm the files ioscpm actually
+consumes have not drifted:
+
+    git -C ../cpmemu diff --stat main...HEAD -- 'src/qkz80*'
+
+Do not try to automate this as an Xcode Run Script phase.
+`ENABLE_USER_SCRIPT_SANDBOXING = YES` in both build configurations, and the
+sibling `.git` directories lie outside `SRCROOT` and cannot be declared as
+script inputs, so the phase would either fail or force sandboxing off. If a
+mechanical check is wanted, it belongs in a standalone script or a pre-release
+checklist run outside the build.
 
 ## Filename case: do not create case-conflicting files
 
@@ -91,7 +134,7 @@ lose work.
    - Source files in `iOSCPM/Core/` use lowercase with underscores
      (e.g., `hbios_dispatch.cc`, `romwbw_mem.h`).
    - Swift/ObjC files in `iOSCPM/` use UpperCamelCase (e.g.,
-     `AppDelegate.swift`, `ContentView.swift`).
+     `iOSCPMApp.swift`, `ContentView.swift`).
    - Docs in `docs/` are mixed; match whatever neighbors do, do not
      invent a new convention.
 
@@ -99,13 +142,20 @@ lose work.
 
 ## Line endings
 
-Git is configured to handle line endings via `.gitattributes` where it
-matters. Do not run `dos2unix`, `unix2dos`, or "normalize line endings"
-across the tree. If a specific file has wrong endings, fix that one file.
+This repo has no `.gitattributes`; line endings are left to whatever
+`core.autocrlf` the checkout happens to use. Do not run `dos2unix`,
+`unix2dos`, or "normalize line endings" across the tree. If a specific file
+has wrong endings, fix that one file.
+
+Do not add a `.gitattributes` to "protect" the symlinks either. Git does not
+apply line-ending conversion to mode-120000 entries - checked empirically
+with `core.symlinks=false` plus `core.autocrlf=true`, and the target string
+checks out byte for byte - so a `-text` rule on `iOSCPM/Core/*` would guard
+against nothing while creating one more file to keep in sync.
 
 ## When in doubt
 
-If a commit you are about to make touches files in `iOSCPM/Core/` that
-came from `romwbw_emu`, or touches anything under a 120000 mode entry,
-**stop and ask the human** before pushing. Recovery on the Mac side is
-possible but annoying (see acb114b for the playbook).
+If a commit you are about to make touches files in `iOSCPM/Core/` that came
+from a sibling repo (`romwbw_emu` or `cpmemu`), or touches anything under a
+120000 mode entry, **stop and ask the human** before pushing. Recovery on the
+Mac side is possible but annoying (see acb114b for the playbook).

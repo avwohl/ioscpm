@@ -392,6 +392,18 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private var savedCursorRow: Int = 0
     private var savedCursorCol: Int = 0
     private var currentAttr: UInt8 = 0x07  // Default: white on black
+    /// True while SGR 7 is in effect. currentAttr keeps the true colours and the
+    /// swap is applied when a cell is written (see displayAttr), so reverse is a
+    /// clean toggle: SGR 7 twice is still reverse, and SGR 27 restores exactly
+    /// what was set. Folding the swap into currentAttr instead would be lossy -
+    /// the background nibble is three bits, so a bright foreground could not
+    /// survive the round trip.
+    private var reverseVideo = false
+
+    /// currentAttr as it should actually be drawn.
+    private var displayAttr: UInt8 {
+        reverseVideo ? Self.swapNibbles(currentAttr) : currentAttr
+    }
     private var scrollTop: Int = 0         // Top of scrolling region (0-based)
     private var scrollBottom: Int = 24     // Bottom of scrolling region (0-based, inclusive)
 
@@ -556,7 +568,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
     }
 
 
-    func loadSelectedResources() {
+    /// Load the selected ROM and disks. Returns false only when the ROM failed:
+    /// without a ROM there is nothing to execute, so the caller must not start
+    /// the CPU. A disk that fails to load is reported but is not fatal - booting
+    /// with no disk is legitimate.
+    @discardableResult
+    func loadSelectedResources() -> Bool {
         // Close all existing disks before loading new configuration
         // This prevents old disks from persisting when user reduces disk count
         emulator?.closeAllDisks()
@@ -565,10 +582,15 @@ class EmulatorViewModel: NSObject, ObservableObject {
         let romFile = selectedROM?.filename ?? "emu_avw.rom"
         debugPrint("[EmulatorVM] Loading ROM: \(romFile)")
         guard emulator?.loadROM(fromBundle: romFile) == true else {
-            debugPrint("[EmulatorVM] ERROR: Failed to load ROM: \(romFile)")
-            showError("Failed to load ROM: \(romFile)")
-            statusText = "Error: \(romFile) not found"
-            return
+            // The bridge records why: missing from the bundle, unreadable, or
+            // rejected by the core's HCB validation (a corrupt or wrong-version
+            // image). Saying "not found" for all three sends people hunting for
+            // a file that is right there.
+            let reason = emulator?.lastROMError ?? "\(romFile) could not be loaded"
+            debugPrint("[EmulatorVM] ERROR: Failed to load ROM: \(romFile) - \(reason)")
+            showError("Failed to load ROM: \(romFile)\n\(reason)")
+            statusText = "Error: \(reason)"
+            return false
         }
         debugPrint("[EmulatorVM] ROM loaded successfully: \(romFile)")
         statusText = "ROM loaded: \(selectedROM?.name ?? romFile)"
@@ -631,6 +653,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         // Apply warning suppression setting to all disk units
         applyWarningSuppression()
+
+        return true
     }
 
     // MARK: - Local Disk File Management
@@ -1116,7 +1140,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
         printVersionInfo()
         // Load selected ROM and disks before starting
         debugPrint("🟢 [START] calling loadSelectedResources")
-        loadSelectedResources()
+        guard loadSelectedResources() else {
+            // loadSelectedResources has already set statusText and raised the
+            // error alert. Running the CPU with no ROM just executes whatever
+            // bank 0 happens to hold.
+            debugPrint("🔴 [START] resource load failed, not starting")
+            isRunning = false
+            return
+        }
         debugPrint("🟢 [START] calling emulator.start()")
         emulator?.start()
         isRunning = emulator?.isRunning ?? false
@@ -1259,6 +1290,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         dialect.reset()
         escapeState = .normal
         currentAttr = 0x07
+        reverseVideo = false
         isRunning = false
         statusText = "Reset - disk changes saved"
     }
@@ -1952,8 +1984,9 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
                 }
                 let char = Character(UnicodeScalar(ch) ?? UnicodeScalar(32))
                 terminalCells[cursorRow][cursorCol].character = char
-                terminalCells[cursorRow][cursorCol].foreground = currentAttr & 0x0F
-                terminalCells[cursorRow][cursorCol].background = (currentAttr >> 4) & 0x07
+                let attr = displayAttr
+                terminalCells[cursorRow][cursorCol].foreground = attr & 0x0F
+                terminalCells[cursorRow][cursorCol].background = (attr >> 4) & 0x07
                 if cursorCol >= terminalCols - 1 {
                     // At the rightmost column: arm a deferred wrap instead of moving
                     // now, so writing the corner cell does not scroll the screen.
@@ -2092,6 +2125,19 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         escapeState = .normal
     }
 
+    /// A guest can emit an unbounded CSI parameter run. Bound both the digit
+    /// count and the parameter count, and clamp the parsed value, so a runaway
+    /// or hostile stream cannot grow the parser's state without limit or hand a
+    /// wild row/column count to a handler. Same limits as z80cpmw.
+    private static let maxCSIParamDigits = 6
+    private static let maxCSIParams = 16
+
+    /// Parse the accumulated parameter digits, clamped.
+    private func takeCSIParam() -> Int {
+        let value = Int(escapeCurrentParam) ?? 0
+        return min(value, 9999)
+    }
+
     /// Process character in CSI sequence
     private func processCSIChar(_ ch: unichar) {
         // Control characters abort the sequence and are processed normally
@@ -2110,21 +2156,33 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
         // Check if it's a parameter digit or separator
         if ch >= 0x30 && ch <= 0x39 { // '0'-'9'
-            escapeCurrentParam.append(Character(UnicodeScalar(ch)!))
+            // Leading zeros are padding, not magnitude - dropping them keeps a
+            // zero-padded parameter from spending the digit budget and being
+            // truncated to a small number. Past the cap the value saturates at
+            // the clamp takeCSIParam applies, rather than losing its high digits.
+            if escapeCurrentParam.isEmpty && ch == 0x30 {
+                escapeState = .csiParam
+                return
+            }
+            if escapeCurrentParam.count < Self.maxCSIParamDigits {
+                escapeCurrentParam.append(Character(UnicodeScalar(ch)!))
+            }
             escapeState = .csiParam
             return
         }
 
         if ch == 0x3B { // ';' - parameter separator
-            escapeParams.append(Int(escapeCurrentParam) ?? 0)
+            if escapeParams.count < Self.maxCSIParams {
+                escapeParams.append(takeCSIParam())
+            }
             escapeCurrentParam = ""
             escapeState = .csiParam
             return
         }
 
         // Final character - execute the sequence
-        if !escapeCurrentParam.isEmpty {
-            escapeParams.append(Int(escapeCurrentParam) ?? 0)
+        if !escapeCurrentParam.isEmpty, escapeParams.count < Self.maxCSIParams {
+            escapeParams.append(takeCSIParam())
         }
 
         executeCSI(ch)
@@ -2205,11 +2263,15 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             }
 
         case 0x4D: // 'M' - DL (Delete Line) - delete lines at cursor, scroll up
-            let n = max(p1, 1)
             // Delete n lines starting at cursor row, scroll remaining lines up
             let startRow = cursorRow
             let endRow = scrollBottom  // Use scrolling region bottom, or terminalRows-1 if no region
             if startRow <= endRow {
+                // Clamp to the region: deleting more lines than there are just
+                // clears it. Unclamped, endRow - n + 1 falls below startRow and
+                // the Range below traps - a live crash for an editor that asks
+                // to delete to the bottom from near it.
+                let n = min(max(p1, 1), endRow - startRow + 1)
                 for row in startRow..<(endRow - n + 1) {
                     if row + n <= endRow {
                         terminalCells[row] = terminalCells[row + n]
@@ -2222,11 +2284,13 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             }
 
         case 0x4C: // 'L' - IL (Insert Line) - insert lines at cursor, scroll down
-            let n = max(p1, 1)
             // Insert n blank lines at cursor row, scroll remaining lines down
             let startRow = cursorRow
             let endRow = scrollBottom
             if startRow <= endRow {
+                // Clamped for the same reason as DL above; the loops here happen
+                // to survive an over-large n, but not by design.
+                let n = min(max(p1, 1), endRow - startRow + 1)
                 for row in stride(from: endRow, through: startRow + n, by: -1) {
                     if row - n >= startRow {
                         terminalCells[row] = terminalCells[row - n]
@@ -2242,6 +2306,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             if escapeParams.isEmpty {
                 // ESC[m = reset
                 currentAttr = 0x07
+                reverseVideo = false
             } else {
                 for param in escapeParams {
                     applySGR(param)
@@ -2308,19 +2373,29 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         }
     }
 
+    /// Exchange the foreground and background nibbles of a CGA attribute byte.
+    /// Lossy by nature - the background is three bits - which is why this is
+    /// only ever applied on the way to a cell, never stored back in currentAttr.
+    private static func swapNibbles(_ attr: UInt8) -> UInt8 {
+        let fg = attr & 0x0F
+        let bg = (attr >> 4) & 0x07
+        return (fg << 4) | bg
+    }
+
     /// Apply SGR (Select Graphic Rendition) parameter
     private func applySGR(_ param: Int) {
         switch param {
         case 0: // Reset
             currentAttr = 0x07
+            reverseVideo = false
         case 1: // Bold (use bright colors)
             currentAttr |= 0x08
-        case 7: // Reverse video
-            let fg = currentAttr & 0x0F
-            let bg = (currentAttr >> 4) & 0x07
-            currentAttr = (fg << 4) | bg
-        case 27: // Reverse off
-            currentAttr = 0x07
+        case 22: // Normal intensity - bold off
+            currentAttr &= ~0x08
+        case 7: // Reverse video - a toggle, not a swap: SGR 7 twice is still reverse
+            reverseVideo = true
+        case 27: // Reverse off - the colours underneath were never disturbed
+            reverseVideo = false
         case 30...37: // Foreground colors
             let color = UInt8(param - 30)
             currentAttr = (currentAttr & 0xF0) | color
@@ -2369,7 +2444,9 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
     func emulatorVDASetAttr(_ attr: UInt8) {
         // Attr is CGA-style: bits 0-3 = foreground, bits 4-6 = background, bit 7 = blink
         DispatchQueue.main.async {
+            // This replaces the whole byte, so any SGR 7 swap is gone with it.
             self.currentAttr = attr
+            self.reverseVideo = false
         }
     }
 

@@ -1,5 +1,103 @@
 # Changelog
 
+## Version 1.5.1 (Build 49)
+
+### Synced to the romwbw_emu v1.36 core - control keys belong to the guest
+
+Takes the v1.35 -> v1.36 migration notice
+(`romwbw_emu/docs/DOWNSTREAM_2026-08-23.md`). The sweep behind it started with a
+Windows user reporting "Ctrl R exits me from CPM"; `^R` was already clean here,
+but the same shape of bug was not.
+
+- **Ctrl with anything that is not a letter now reaches CP/M.** The only Ctrl
+  keys that ever arrived were `a`-`z`, because 26 `UIKeyCommand`s were the whole
+  mechanism and every other Ctrl press was dropped on the floor. `Ctrl+[` (ESC),
+  `Ctrl+\`, `Ctrl+]`, `Ctrl+^`, `Ctrl+_`, `Ctrl+@` and `Ctrl+Space` (NUL),
+  `Ctrl+?` and `Ctrl+Backspace` (DEL), and every `Ctrl+Shift+letter` now fold to
+  their ASCII control byte in one place. The 26 key commands are kept for Mac
+  Catalyst, where claiming a key explicitly is the reliable way to keep AppKit's
+  own Ctrl-letter bindings away from the WordStar diamond.
+- **`Ctrl+J` was indistinguishable from Enter.** Two separate LF -> CR rewrites
+  sat on the input path, one in `queueInput` and one in `emu_console_queue_char`.
+  Nothing needed them: every key that means Enter already sends CR. They ate the
+  only 0x0A a user could produce - `Ctrl+J`, and a key map binding spelled
+  `\n` - so both are gone and the mapping now happens once, in `insertText`,
+  where the software keyboard's Return genuinely does arrive as LF. This is the
+  same audit v1.36 ran on its own tty read path.
+- **Escape claims priority over system behaviour on Mac Catalyst**, where ESC is
+  also the leave-full-screen gesture. `keyCommands` now returns nothing while a
+  dialog has the keyboard, so a priority Escape cannot outrank the alert it is
+  meant to dismiss.
+- **A dialog now really does hold the keyboard.** The terminal stays first
+  responder underneath a dialog and its key commands are the first UIKit
+  consults, so Escape and Return were reaching CP/M instead of dismissing.
+  Only the disk-overwrite warning ever suppressed capture; the error alert -
+  including the ROM-failure alert added below - never did. All three dialogs
+  drawn over the terminal now do.
+- **Reset asks first.** The toolbar Reset button sits next to Play/Stop, and a
+  cold boot drops the running program and the entire scrollback. It is now
+  behind a confirmation, whether or not the machine is running - the history is
+  wiped either way. This is the fourth bullet of the new upstream contract,
+  "Platform Contract: Ctrl-A..Ctrl-Z Belong to the Guest", reached by a tap
+  rather than by a key.
+- **The dead `emu_console_check_ctrl_c_exit()` stub is deleted.** Upstream
+  removed the declaration in v1.36; nothing ever called it in any port, and a
+  dead function that looks like a live `^C` interception is a trap for the next
+  person auditing exactly that question. `emu_console_check_escape()` stays - it
+  is still declared and still live for the CLI - and its comment now records
+  that iOSCPM reserves no key, which is what the contract asks of the
+  `escape_char == 0` case.
+- `keyboard.ctrlRToCpm` from the Windows port is deliberately **not** ported:
+  there is nothing here to switch off.
+
+### A ROM that fails to load no longer starts the CPU
+
+- **`loadSelectedResources()` reported a failed ROM and returned anyway**, so
+  `start()` ran the Z80 over whatever bank 0 happened to hold and the status
+  line said "Running". It now returns a result and Start honours it. A disk that
+  fails to load is still non-fatal - booting with no disk is legitimate.
+- **The reason survives.** All three failure modes - not in the app bundle,
+  unreadable, or rejected by the core's HCB validation - reported "not found",
+  which sends people hunting for a file that is right there. The bridge now
+  validates with `emu_validate_rom_hcb()` before loading and keeps the message,
+  so a corrupt or wrong-release ROM says so.
+
+### Terminal fixes
+
+- **`ESC[nM` (Delete Line) could crash the app.** With `n` larger than the
+  distance from the cursor to the bottom of the scrolling region, the loop bound
+  fell below its start and the Swift `Range` trapped. `n` is now clamped to the
+  region for both DL and IL - deleting more lines than exist just clears it.
+- **Reverse video was destructive.** `SGR 7` swapped the colour nibbles in
+  place with no record that it had, so a second `SGR 7` swapped back, and
+  `SGR 27` gave up and reset to white-on-black - throwing away whatever colours
+  were set. Reverse is now a flag, and the swap happens on the way to a cell
+  rather than being stored, so it is a clean toggle and the colours underneath
+  are never disturbed. That also fixes a loss the in-place swap could not avoid:
+  the background nibble is three bits, so a bright foreground did not survive a
+  round trip through it. The flag is cleared wherever the whole attribute byte
+  is replaced, including the HBIOS `VDASetAttr` path. `SGR 22` (bold off) is
+  implemented.
+- **CSI parsing is bounded.** Digit and parameter counts are capped and parsed
+  values clamped, matching the Windows port, so a runaway guest cannot grow the
+  parser's state without limit.
+
+### Build and housekeeping
+
+- **The Z80 decoder no longer pays for tracing it never uses.** `QKZ80_NO_TRACE`
+  is defined for both configurations; nothing in this port ever calls
+  `set_trace()`. Follows `cpmemu` `06262ff`.
+- **About shows the RomWBW pin** (`3.5.1`) beside the app version. A disk slice
+  built by a different release prints an HBIOS/CBIOS mismatch, so it is the
+  first thing worth asking for in a bug report.
+- Documentation audit against the sibling ports: the README credited RomWBW as
+  MIT where the attestation filed with Apple says GPL-3.0-or-later; the stated
+  minimum OS predated the iOS 15 deployment target; `docs/DISK_CATALOG_PINNING.md`
+  still described iOS as the unpinned outlier three weeks after the pin shipped;
+  the root `disks.xml` was three catalog versions stale and carried the
+  pre-W8-fix combo hash. `KNOWN_PROBLEMS.md` gains a Keyboard section recording
+  the decisions from this sweep that are deliberate and must not be re-flagged.
+
 ## Version 1.5.1 (Build 48)
 
 ### Disk capacity is no longer narrowed silently (shared core)

@@ -1,26 +1,32 @@
 # iOS: pin the disk catalog to an explicit ioscpm release
 
-**Status:** Code change applied in `EmulatorViewModel.swift` (pinned to `v1.4.5`);
-syntax-verified and the pinned `disks.xml` + `hd1k_combo.img` URLs both return 200.
+**Status:** Done. Applied in `4be8a13` (2026-07-25, v1.5.1 build 42):
+`EmulatorViewModel.swift` builds both the catalog URL and the download base from
+a single `releaseTag = "v1.4.5"`. Every build from 43 on has shipped with it.
+The pinned `disks.xml` + `hd1k_combo.img` URLs both return 200.
 Mismatch check (verify step 3) **confirmed**: the pinned v1.4.5 Combo (sha256
 `be19984e…`, byte-exact to disks.xml) boots against the shipped `emu_avw.rom`
 (HBIOS SYSVER 0x3510 = v3.5.1.0) with CBIOS v3.5.1 and **no** HBIOS/CBIOS
 mismatch banner — verified headlessly in the native `romwbw_emu` CLI, which
 shares the exact core the iOS app compiles (see memory `ioscpm-native-boot-verify`).
-Remaining: on-device **Build & run** in the app UI (verify step 1) once the iOS
-platform SDK finishes installing. Low risk, one file.
-**Why now:** the Windows (z80cpmw) and Android (cpmdroid) ports pin the disk
-catalog to an explicit release tag; iOS is the only port still floating on
-`releases/latest`. This doc says exactly what to change and why.
+**Why:** the Windows (z80cpmw) and Android (cpmdroid) ports already pinned the
+disk catalog to an explicit release tag; iOS was the last port floating on
+`releases/latest`. This doc records what changed and why.
 
 ---
 
 ## Background
 
-All three clients embed the **same** `emu_avw.rom` (sha256 `75990ada…`, which
-identifies as **RomWBW HBIOS v3.5.1**). The disk images they download must be
-built from a matching RomWBW version, or CP/M prints
-`*** WARNING: HBIOS/CBIOS Version Mismatch ***` at cold boot.
+All three clients embed the **same** `emu_avw.rom` (sha256 `c7abc580…`, which
+identifies as **RomWBW HBIOS v3.5.1**). That hash changed in `8cb26f9`
+(shipped in build 45), which refreshed the bundled ROM from `romwbw_emu` v1.35
+so it reproduces from `src/emu_hbios.asm`; the RomWBW version it reports did
+**not** change, and the file is now byte-identical to
+`romwbw_emu/roms/emu_avw.rom`.
+
+The disk images the clients download must be built from a matching RomWBW
+version, or CP/M prints `*** WARNING: HBIOS/CBIOS Version Mismatch ***` at cold
+boot.
 
 To guarantee that match, the disk catalog is **pinned** to one explicit ioscpm
 release instead of `latest`:
@@ -29,37 +35,28 @@ release instead of `latest`:
 |---|---|---|
 | Windows (z80cpmw) | `DiskCatalog.cpp` → `RELEASE_TAG` | pinned `v1.4.5` |
 | Android (cpmdroid) | `DiskCatalogRepository.kt` → `RELEASE_TAG` | pinned `v1.4.5` |
-| **iOS (this app)** | `EmulatorViewModel.swift` | **floating `latest`** ← the outlier |
+| iOS (this app) | `EmulatorViewModel.swift` → `releaseTag` | pinned `v1.4.5` |
 
 `v1.4.5` is a published release (a prerelease mirror of `v1.4.11`, carrying the
 v3.5.1 disk set with the w8-fixed combo). It is intentionally marked
 **prerelease** so it does **not** become the repo's "Latest".
 
-### The risk of leaving iOS on `latest`
+### Why it was pinned
 
-Today `latest` = `v1.4.11` = CBIOS v3.5.1, so iOS happens to match. But the day
-a **v3.6.0** ioscpm release is published as a *normal* (non-prerelease) release,
-it becomes "Latest" and the iOS app would immediately start downloading v3.6.0
-disks against its **v3.5.1** ROM → mismatch warning on every download, on every
-already-installed iOS client. Pinning removes that trap: the disks can't change
-under an installed client until you deliberately bump the tag and ship a new
-build.
+While iOS floated, `latest` = `v1.4.11` = CBIOS v3.5.1, so it happened to match.
+But the day a **v3.6.0** ioscpm release is published as a *normal*
+(non-prerelease) release, it becomes "Latest", and a floating client would
+immediately start downloading v3.6.0 disks against its **v3.5.1** ROM →
+mismatch warning on every download, on every already-installed client. The pin
+removes that trap: the disks can't change under an installed client until the
+tag is deliberately bumped and a new build ships.
 
 ---
 
-## The change
+## The change (applied)
 
-File: **`iOSCPM/Views/EmulatorViewModel.swift`**
-
-Find these two constants (currently near line 124):
-
-```swift
-    // Downloadable disk catalog - fetched from disks.xml in GitHub releases
-    private static let catalogURL = "https://github.com/avwohl/ioscpm/releases/latest/download/disks.xml"
-    private static let releaseBaseURL = "https://github.com/avwohl/ioscpm/releases/latest/download"
-```
-
-Replace with (matching the cpmdroid comment/pattern):
+File: **`iOSCPM/Views/EmulatorViewModel.swift`**, as shipped (near line 123 —
+the comment/pattern matches cpmdroid's):
 
 ```swift
     // Downloadable disk catalog - pinned to an explicit ioscpm release (matching
@@ -72,20 +69,19 @@ Replace with (matching the cpmdroid comment/pattern):
     private static let releaseBaseURL = "https://github.com/avwohl/ioscpm/releases/download/\(releaseTag)"
 ```
 
-### Watch the URL shape — it is NOT a plain `latest → v1.4.5` substitution
+It replaced two constants that hard-coded `…/releases/latest/download/…`.
 
-The path segments reorder between the two forms:
+### The URL shape — it is NOT a plain `latest → v1.4.5` substitution
+
+Worth remembering when the tag is next bumped: the path segments reorder
+between the two forms.
 
 - floating: `…/releases/`**`latest/download`**`/<asset>`
 - pinned:   `…/releases/`**`download/v1.4.5`**`/<asset>`
 
-Keep `releaseBaseURL`'s **trailing-slash convention identical to the current
-line** (no trailing slash) so the existing download code that appends
-`"/<filename>"` keeps producing correct URLs.
-
-> If the Swift compiler objects to one `static let` referencing another in its
-> initializer, just inline the tag into both strings (e.g.
-> `".../releases/download/v1.4.5/disks.xml"`). Functionally identical.
+`releaseBaseURL` keeps the same **trailing-slash convention as the floating
+line it replaced** (no trailing slash), so the download code that appends
+`"/<filename>"` still produces correct URLs.
 
 ---
 
@@ -122,11 +118,11 @@ content isn't version-locked to the ROM; disk images are).
 
 When the stack is rebuilt to RomWBW v3.6.0, do it in lockstep across all ports:
 
-1. Build the v3.6.0 `emu_avw` ROM (a v3.6.0 `SBC_simh_std_v360.rom` exists in
-   `romwbw_emu/roms`, but the `emu_avw` v3.6.0 build does not yet) and rebuild
-   the disk set from v3.6.0.
-2. Cut a **new** ioscpm tag (e.g. `v1.5.0`) — do **not** reuse `v1.4.5` (the
-   installed v3.5.1 fleet is hardwired to it).
+1. Build the v3.6.0 `emu_avw` ROM (a v3.6.0 `SBC_simh_std_v360.rom` is parked in
+   `romwbw_emu/archive/romwbw-v3.6.0/`, but the `emu_avw` v3.6.0 build does not
+   yet exist) and rebuild the disk set from v3.6.0.
+2. Cut a **new** ioscpm tag (e.g. `v1.6.0`; the app already ships v1.5.1) — do
+   **not** reuse `v1.4.5` (the installed v3.5.1 fleet is hardwired to it).
 3. Bump the pinned tag in **all three**: z80cpmw `DiskCatalog.cpp`, cpmdroid
    `DiskCatalogRepository.kt`, and this iOS constant.
 4. Rebuild and ship all three apps with the v3.6.0 ROM.

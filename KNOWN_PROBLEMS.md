@@ -3,16 +3,20 @@
 ## Disk Creation
 
 ### Limited Disk Size Support
-Currently only two disk sizes are supported. Need the ability to create disks of arbitrary/correct sizes.
+New disks created in the app are always 8 MB (`EmulatorViewModel.defaultDiskSize`).
+`createNewDisk(at:size:)` takes a `size:` argument, but no caller passes one and there
+is no size picker in the UI. Imported disks are accepted up to 64 MB (`maxDiskSize`).
+Need a size chooser so disks of arbitrary/correct sizes can be created.
 
 ### Proper Disk Initialization
 When creating a new disk, it should be properly initialized with:
-- E5 deleted flags in the directory entries
 - Correct magic numbers for the disk format
 
 ### Creating Disks on Linux (Workaround)
 
-Until disk creation is added to the app UI, you can create properly formatted HD1K disk images on Linux.
+The app can create a blank disk in place (Settings -> Disk N -> "Create New..."), but all
+it produces is an 8 MB image filled with 0xE5 - it does not lay down an HD1K filesystem.
+For a properly formatted image, or a multi-slice one, build it on Linux with cpmtools.
 
 **Install cpmtools:**
 ```bash
@@ -87,14 +91,75 @@ For multi-slice disks, use slice-specific definitions (`wbw_hd1k_0`, `wbw_hd1k_1
 
 ## User Data Persistence
 
-### Exporting User-Modified Disks
-If a user downloads a disk to the iPad and adds their own files to it, there is currently no way to get that modified disk off the iPad.
-
 ### Data Loss Risk with GitHub Disks
 Disks downloaded from GitHub are writable, allowing users to store data in them. However, this data can be lost at any time if a new version of the disk is released and downloaded, overwriting the user's changes.
 
 **Potential solutions to consider:**
 - Copy-on-write: Create a local copy when user first modifies a downloaded disk
 - Separate user disks from system/downloaded disks
-- Warn users before overwriting modified disks
-- Provide disk export functionality (share sheet, Files app integration)
+
+## Keyboard
+
+Decisions from the ^R sweep (a Windows user reported "Ctrl R exits me from
+CP/M"; ioscpm turned out to be clean). These are settled behaviours, not open
+problems, apart from the one open item marked as such - recorded here so the
+next audit does not re-flag the rest. All of it lives in
+`iOSCPM/Views/TerminalView.swift` unless noted.
+
+### Alt/Option is not a meta key, on purpose
+Option is absent from the modifier guard in `pressesBegan`, so an Option combo
+falls through to `key.characters` and is treated as ordinary text. What happens
+next depends on the layout:
+
+- the layout composes a non-ASCII glyph (US Option+R -> "®"): it reaches
+  `EmulatorViewModel.sendKey`, where `guard let code = char.asciiValue` drops it;
+- the layout has a dead key there (US Option+E/U/I/N/`): `key.characters` is
+  empty and nothing is sent;
+- the layout output is plain ASCII (German Mac Option+L -> "@"): it passes
+  through to the guest, which is exactly right.
+
+We are deliberately not adding a meta convention on top of that. Setting bit 7
+is wrong because CP/M console input is 7-bit and WordStar uses bit 7 as its own
+end-of-word marker inside text. ESC-prefixing is a Unix/Meta convention with no
+meaning to CP/M, and it would collide with the VT100/VT52 dialect handling.
+z80cpmw maps Alt nowhere either: it has no `WM_SYSCHAR` handler at all, and its
+`WM_SYSKEYDOWN` case handles only a bound F10 before falling through to
+`DefWindowProc`, so every Alt combo lands there. Pass-through of an
+ASCII-composing Option combo is the correct behaviour for a 7-bit guest.
+
+### Nav keys ignore their modifiers
+`pressesBegan` excludes only Command before resolving `specialKey(for:)`, which
+switches on the HID usage alone, so Ctrl+Left and Shift+Up emit the same bytes
+as the bare key. z80cpmw does the same thing - `m_keymap.find(wParam)` on the
+virtual-key code alone (`z80cpmw/TerminalView.cpp`) - so this is cross-port
+behaviour, not an ioscpm defect. The binding schema has no slot for a modified
+variant anyway: `SpecialKey` is a flat 10-case enum and `KeyMap.bindings` is
+`[SpecialKey: String]`, and none of the WordStar / VT100 / VT52 profiles defines
+a modified arrow. Adding one would be a schema change on both ports.
+
+Open, small: `cpmemu` is the exception in the family. Its Windows console
+translates Ctrl+Left/Right/Up/Down to ^A / ^F / ^W / ^Z - WordStar word left,
+word right, scroll up, scroll down - in the `extended_keys` table of
+`src/os/windows/platform.cc`. z80cpmw has no equivalent (its `Keymap.h` names
+only `left` / `right`), so this is a cpmemu-only capability rather than a
+contract ioscpm is behind on, and all four bytes are already reachable here by
+typing Ctrl+A / Ctrl+F / Ctrl+W / Ctrl+Z. If it is ever wanted, it is four more
+`SpecialKey` cases plus defaults for stored custom profiles - worth doing only
+the next time the keyboard settings screen is open, and on iPadOS only, per the
+Mac Catalyst note below.
+
+### Ctrl+Home / Ctrl+End and Shift+PageUp / Shift+PageDown belong to the host
+Those four are consumed for scrollback navigation and never forwarded to the
+guest. Intended. Plain PageUp/PageDown are untouched and still send ^R/^C under
+the WordStar profile, so nothing the guest needs is lost, and it matches
+z80cpmw, which tests the same four combinations ahead of its keymap lookup.
+
+### Ctrl+arrow never arrives on Mac Catalyst
+macOS binds Ctrl+arrow to Mission Control (move left/right a space, Mission
+Control, application windows) at the WindowServer level, so the presses are
+consumed before any app sees them; no app-side flag recovers them.
+`wantsPriorityOverSystemBehavior` works on `UIKeyCommand`s, and these are not
+key commands - they arrive, or fail to arrive, through `pressesBegan`. Nothing
+in the app rejects them: the nav branch excludes only Command. On iPadOS, where
+the system does not claim them, they resolve to the plain arrow binding as
+described above.

@@ -17,6 +17,9 @@ The published **v1.4.5** `hd1k_combo.img` slice 0 (CP/M 2.2, the disk the app
 boots by default) carried the **broken** 1024-byte `w8.com`. The combo's other
 slices already had the fixed build. `hd1k_infocom.img` in romwbw_emu is fixed.
 
+That combo has since been patched and re-uploaded — the v1.4.5 release now
+serves the fixed one. See "Update the catalog and upload" below.
+
 Note: `cpmemu/util/cpm_disk.py` reads/writes **single hd1k** images correctly
 but its **combo** extract/add path is unreliable (it returned the wrong slice's
 `w8.com`). Always patch a combo via the dd-slice method below, never the combo
@@ -28,6 +31,8 @@ path directly.
 CPM=~/src/cpmemu/util/cpm_disk.py
 
 # 1. Get the current published combo and a known-good fixed w8.com
+#    (v1.4.5 now serves the already-fixed combo; this recipe is kept as the
+#     method for patching any future combo respin)
 gh release download v1.4.5 --repo avwohl/ioscpm --pattern hd1k_combo.img --clobber
 mkdir -p fixw8 && (cd fixw8 && python3 "$CPM" extract ~/src/romwbw_emu/disks/hd1k_infocom.img W8.COM)
 # fixw8/w8.com is the fixed 1280-byte build (contains fe41d8fe5bd0c620)
@@ -57,22 +62,40 @@ A verified build produced during the 2026-07-22 session has:
 (size unchanged: 51380224 bytes). Re-verify after re-running — the hash is
 stable only if the same published combo and fixed w8.com are used.
 
-## Update the catalog and upload (release-management step — do by hand)
+## Update the catalog and upload — DONE (catalog 3c10095, 2026-07-22)
 
-The app downloads `disks.xml` from `releases/latest/download/` and verifies each
-image's SHA-256 against it, so the image and catalog must be uploaded **together**.
+**Both halves of this step are already applied; nothing here is outstanding.**
+`release_assets/disks.xml` is `<disks version="13">` with the combo
+`<sha256>be19984edbcbb901973c268b870587235ea128e3c5e13b80a35d8c9488ec6d6e</sha256>`
+(bumped 12 → 13 in 3c10095, 2026-07-22), and the `v1.4.5` release assets
+— uploaded 2026-07-25 — serve that same catalog byte-for-byte (sha256
+`6ae94b8c…`) together with the 51380224-byte fixed combo.
 
-1. In `release_assets/disks.xml` (the uploaded catalog, currently `version="12"`):
+The app downloads `disks.xml` from the pinned `releases/download/v1.4.5/`
+(`releaseTag` in `EmulatorViewModel.swift:128`; see `docs/DISK_CATALOG_PINNING.md`)
+and verifies each image's SHA-256 against it, so the image and catalog must be
+uploaded **together**.
+
+The two steps below are kept only as the recipe for a **future** combo respin.
+Do not re-run them against what is shipped now.
+
+1. In `release_assets/disks.xml` (the uploaded catalog):
    - set the `hd1k_combo.img` `<sha256>` to the new hash from step 4,
-   - bump the `<disks version="…">` attribute (12 → 13) so clients re-download
-     the fixed combo (the app invalidates cached disks on a version change).
+   - bump the `<disks version="…">` attribute from whatever version is live —
+     do **not** re-bump 13, that is the current shipped value — so clients
+     re-download the new combo (the app invalidates cached disks on a version
+     change).
 2. Upload both to the release:
    ```bash
    gh release upload <tag> --repo avwohl/ioscpm --clobber \
      hd1k_combo_fixed.img#hd1k_combo.img disks.xml
    ```
-   (Consider cutting a fresh release tag matching the app version, e.g. v1.4.11 —
-   the release is currently v1.4.5.)
+   Do **not** cut a fresh tag just to match the app version. `v1.4.5` is a
+   deliberate prerelease pin that the installed v3.5.1 fleet is hardwired to; a
+   new tag is cut only for the RomWBW v3.6.0 upgrade, in lockstep across all
+   three ports — see `docs/DISK_CATALOG_PINNING.md`. Bumping the tag also means
+   bumping `releaseTag` in `EmulatorViewModel.swift:128` and shipping a new app
+   build, or no installed client will ever see it.
 
 ## Remaining audit (likely unnecessary)
 

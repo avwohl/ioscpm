@@ -8,7 +8,12 @@ This app does **not** collect, store, or transmit any personal data.
 
 ## Network Usage
 
-The app connects to GitHub (`github.com`) solely to download CP/M disk images when you request them. No user data is sent during these downloads.
+The app connects to GitHub (`github.com`) to download three things: the disk
+catalog (`disks.xml`), the CP/M disk images you select from it, and the in-app
+help topic index and articles. Nothing else is fetched. These are plain HTTPS
+GETs of public release assets - no account, no identifier and no user data is
+sent, beyond the request itself and whatever your network stack normally
+includes (your IP address and the URL being requested).
 
 ## Local Storage
 
@@ -31,4 +36,4 @@ https://github.com/avwohl/ioscpm/issues
 
 This privacy policy may be updated occasionally. Changes will be posted to this repository.
 
-*Last updated: December 2024*
+*Last updated: August 2026*

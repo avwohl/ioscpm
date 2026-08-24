@@ -117,7 +117,12 @@ int emu_console_read_char() {
 
 void emu_console_queue_char(int ch) {
   std::lock_guard<std::mutex> lock(g_input_mutex);
-  if (ch == '\n') ch = '\r';  // LF -> CR for CP/M
+  // No LF -> CR rewrite here. Every producer that means Enter already sends CR
+  // (TerminalView's insertText, enterPressed and pasteText all do the mapping
+  // at the source), so a 0x0A arriving at this depth is a genuine Ctrl+J - or a
+  // key map binding spelled "\n" - and rewriting it would make the two keys
+  // indistinguishable. Same audit romwbw_emu v1.36 did for its tty read path;
+  // see docs/DOWNSTREAM_2026-08-23.md section 2.
   g_input_queue.push(ch);
 }
 
@@ -148,12 +153,12 @@ void emu_console_write_char(uint8_t ch) {
 }
 
 bool emu_console_check_escape(char escape_char) {
-  // Not implemented for iOS - escape handled in UI
-  return false;
-}
-
-bool emu_console_check_ctrl_c_exit(int ch, int count) {
-  // Not implemented for iOS
+  // iOSCPM reserves no key for the emulator. Every Ctrl-letter is folded to
+  // 0x01-0x1A and handed to the guest, and nothing in the UI intercepts an
+  // emulator escape, so this consumes nothing and returns false for every
+  // escape_char - which is exactly what the v1.36 contract requires of the
+  // escape_char == 0 case. Only the CLI frontend calls this; the stub is here
+  // to satisfy the shared-core platform contract.
   return false;
 }
 

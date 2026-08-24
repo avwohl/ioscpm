@@ -54,10 +54,20 @@ typedef NS_ENUM(NSInteger, RWBControlifyMode) {
 // Initialization
 - (instancetype)init;
 
+/// The RomWBW release the emulator core is pinned to (romwbw_pin.h). Disk
+/// slices built by a different release print an HBIOS/CBIOS version mismatch,
+/// so this is worth showing to anyone reporting one.
++ (NSString*)romWBWPin;
+
 // ROM loading
 - (BOOL)loadROMFromBundle:(NSString*)filename;
 - (BOOL)loadROMFromPath:(NSString*)path;
 - (BOOL)loadROMFromData:(NSData*)data;
+
+/// Why the last ROM load failed, or nil after a successful load. The three
+/// failure modes - not in the bundle, unreadable, rejected by the core's HCB
+/// validation - are otherwise indistinguishable to the caller.
+@property (readonly, copy, nonatomic, nullable) NSString* lastROMError;
 
 // Disk management
 - (BOOL)loadDisk:(int)unit fromBundle:(NSString*)filename;

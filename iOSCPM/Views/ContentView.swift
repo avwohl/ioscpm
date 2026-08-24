@@ -29,6 +29,16 @@ struct ContentView: View {
     @State private var showingSettings = false
     @State private var showingAbout = false
     @State private var showingHelp = false
+    @State private var showingResetConfirm = false
+
+    /// True while something modal is drawn over the terminal. The terminal view
+    /// is still the first responder underneath, and its key commands are the
+    /// first UIKit consults, so without this Escape and Return reach CP/M
+    /// instead of dismissing the dialog. Sheets are not listed: they cover the
+    /// terminal entirely and present their own responder.
+    private var modalHasKeyboard: Bool {
+        viewModel.showingManifestWriteWarning || viewModel.showingError || showingResetConfirm
+    }
 
     var body: some View {
         NavigationView {
@@ -44,7 +54,7 @@ struct ContentView: View {
                     onScroll: { delta in viewModel.adjustScrollback(byLines: delta) },
                     onSpecialKey: { key in viewModel.sendSpecialKey(key) },
                     isControlifyActive: viewModel.isControlifyActive,
-                    captureKeyboard: !viewModel.showingManifestWriteWarning,
+                    captureKeyboard: !modalHasKeyboard,
                     showCursor: !viewModel.isScrolledBack,
                     rows: viewModel.terminalRows,
                     cols: viewModel.terminalCols,
@@ -151,9 +161,19 @@ struct ContentView: View {
                     }
 
                     Button {
-                        viewModel.reset()
+                        showingResetConfirm = true
                     } label: {
                         Image(systemName: "arrow.counterclockwise")
+                    }
+                    // Anchored on the button so the iPad/Catalyst popover points
+                    // at the control the user tapped.
+                    .confirmationDialog("Reset the machine?",
+                                        isPresented: $showingResetConfirm,
+                                        titleVisibility: .visible) {
+                        Button("Reset", role: .destructive) { viewModel.reset() }
+                        Button("Cancel", role: .cancel) { }
+                    } message: {
+                        Text("Stops the machine, clears the scrollback and returns it to the power-on state. Disk changes are saved first; press Play to boot again.")
                     }
 
                     Menu {
@@ -331,6 +351,13 @@ struct AboutView: View {
                     .fontWeight(.bold)
 
                 Text("Version \(appVersion) (\(appBuild))")
+                    .foregroundColor(.secondary)
+
+                // The RomWBW release the core emulates. A disk slice built by a
+                // different release prints an HBIOS/CBIOS version mismatch, so
+                // this is the first thing to ask for in a bug report.
+                Text("RomWBW \(RomWBWEmulator.romWBWPin()) core")
+                    .font(.caption)
                     .foregroundColor(.secondary)
 
                 Text("Z80/CP/M emulator for iOS and macOS")

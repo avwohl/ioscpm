@@ -163,7 +163,9 @@ void HBIOSEmulator::setControlify(ControlifyMode mode) {
 }
 
 void HBIOSEmulator::queueInput(int ch) {
-  if (ch == '\n') ch = '\r';  // LF -> CR for CP/M
+  // A 0x0A that reaches here is a real Ctrl+J, not an Enter - the UI layer
+  // already sends CR for every key that means Enter. See the note in
+  // emu_console_queue_char().
 
   // Apply controlify conversion if active
   if (controlify_mode != CTRL_OFF) {

@@ -6,11 +6,15 @@ A Z80/CP/M emulator for iPhone, iPad, and Mac, built on the [RomWBW](https://git
 
 - **Full Z80 emulation** with accurate instruction timing
 - **RomWBW HBIOS** compatibility for authentic CP/M experience
-- **VT100/ANSI terminal** with escape sequence support (runs Zork, WordStar, etc.)
+- **VT100/ANSI and VT52 terminal** with escape sequence support (runs Zork, WordStar, etc.)
+- **Terminal scrollback** - configurable history (off, or 500, 1000, 2000, 5000, 10000 lines); drag the screen, two-finger trackpad drag or mouse wheel, or Shift+PageUp/PageDown and Ctrl+Home/End on a hardware keyboard
+- **Configurable key map** - WordStar, VT100/ANSI and VT52 profiles for the navigation keys, or per-key custom bindings
 - **Multiple disk support** - up to 4 disk units with hd1k format (8MB slices)
-- **Download disk images** from RomWBW project - no bundled copyrighted content
+- **Download disk images** on demand, SHA-256 verified - no bundled copyrighted content
+- **Host file transfer** - R8 and W8 move files between CP/M and the app's Imports and Exports folders; "Import File… (for R8)" stages host files there
 - **Local file support** - open, create, and save disk images
 - **NVRAM boot configuration** - auto-boot settings persist across sessions
+- **Built-in help** - 7 topics covering quick start, R8/W8 file transfer, and the CP/M 2.2, ZSDOS, NZCOM, ZPM3 and QPM disks
 - **Mac Catalyst** - runs natively on macOS
 
 ## Screenshots
@@ -48,7 +52,11 @@ To clear auto-boot settings, go to Settings and tap "Clear Auto-Boot".
 
 ## Disk Images
 
-Disk images are downloaded from the official [RomWBW](https://github.com/wwarthen/RomWBW) project:
+Disk images are built from [RomWBW](https://github.com/wwarthen/RomWBW) v3.5.1 material and
+distributed from this repository's own GitHub release. The catalog and the images are fetched
+from the tag `v1.4.5`, pinned on purpose: the core's HBIOS identifies as RomWBW v3.5.1, and
+disks from a different RomWBW release print an HBIOS/CBIOS mismatch at boot. Every download is
+checked against the SHA-256 in `disks.xml`. The catalog carries 20 images; a selection:
 
 | Disk | Description | License |
 |------|-------------|---------|
@@ -87,7 +95,7 @@ This project uses code from sibling directories:
 - `../cpmemu/src/` - qkz80 Z80 CPU emulator
 - `../romwbw_emu/src/` - HBIOS dispatch, memory banking
 
-### VT100 Terminal Emulation
+### Terminal Emulation
 
 The terminal supports ANSI/VT100 escape sequences:
 - Cursor positioning (`ESC[row;colH`)
@@ -96,6 +104,12 @@ The terminal supports ANSI/VT100 escape sequences:
 - Cursor save/restore (`ESC 7`, `ESC 8`)
 
 This enables proper display for applications like Zork that use cursor positioning for status lines.
+
+The VT52 dialect is implemented as well. A session starts in ANSI at power-on and follows DECANM
+(`ESC[?2h` selects ANSI, `ESC[?2l` selects VT52) whenever a program asks explicitly. Otherwise VT52
+is inferred only from `ESC A/B/C/F/G/I/Y`, sequences a VT100-configured program has no reason to
+emit - and deliberately not from `ESC J` or `ESC K`, which are the ordinary erase commands of the
+ADM-3A, Televideo, Hazeltine and Heath families too.
 
 ### Disk Format
 
@@ -109,10 +123,12 @@ Uses RomWBW hd1k format:
 
 ### Requirements
 - Xcode 15+
-- iOS 14+ / macOS 11+ (Mac Catalyst)
+- iOS 15+ / macOS 12+ (Mac Catalyst)
 
 ### Build Steps
-1. Clone sibling projects (cpmemu, romwbw_emu)
+1. Check out the sibling projects `cpmemu` and `romwbw_emu` next to this repo, so all three
+   share a parent directory - the files in `iOSCPM/Core/` are symlinks into `../cpmemu/src/`
+   and `../romwbw_emu/src/`, and the build cannot find its sources without them
 2. Open `iOSCPM.xcodeproj`
 3. Select target device
 4. Build and run
@@ -123,8 +139,9 @@ GPLv3 License
 
 ### Third-Party Licenses
 - **CP/M**: Released by Lineo for non-commercial use
-- **RomWBW**: MIT License
+- **RomWBW**: GNU General Public License v3.0 (GPL-3.0-or-later)
 - **qkz80**: GPL v3 License
+
 ## Related Projects
 
 - [80un](https://github.com/avwohl/80un) - Unpacker for the CP/M archive and compression formats LBR, ARC, squeeze, crunch, and CrLZH.
