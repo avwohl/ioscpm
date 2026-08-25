@@ -4,6 +4,25 @@ Open items only. Finished work is in CHANGELOG.md. What the ^R sweep found that
 was deliberate rather than broken is in the Keyboard section of
 KNOWN_PROBLEMS.md, so the next audit does not re-flag it. What is left:
 
+- build 52 device checks.  Build 52 is a data-loss fix that nothing on a Mac can
+  fully verify: the destructive path runs in the Swift layer against the real
+  sandbox.  Everything below was verified on the host (48 checks, and a
+  before/after against real FileManager calls) but not on a device.  On the
+  first TestFlight build, in this order, with a THROWAWAY disk library:
+    1. W8 ANYFILE.TXT ..    -> refuses or exports to Exports/export.txt.
+       Documents, Disks, Imports must all still be there afterwards.  This is
+       the one that used to delete everything.
+    2. W8 FOO.TXT           -> still exports normally.  The H_CAPS interlock in
+       the new w8.com must NOT fire for a path-less export; if it does, a
+       refreshed disk image would break ordinary transfers.
+    3. W8 FOO.TXT out.txt   -> lands in Exports as out.txt, and the "To host:"
+       line names the real Exports path rather than a bare name.
+    4. R8 NOSUCH.COM        -> reports "not found in Imports".  Before build 52
+       it silently loaded the first file in the folder instead.
+    5. R8 FOO.COM where the file is really foo.com -> still found (case).
+  Note 1 and 2 need a disk image carrying the NEW w8.com, which the catalog does
+  not serve yet - copy one in through Files from romwbw_emu/disks/.
+
 - BLOCKING A RELEASE, and the reason build 52 exists: do not bump releaseTag
   (EmulatorViewModel.swift:128, still v1.4.5) until build 52 or later is what
   users are running.  Refreshing the disk-image catalog is what puts a
