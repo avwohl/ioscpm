@@ -4,6 +4,26 @@ Open items only. Finished work is in CHANGELOG.md. What the ^R sweep found that
 was deliberate rather than broken is in the Keyboard section of
 KNOWN_PROBLEMS.md, so the next audit does not re-flag it. What is left:
 
+- BLOCKING A RELEASE, and the reason build 52 exists: do not bump releaseTag
+  (EmulatorViewModel.swift:128, still v1.4.5) until build 52 or later is what
+  users are running.  Refreshing the disk-image catalog is what puts a
+  path-capable W8 in front of everyone, and before 52 that W8 could delete the
+  whole Documents folder.  The cross-repo order is romwbw_emu's
+  docs/RELEASE_ORDER_2026-08-25.md - this port is step 1, the catalog bump is
+  step 5, and the one thing that must never happen is refreshed images being
+  attached to the EXISTING v1.4.5 tag, which would reach every installed app
+  with no update at all.
+
+- a zero-byte W8 export produces no file on this port.
+  emu_host_file_close_write() (emu_io_ios.mm) goes straight to IDLE when the
+  buffer is empty rather than to WRITE_READY, and emu_host_file_get_write_data()
+  returns nullptr for an empty buffer so checkHostFileState's guard bails out.
+  An empty CP/M file is a real file and the CLI and Windows backends both create
+  it; romwbw_emu fixed the identical thing in its browser backend in v1.36.
+  Left out of build 52 deliberately - that build is a security fix and was kept
+  minimal - so it is a divergence to close next, not a mystery.
+
+
 - needs a live pass on a Mac, which nothing here can substitute for. Run
   WordStar under Catalyst and walk the diamond: ^A ^D ^E ^F ^K ^P ^R ^S ^V ^X ^Y
   and ^QS. The analysis says AppKit's emacs StandardKeyBinding bindings cannot

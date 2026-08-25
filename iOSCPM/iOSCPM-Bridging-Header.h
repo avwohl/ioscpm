@@ -26,7 +26,11 @@ int emu_host_file_get_state_c(void);
 // Get write buffer info (when state == HOST_FILE_WRITE_READY)
 const uint8_t* emu_host_file_get_write_data_c(void);
 size_t emu_host_file_get_write_size_c(void);
+// The effective destination W8 reports to the CP/M user - the full Exports
+// path. Not what you want when joining to a directory; use the leaf below.
 const char* emu_host_file_get_write_name_c(void);
+// Just the file name, already reduced to a single component by the core.
+const char* emu_host_file_get_write_leaf_c(void);
 
 // Clear write data after UI has saved it
 void emu_host_file_write_done_c(void);

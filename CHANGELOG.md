@@ -1,5 +1,76 @@
 # Changelog
 
+## Version 1.5.1 (Build 52)
+
+### W8 could delete the user's disk library
+
+`W8 ANYFILE.TXT ..` destroyed the entire `Documents` folder — `Disks`,
+`Imports` and `Exports`, so every disk image the user had downloaded — and
+reported success to the guest.
+
+Three things lined up. `W8` takes an optional host path and sends it verbatim.
+`emu_host_file_open_write()` stored it unsanitised as the export *filename*.
+And `saveToExportsFolder` then built a destination with
+`exportsDir.appendingPathComponent(name)` followed by
+`try? fm.removeItem(at: destURL)` — where `appendingPathComponent` does **not**
+escape `..`, so the URL resolved to `Documents`, and `removeItem` on it
+succeeds and deletes recursively. The `try?` swallowed the error; the guest was
+told the export succeeded because `emu_host_file_close_write()` returns before
+the Swift layer ever runs.
+
+Reproduced against the shipped logic on a scratch tree, and again after the
+fix: `Documents: GONE` became `Documents: present, disk image intact`.
+
+Fixed in three places, deliberately overlapping, because a check that only
+holds while another layer behaves is not a check:
+
+- **The core reduces the string first.** `emu_host_file_open_write()` now runs
+  it through the shared `emu_host_path_basename()` (new upstream in
+  romwbw_emu v1.36), which takes both separators and never returns `""`, `"."`
+  or `".."`. This alone closes it, and closes it for any future UI layer.
+- **`ExportPath`** (new, `iOSCPM/Views/ExportPath.swift`) owns reducing a guest
+  string to a leaf and proving the result lands directly inside `Exports`. Split
+  out for the reason `TerminalDialect`, `ControlKey` and `KeyMap` were — it
+  touches no UIKit, so it is testable, and this is the one that most needed to
+  be. `Tests/ExportPathTests.swift`, 24 checks, including the ten traversal
+  strings and the two Foundation behaviours that made the old version
+  destructive.
+- **`saveToExportsFolder` no longer calls `removeItem` at all.**
+  `Data.write(to:)` already replaces an existing file; the remove was pure
+  downside.
+
+### R8 imported the wrong file and said nothing
+
+The same unsanitised path on the read side. `R8 /USERS/ME/FOO.COM` built
+`Imports/USERS/ME/FOO.COM`, missed, and then fell back to **the first file in
+the folder** — loading unrelated contents into CP/M under the requested name,
+with a success message on both sides. `../SOMETHING` could also address files
+outside `Imports`.
+
+The core reduces the path to a leaf before the delegate sees it, the lookup
+reduces again, and a miss is now reported instead of substituted. A file whose
+name differs only in case is still found: CP/M's CCP uppercases the whole
+command line, so the guest asks for `FOO.COM` when the file is `foo.com`, and
+the native backend has always resolved that case-insensitively. This now does
+too, which matters on a case-sensitive volume.
+
+### W8 says where the file went
+
+`emu_host_file_get_write_name()` answers with the real `Exports` path rather
+than an echo of the guest's string, so the new upstream `HBF_HOST_GETNAME`
+(0xE8) gives the CP/M user something they can act on — previously `To host:`
+named a path that does not exist anywhere on the device. The Swift layer takes
+the leaf through a separate accessor, `emu_host_file_get_write_leaf_c()`,
+because it joins to `Exports` itself.
+
+### Not in this build, on purpose
+
+`releaseTag` still points at **v1.4.5**. Refreshing the disk-image catalog is
+what puts a path-capable `W8` in front of every user, so it must not happen in
+the same step as, or before, this fix reaching them. The order is written down
+in romwbw_emu's `docs/RELEASE_ORDER_2026-08-25.md`; this build is step 1 of it,
+and the catalog bump is step 5.
+
 ## Version 1.5.1 (Build 51)
 
 ### Three parity gaps closed

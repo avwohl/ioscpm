@@ -113,6 +113,10 @@ run_suite KeyMapTests \
     "$ROOT/iOSCPM/Views/KeyMap.swift" \
     "$ROOT/Tests/KeyMapTests.swift"
 
+run_suite ExportPathTests \
+    "$ROOT/iOSCPM/Views/ExportPath.swift" \
+    "$ROOT/Tests/ExportPathTests.swift"
+
 run_core_suite CoreKeyboardTests \
     "$ROOT/Tests/CoreKeyboardTests.cc"
 

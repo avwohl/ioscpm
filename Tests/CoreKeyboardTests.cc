@@ -98,6 +98,11 @@ int emu_host_file_read_byte() { return -1; }
 bool emu_host_file_write_byte(uint8_t) { return false; }
 void emu_host_file_close_read() {}
 bool emu_host_file_close_write() { return true; }
+// New with the core's HBF_HOST_GETNAME (0xE8): handleEXT() calls this to tell
+// the guest where its export really landed. It asks the state first and this
+// stub is never WRITING, so the name is never read - but the symbol has to
+// exist or the dispatcher does not link.
+const char* emu_host_file_get_write_name() { return ""; }
 
 //=============================================================================
 // Scaffolding

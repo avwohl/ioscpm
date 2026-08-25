@@ -1877,8 +1877,13 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         let state = emu_host_file_get_state_c()
         if state == Int32(HOST_FILE_WRITE_READY.rawValue) {
             // Get file data from emulator
+            // The LEAF, not get_write_name_c(): that one now answers with the
+            // full Exports path, because it is what W8 prints to the CP/M user
+            // (HBF_HOST_GETNAME) and a bare name tells them nothing about where
+            // to look. saveToExportsFolder joins to Exports itself and must not
+            // be handed an absolute path to join.
             guard let dataPtr = emu_host_file_get_write_data_c(),
-                  let namePtr = emu_host_file_get_write_name_c() else {
+                  let namePtr = emu_host_file_get_write_leaf_c() else {
                 emu_host_file_write_done_c()
                 return
             }
@@ -1897,15 +1902,39 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
     /// Write W8 output into the sandbox Documents/Exports folder. Used as the
     /// default (folder) mode and as the fallback when the user cancels the
     /// arbitrary-path save picker, so an export is never silently lost.
+    ///
+    /// `filename` is a guest-supplied string. It arrives already reduced to a
+    /// single leaf component by `emu_host_file_open_write()`, and the two checks
+    /// below assume nothing about that having happened.
+    ///
+    /// What this used to do, and why it does not any more: it took the guest
+    /// string whole, called `appendingPathComponent` on it, and then
+    /// `removeItem` on the result. `appendingPathComponent` does not escape
+    /// `..`, and `removeItem` on a URL ending in `..` succeeds and deletes the
+    /// parent *recursively*. `W8 ANYFILE.TXT ..` therefore destroyed the entire
+    /// Documents folder — Disks, Imports and Exports, so every disk image the
+    /// user had downloaded — while the `try?` swallowed the error and the guest
+    /// was told the export succeeded.
     private func saveToExportsFolder(data: Data, filename: String) {
         let fm = FileManager.default
         let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
         let exportsDir = docs.appendingPathComponent("Exports", isDirectory: true)
         try? fm.createDirectory(at: exportsDir, withIntermediateDirectories: true)
-        let name = filename.isEmpty ? "export.txt" : filename
-        let destURL = exportsDir.appendingPathComponent(name)
+
+        // ExportPath owns both halves - reducing the guest's string to a leaf
+        // and proving the result lands inside Exports - so they can be tested
+        // (Tests/ExportPathTests.swift). The core reduces the string before it
+        // reaches Swift; this assumes nothing about that, because this method
+        // is also reachable from the picker-cancelled path.
+        let name = ExportPath.leafName(from: filename)
+        guard let destURL = ExportPath.destination(for: filename, in: exportsDir) else {
+            statusText = "W8: Refused \(name) — it does not name a file in Exports"
+            return
+        }
+
         do {
-            try? fm.removeItem(at: destURL)
+            // No removeItem: Data.write(to:) replaces an existing file by
+            // itself, and the remove was the call that did the damage.
             try data.write(to: destURL)
             statusText = "W8: Saved \(name) to Exports folder"
         } catch {
@@ -2639,42 +2668,56 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             let importsDir = docs.appendingPathComponent("Imports", isDirectory: true)
             try? fm.createDirectory(at: importsDir, withIntermediateDirectories: true)
 
-            // Look for the requested file, or any file if none specified
-            let filename = suggestedFilename.trimmingCharacters(in: .whitespaces)
+            // The core has already reduced the guest's path to a leaf, and this
+            // reduces again rather than trusting that: the name is about to be
+            // joined to importsDir, and appendingPathComponent does not escape
+            // "..".
+            let requested = (suggestedFilename.trimmingCharacters(in: .whitespaces) as NSString)
+                .lastPathComponent
             var fileURL: URL?
 
-            if !filename.isEmpty {
-                let specificFile = importsDir.appendingPathComponent(filename)
+            if !requested.isEmpty && requested != "." && requested != ".." {
+                let specificFile = importsDir.appendingPathComponent(requested)
                 if fm.fileExists(atPath: specificFile.path) {
                     fileURL = specificFile
-                }
-            }
-
-            // If specific file not found, use first file in folder
-            if fileURL == nil {
-                if let contents = try? fm.contentsOfDirectory(at: importsDir, includingPropertiesForKeys: nil),
-                   let firstFile = contents.first(where: { !$0.lastPathComponent.hasPrefix(".") }) {
-                    fileURL = firstFile
-                }
-            }
-
-            if let url = fileURL {
-                do {
-                    let data = try Data(contentsOf: url)
-                    data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
-                        if let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt8.self) {
-                            emu_host_file_load(ptr, data.count)
-                        }
+                } else if let contents = try? fm.contentsOfDirectory(
+                            at: importsDir, includingPropertiesForKeys: nil) {
+                    // CP/M's CCP uppercases the whole command line, so the guest
+                    // asks for FOO.COM when the file is foo.com. The native
+                    // backend resolves that case-insensitively and so does this;
+                    // it matters on a case-sensitive volume, and costs one scan
+                    // of a flat folder on any other.
+                    fileURL = contents.first {
+                        $0.lastPathComponent.compare(requested,
+                                                     options: .caseInsensitive) == .orderedSame
                     }
-                    self.statusText = "R8: Loaded \(url.lastPathComponent) (\(data.count) bytes)"
-                } catch {
-                    emu_host_file_cancel()
-                    self.statusText = "R8: Error reading \(url.lastPathComponent)"
                 }
-            } else {
+            }
+
+            // Deliberately no "use the first file in the folder" fallback. That
+            // is what this used to do when the requested name did not resolve,
+            // and R8 has no way to notice: it derives the CP/M name from the
+            // path the user typed, so unrelated contents landed in CP/M under
+            // the requested name with a success message on both sides.
+            guard let url = fileURL else {
                 emu_host_file_cancel()
-                self.showError("R8: No files in Imports folder. Put files in:\n\(importsDir.path)")
-                self.statusText = "R8: No files in Imports folder"
+                let what = requested.isEmpty ? "No filename given" : "\(requested) not found"
+                self.showError("R8: \(what) in the Imports folder.\n\nPut the file in:\n\(importsDir.path)")
+                self.statusText = "R8: \(what) in Imports"
+                return
+            }
+
+            do {
+                let data = try Data(contentsOf: url)
+                data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+                    if let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt8.self) {
+                        emu_host_file_load(ptr, data.count)
+                    }
+                }
+                self.statusText = "R8: Loaded \(url.lastPathComponent) (\(data.count) bytes)"
+            } catch {
+                emu_host_file_cancel()
+                self.statusText = "R8: Error reading \(url.lastPathComponent)"
             }
         }
     }

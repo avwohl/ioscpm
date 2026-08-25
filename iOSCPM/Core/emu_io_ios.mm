@@ -382,6 +382,20 @@ extern "C" int emu_host_file_get_state_c() {
   return (int)g_host_file_state;
 }
 
+// Where W8 exports really land. Duplicated from EmulatorViewModel's
+// saveToExportsFolder rather than passed in, because there is no init order in
+// which a setter is guaranteed to have run before the guest's first W8 - and
+// the two computing the same path from the same two constants cannot drift
+// apart the way a stale cached setter value could. If the Swift side ever moves
+// the folder, this moves with it.
+static std::string exports_dir() {
+  NSArray<NSString*>* dirs =
+      NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+  if (dirs.count == 0) return std::string();
+  NSString* path = [dirs[0] stringByAppendingPathComponent:@"Exports"];
+  return std::string([path UTF8String]);
+}
+
 bool emu_host_file_open_read(const char* filename) {
   // Close any existing read operation
   g_host_read_buffer.clear();
@@ -392,7 +406,16 @@ bool emu_host_file_open_read(const char* filename) {
 
   id<EMUIOHostFileDelegate> delegate = (id<EMUIOHostFileDelegate>)g_delegate;
   if (delegate && [delegate respondsToSelector:@selector(emuHostFileRequestRead:)]) {
-    NSString* suggestedName = filename ? [NSString stringWithUTF8String:filename] : @"";
+    // R8 takes a host path and sends it verbatim, so what arrives here can be
+    // "/USERS/ME/DESKTOP/FOO.COM". Imports is a flat folder and there is no
+    // outer-OS path to honour inside the sandbox, so reduce to the leaf before
+    // the delegate ever sees it: passing the whole string on made the Swift
+    // layer look for Imports/USERS/ME/DESKTOP/FOO.COM, miss, and (before this
+    // release) substitute an unrelated file. It also kept "../SOMETHING" able
+    // to address files outside Imports.
+    std::string leaf =
+        filename ? emu_host_path_basename(filename, "") : std::string();
+    NSString* suggestedName = leaf.empty() ? @"" : [NSString stringWithUTF8String:leaf.c_str()];
     dispatch_async(dispatch_get_main_queue(), ^{
       [delegate emuHostFileRequestRead:suggestedName];
     });
@@ -404,7 +427,18 @@ bool emu_host_file_open_read(const char* filename) {
 bool emu_host_file_open_write(const char* filename) {
   // Close any existing write operation
   g_host_write_buffer.clear();
-  g_host_write_filename = filename ? filename : "download.bin";
+  // Reduce to a single leaf component. W8 can be given a host path and sends it
+  // verbatim; this used to be stored whole and handed to the Swift layer as the
+  // export *filename*, which then built a destination with
+  // appendingPathComponent - and that does not escape "..". "W8 ANYFILE.TXT .."
+  // therefore resolved to Documents/Exports/.., which removeItem deleted
+  // recursively: the whole Documents folder, disk library included.
+  //
+  // The reduction is the fix; the containment check in saveToExportsFolder is
+  // the belt behind it. emu_host_path_basename accepts both separators and
+  // never returns "", "." or ".." - see emu_io.h.
+  g_host_write_filename =
+      emu_host_path_basename(filename ? filename : "download.bin", "download.bin");
   g_host_file_state = HOST_FILE_WRITING;
   return true;
 }
@@ -471,7 +505,30 @@ size_t emu_host_file_get_write_size() {
   return g_host_write_buffer.size();
 }
 
+// The effective destination, not an echo of what the guest asked for - see the
+// contract in emu_io.h. W8 prints this (HBF_HOST_GETNAME), so on this port the
+// useful answer is the Exports path the file will really reach, not the bare
+// name: a CP/M user with no visible filesystem otherwise has no way to find it.
+//
+// Valid while WRITING *and* while WRITE_READY. The second half is load-bearing
+// here and not on the other backends: close_write() moves to WRITE_READY and
+// the Swift layer reads this afterwards to do the actual save, so gating on
+// WRITING alone would return "" to the code that performs the export.
 const char* emu_host_file_get_write_name() {
+  static std::string reported;
+  if (g_host_file_state != HOST_FILE_WRITING &&
+      g_host_file_state != HOST_FILE_WRITE_READY) {
+    reported.clear();
+    return reported.c_str();
+  }
+  const std::string dir = exports_dir();
+  reported = dir.empty() ? g_host_write_filename : dir + "/" + g_host_write_filename;
+  return reported.c_str();
+}
+
+// The leaf name on its own, for the Swift layer, which joins it to the Exports
+// URL itself and must not be handed an absolute path to join.
+extern "C" const char* emu_host_file_get_write_leaf_c() {
   return g_host_write_filename.c_str();
 }
 
