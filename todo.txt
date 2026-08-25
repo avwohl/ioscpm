@@ -1,89 +1,108 @@
 Todo list:
 
-Open items only. Finished work is in CHANGELOG.md - the ^R sweep that filled
-this file shipped in build 49, build 50 took romwbw_emu's VDA keyboard fix and
-grew the test suite from 40 checks to 116, and build 51 closed three parity
-gaps (F1-F12, the terminal editing finals, bundled offline help) and took it to
-150. What the sweep found that was
-deliberate rather than broken is in the Keyboard section of KNOWN_PROBLEMS.md,
-so the next audit does not re-flag it. What is left:
+Open items only. Finished work is in CHANGELOG.md. What the ^R sweep found that
+was deliberate rather than broken is in the Keyboard section of
+KNOWN_PROBLEMS.md, so the next audit does not re-flag it. What is left:
 
 - needs a live pass on a Mac, which nothing here can substitute for. Run
   WordStar under Catalyst and walk the diamond: ^A ^D ^E ^F ^K ^P ^R ^S ^V ^X ^Y
   and ^QS. The analysis says AppKit's emacs StandardKeyBinding bindings cannot
   reach TerminalUIView - it is a plain UIView + UIKeyInput, not a UITextInput
-  responder, and its own keyCommands sit on the first responder that UIKit
-  consults first - and build 49 keeps the 26 Ctrl+letter UIKeyCommands
-  specifically so that stays true. Confirm it. While there, confirm Escape still
-  reaches the guest windowed and full-screen now that it sets
-  wantsPriorityOverSystemBehavior (TerminalView.swift), and that it still
-  dismisses an alert rather than being swallowed - keyCommands returns nil while
-  captureKeyboard is false, and that flag now covers all three dialogs drawn
-  over the terminal (disk-overwrite warning, error alert, reset confirmation),
-  where before it covered only the first. Sheets are deliberately not in it:
-  they cover the terminal and present their own responder. If a fourth dialog
-  is ever added over the terminal, add it to modalHasKeyboard in
-  ContentView.swift or it will lose Escape and Return to the guest.
+  responder, and the 26 Ctrl+letter UIKeyCommands it keeps
+  (TerminalView.swift:447) sit on the first responder UIKit consults first.
+  Confirm it. While there, confirm Escape still reaches the guest windowed and
+  full-screen now that it sets wantsPriorityOverSystemBehavior
+  (TerminalView.swift:431), and that it still dismisses a dialog rather than
+  being swallowed - keyCommands returns nil while captureKeyboard is false
+  (TerminalView.swift:424), and that flag follows modalHasKeyboard
+  (ContentView.swift:39), which covers all three dialogs drawn over the terminal
+  (disk-overwrite warning, error alert, reset confirmation). Sheets are
+  deliberately not in it: they cover the terminal and present their own
+  responder. If a fourth dialog is ever drawn over the terminal, add it to
+  modalHasKeyboard or it will lose Escape and Return to the guest.
 
 - also unverifiable without a device: the reset confirmation
-  (ContentView.swift). Built and reasoned about, never tapped.
+  (ContentView.swift:163-177). Built and reasoned about, never tapped.
 
 - Ctrl+Left / Ctrl+Right / Ctrl+Up / Ctrl+Down still emit the same bytes as the
-  plain arrows. The nav-key branch in pressesBegan tests only for .command, so
-  the modifier is discarded before the Ctrl fold below it can see it. cpmemu's
-  Windows platform layer does bind them (^A ^F ^W ^Z for word motion); z80cpmw
-  does not. Small, and it needs a decision about which convention to follow
-  rather than an implementation - written up in KNOWN_PROBLEMS.md.
+  plain arrows. The nav-key branch in pressesBegan (TerminalView.swift:594)
+  tests only for .command, so the modifier is discarded before the Ctrl fold
+  below it can see it, and neither SpecialKey nor KeyMap has a slot for a
+  modified variant. Both siblings bind them now, to different bytes: cpmemu's
+  Windows console sends ^A ^F ^W ^Z for word motion (extended_keys,
+  src/os/windows/platform.cc:123-126, commit 0b8dc2b), and z80cpmw sends the
+  xterm modified forms \E[1;5A..D out of a modifier-aware key map
+  (Keymap.h:164-167). Small, and it needs the choice between those two
+  conventions rather than an implementation - written up in KNOWN_PROBLEMS.md,
+  which still says z80cpmw has no equivalent and wants correcting whichever way
+  the decision goes. iPadOS only; macOS takes Ctrl+arrow at WindowServer.
 
 - the parity items still genuinely absent, in rough order of how much they are
   missed. Each is a feature, not a sync gap - none block taking a core release.
   - no on-screen navigation/function key row, so the key map is unreachable on a
-    touch-only device. This is now the largest gap: build 51 gave the map all 22
-    keys including F1-F12, and on an iPhone or a keyboard-less iPad there is
-    still no way to press any of them. cpmdroid's buildKeyRow (MainActivity.kt),
-    backed by TerminalView.sendNamedKey, is the worked example, and
-    SpecialKey.functionKeys exists to feed exactly this.
+    touch-only device. This is the largest gap: the map has all 22 keys
+    including F1-F12, and on an iPhone or a keyboard-less iPad there is still no
+    way to press any of them. The toolbar in TerminalWithToolbar
+    (TerminalView.swift:105-118) is Ctrl, Esc, Tab and a Spacer, and is the
+    place to grow one; SpecialKey.functionKeys (KeyMap.swift:33) exists to feed
+    it. There is no worked example in the family to copy, whatever z80cpmw's
+    FEATURE_PARITY.md says - it points at cpmdroid's buildKeyRow and
+    sendNamedKey, and neither symbol is in cpmdroid at 7f46e98.
   - no configuration profiles - named sets of ROM, disks, boot string, terminal
-    and key map. KeyProfile is only the key-map half.
-  - no Catalyst window-state persistence and no Emulator menu. Note this row is
-    NOT N/A the way it is for mobile: a Catalyst window is a resizable desktop
-    window that opens at the system default every launch.
+    and key map. KeyProfile (KeyMap.swift:65) is only the key-map half.
+  - no Catalyst window-state persistence and no Emulator menu (iOSCPMApp.swift
+    replaces only CommandGroup(.help)). Note this row is NOT N/A the way it is
+    for mobile: a Catalyst window is a resizable desktop window that opens at
+    the system default every launch.
 
-- the terminal's remaining divergence from a strict VT, now that build 51 added
-  the editing finals: the erase family (ED, EL, ICH, DCH, ECH) blanks with a
-  default cell rather than painting the current SGR background. A strict VT
-  paints it. Changing that is a decision for the whole family at once - doing it
-  to half would be worse than the current consistent-but-wrong behaviour.
+- the terminal's remaining divergence from a strict VT: the erase family (ED,
+  EL, ICH, DCH, ECH) blanks with a default cell rather than painting the current
+  SGR background - EL at EmulatorViewModel.swift:2269, :2273 and :2277, ICH at
+  :2341, DCH at :2355, ECH at :2367, and ED, which has no inline site of its own
+  because all three of its arms delegate, at clearFromCursor/clearToCursor
+  :2527-2552 and clearTerminal() :1340-1351. The neighbouring finals that fill a
+  whole line - DL :2300, IL :2319, SD :2397 - blank with a default cell for the
+  same reason and belong in the same sweep. A strict VT paints it. Changing
+  that is a decision for the whole family at once - doing it to half would be
+  worse than the current consistent-but-wrong behaviour. z80cpmw has since made
+  exactly this change on its side, so the convention question is settled and
+  only the work is left; none of it is shared code, so this port has to do its
+  own. While in there: clearTerminal() (:1340-1351) is the ESC[2J path and
+  resets scrollTop/scrollBottom, which erase-in-display does not do on a real
+  VT - z80cpmw split those two apart for the same reason.
 
-- the terminal parser has no unit tests, and build 51's editing finals were
-  verified by building and by reading, not by running. The obstacle is that the
+- the terminal parser has no unit tests. The four suites in Tests/ cover
+  TerminalDialect, ControlKey, KeyMap and the C++ core keyboard; the CSI
+  dispatch, executeCSI at EmulatorViewModel.swift:2211-2490, is verified only by
+  building and by reading, build 51's editing finals included. The obstacle is that the
   parser lives in EmulatorViewModel, which is UIKit-bound; TerminalDialect,
   ControlKey and KeyMap were each split out precisely so they could be tested,
   and the screen model is the next candidate. It is a bigger extraction than
   those three - it owns terminalCells, the cursor, the scrolling region and
   scrollback - which is why it has not been done rather than that it should not
-  be.
+  be. z80cpmw's tests/ is the shape to copy: bytes in through the public write
+  path, the screen read back through the public accessor, the cursor through
+  ESC [ 6 n.
 
-- release chore, not code: release_assets/help_quick_start.md was corrected in
-  build 49 (it advertised a Ctrl+E emulator console that does not exist, which
-  is actively harmful because ^E is WordStar cursor-up). Build 51 bundles the
-  corrected copy into the app, so an offline user and a user hitting a 404 both
-  get the right text now - but the download still takes priority when it
-  succeeds, which is deliberate, so a user WITH a network still sees the stale
-  published copy until the file is re-attached to the newest release. Less
-  harmful, not fixed.
+- release chore, not code: the published help_quick_start.md still says "Press
+  Ctrl+E to access the emulator console for debugging". There is no such
+  console, and ^E is WordStar cursor-up, so a networked user is still being told
+  to press a key that moves their cursor. The corrected text is in
+  release_assets/ and has shipped inside the app since build 51, so an offline
+  user and a user hitting a 404 both get the right thing - but the download
+  still wins whenever it succeeds, which is deliberate, so a user WITH a network
+  keeps seeing the stale copy. Mind which release to fix: help does NOT follow
+  the pinned tag. HelpView.swift:187-188 hardcode
+  releases/latest/download/help_index.json and the topic base, and
+  EmulatorViewModel.swift:128's releaseTag = "v1.4.5" feeds the disk catalog
+  only - the comment at :126 says so ("help floats, disks are pinned"). So the
+  copy to re-attach is the one on whichever release is Latest, not on v1.4.5.
+  Check the other six topics and help_index.json while there.
 
-- reminder before touching anything under iOSCPM/Core/ from a windows machine:
-  read docs/notes_to_windos.md. All 21 of those are symlinks into ../romwbw_emu
-  and ../cpmemu and have been flattened once already. The manual check that used
-  to be written here - `git ls-files -s iOSCPM/Core/ | grep ^120000`, expecting
-  21 - is automated since build 50: Tests/run_tests.sh runs it first and fails
-  if the count is wrong or a link dangles.
-
-  The sharper hazard that doc records is not automated and cannot be: the
-  symlinks resolve into sibling *working trees*, so this port compiles whatever
-  branch those repos happen to have checked out, and a test that proves the
-  links are links cannot prove the trees behind them are on the right branch.
-  As of build 50, ../cpmemu is on branch posix-console rather than main. It is
-  harmless - that branch is one commit ahead and touches no qkz80 file - but
-  nothing enforces it.
+- docs/notes_to_windos.md's symlink hazard section says "as of 2026-08-24,
+  ../cpmemu was on posix-console (55cc13f), not main". That is no longer true -
+  cpmemu is on main and posix-console does not exist as a branch any more - and
+  a warning whose one concrete example is stale is the kind a reader dismisses.
+  Reword it to keep the hazard and drop the anecdote. The hazard itself is real
+  and cannot be automated: Tests/run_tests.sh proves the 21 links are links, not
+  that the trees behind them are on the right branch.
