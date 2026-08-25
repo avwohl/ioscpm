@@ -424,6 +424,18 @@ bool emu_host_file_open_read(const char* filename) {
   return true;  // Request initiated (will wait for emu_host_file_provide_data)
 }
 
+// iOS confines every export to the app's Exports folder: emu_host_file_open_write
+// reduces the guest path to a single leaf with emu_host_path_basename, the Swift
+// layer (ExportPath) reduces again and refuses anything that resolves outside
+// Exports, and nothing calls removeItem on a guest-derived path any more. So it
+// writes only the named file inside one folder and never uses the path
+// destructively - it sets EMU_HOST_CAP_SAFE_PATHS. Build 52 is the build that
+// made this true; this function existing at all is what lets the core assert it
+// only when a backend has (a port that has not been updated fails to link).
+uint8_t emu_host_path_caps() {
+  return EMU_HOST_CAP_SAFE_PATHS;
+}
+
 bool emu_host_file_open_write(const char* filename) {
   // Close any existing write operation
   g_host_write_buffer.clear();

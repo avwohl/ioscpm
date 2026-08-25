@@ -103,6 +103,9 @@ bool emu_host_file_close_write() { return true; }
 // stub is never WRITING, so the name is never read - but the symbol has to
 // exist or the dispatcher does not link.
 const char* emu_host_file_get_write_name() { return ""; }
+// HBF_HOST_CAPS forwards this; the core no longer defines it, so a linkable
+// backend (or test) must. This suite never exports, so the value is inert.
+uint8_t emu_host_path_caps() { return EMU_HOST_CAP_SAFE_PATHS; }
 
 //=============================================================================
 // Scaffolding
