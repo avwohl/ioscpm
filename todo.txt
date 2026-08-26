@@ -4,11 +4,13 @@ Open items only. Finished work is in CHANGELOG.md. What the ^R sweep found that
 was deliberate rather than broken is in the Keyboard section of
 KNOWN_PROBLEMS.md, so the next audit does not re-flag it. What is left:
 
-- build 52 device checks.  Build 52 is a data-loss fix that nothing on a Mac can
-  fully verify: the destructive path runs in the Swift layer against the real
-  sandbox.  Everything below was verified on the host (48 checks, and a
-  before/after against real FileManager calls) but not on a device.  On the
-  first TestFlight build, in this order, with a THROWAWAY disk library:
+- device checks for build 52 and for the two fixes made after it.  Build 52 is
+  a data-loss fix that nothing on a Mac can fully verify: the destructive path
+  runs in the Swift layer against the real sandbox.  Everything in it was
+  verified on the host (48 checks, and a before/after against real FileManager
+  calls) but not on a device.  Checks 6 and 7 are newer still and were never
+  compiled at all - see "not compiled" in CHANGELOG.md.  On the first TestFlight
+  build, in this order, with a THROWAWAY disk library:
     1. W8 ANYFILE.TXT ..    -> refuses or exports to Exports/export.txt.
        Documents, Disks, Imports must all still be there afterwards.  This is
        the one that used to delete everything.
@@ -20,8 +22,21 @@ KNOWN_PROBLEMS.md, so the next audit does not re-flag it. What is left:
     4. R8 NOSUCH.COM        -> reports "not found in Imports".  Before build 52
        it silently loaded the first file in the folder instead.
     5. R8 FOO.COM where the file is really foo.com -> still found (case).
-  Note 1 and 2 need a disk image carrying the NEW w8.com, which the catalog does
-  not serve yet - copy one in through Files from romwbw_emu/disks/.
+    6. W8 on a zero-byte CP/M file -> a zero-byte file appears in Exports.  It
+       used to vanish with a success message on both sides.  SAVE 0 EMPTY.TXT
+       at the A> prompt should make the empty file (CCP built-in, not checked
+       here); any other route to a zero-length CP/M file does as well.
+    7. R8 anything -> still works at all, and the "From host:" line R8 prints is
+       no worse than before.  emu_host_file_get_read_name() is newly defined and
+       returns "", which HBF_HOST_GETRNAME reports as "no answer"; R8 is
+       supposed to fall back to printing what was asked for.  This is the check
+       that the fallback is real rather than assumed.
+  Notes 1 and 2 need a disk image carrying the NEW w8.com.  The catalog does not
+  serve one: verified 2026-08-26 by downloading v1.4.5/hd1k_combo.img, whose only
+  W8 usage string is "Usage: W8 <cpmname>" - no [hostpath] - and which contains
+  the interlock probe bytes 06 e9 cf nowhere.  Copy an image in through Files
+  from romwbw_emu/disks/ instead, and check which one you have first:
+  xxd -p w8.com | tr -d '\n' | grep -c 06e9cf   -> 1 interlocked, 0 armed.
 
 - BLOCKING A RELEASE, and the reason build 52 exists: do not bump releaseTag
   (grep releaseTag in EmulatorViewModel.swift, still v1.4.5) until build 52 or
@@ -34,16 +49,39 @@ KNOWN_PROBLEMS.md, so the next audit does not re-flag it. What is left:
   with no update at all.  Read the next item before walking that order: the
   catalog bump destroys user data by a second route that has nothing to do with
   W8, and it fires whether or not build 52 has shipped.
+  What the live releases actually hold, checked 2026-08-26 rather than assumed:
+  v1.4.5 is a prerelease, so "Latest" is v1.4.11 (2026-01-07) and help floats to
+  that, not to the pin.  v1.4.5/disks.xml is <disks version="13"> and is
+  byte-identical to release_assets/disks.xml (sha256 6ae94b8c...).  Its
+  hd1k_combo.img hashes to the be19984e... that catalog names, and carries the
+  fixed lowercase w8 (broken signature 0, fixed signature 10) and the OLD,
+  non-host-path W8 above.  So the exposure build 52 closes is via images a user
+  imports through Files, not via anything this release serves - which also
+  settles the "Do shipped images carry the old W8? Believed yes, not verified
+  here" row in RELEASE_ORDER_2026-08-25.md.
 
 - THE SECOND DATA-LOSS PATH ON THAT SAME RELEASE STEP.  disks.xml carries a
-  version attribute of its own (<disks version="12"> at the pinned v1.4.5, 13 in
-  release_assets/ today, and it has moved on essentially every catalog change -
-  1, 2, 6, 7, 8, 9, 10, 11, 12, 13).  On every successful
-  catalog fetch, checkCatalogVersionAndInvalidate (EmulatorViewModel.swift)
-  compares that attribute against the stored "catalogVersion" default and, on
-  any difference, calls deleteAllDownloadedDisks() before showing the user an
-  alert saying it has happened.  So step 5 does not merely put a new W8 in front
-  of users, it wipes disks on their devices, unprompted, on the next launch.
+  version attribute of its own.  It is at 13 both in release_assets/ and on the
+  pinned v1.4.5 release (checked 2026-08-26 - an earlier version of this entry
+  said the published one was 12, and it is not; the two agree byte for byte).
+  It has moved on essentially every catalog change - 1, 2, 6, 7, 8, 9, 10, 11,
+  12, 13.  On every successful catalog fetch, checkCatalogVersionAndInvalidate
+  (EmulatorViewModel.swift) compares that attribute against the stored
+  "catalogVersion" default and, on any difference, calls
+  deleteAllDownloadedDisks() before showing the user an alert saying it has
+  happened.  So step 5 does not merely put a new W8 in front of users, it wipes
+  disks on their devices, unprompted, on the next launch.
+  That the two 13s agree is not reassurance, it is the shape of the trap: there
+  is nothing to fire today, and the very next catalog respin - which is step 4,
+  and which the runbook tells you to bump the attribute for - fires it on every
+  installed device at once.  It has also already fired once in the field, which
+  nothing here recorded.  The 12 -> 13 bump reached users on 2026-07-22, when
+  disks.xml was uploaded to v1.4.11 (asset timestamp 2026-07-22T10:41:09Z).
+  v1.4.11 is Latest, and the app still floated on releases/latest then - the pin
+  landed three days later, in 4be8a13 / build 42 - so every installed client
+  holding 12 fetched 13 and wiped its Disks folder.  What that cost is not
+  recoverable from here; the alert is all the user got.  (v1.4.5 was published
+  2026-07-25 carrying the same bytes, so the pin itself changed nothing.)
   Two things make it worse than "the downloaded disks come back":
     - deleteAllDownloadedDisks() loops over `contents where url.pathExtension ==
       "img"` in Documents/Disks, so it also deletes disks the user imported
@@ -55,16 +93,16 @@ KNOWN_PROBLEMS.md, so the next audit does not re-flag it. What is left:
       being released and downloaded over the old one, and the real trigger is
       broader and needs no download and no tap at all.  That entry now carries
       the real trigger and points back here.
-  Where this was and was not written down before, since the answer is not
-  "nowhere": not in this list, not in the CHANGELOG, and not in
-  RELEASE_ORDER_2026-08-25.md, which reasons only about W8 and R8.  But it WAS
-  in docs/DISK_DISTRIBUTION.md's "Version Attribute" section, described wrongly
-  and softly enough to read as harmless - downloaded disks "may be invalidated
-  if checksums changed", users "are notified of available updates".  Every
-  clause of that was false: no checksum is consulted, the deletion is
-  unconditional on any attribute difference, it is not limited to catalog disks,
-  and the user is told after the fact rather than offered an update.  That
-  section now describes the code and points here.
+  Where this is now written down, so the next person meets it before the bump
+  rather than after: docs/DISK_DISTRIBUTION.md's "Version Attribute" section
+  (which used to describe it as disks that "may be invalidated if checksums
+  changed", with users "notified of available updates" - every clause false);
+  docs/DISK_W8FIX_RUNBOOK.md, at the exact step that says to bump the attribute,
+  which previously called it "the app invalidates cached disks on a version
+  change"; and docs/DISK_CATALOG_PINNING.md, at the step that bumps the pin.
+  It is still NOT in romwbw_emu's docs/RELEASE_ORDER_2026-08-25.md, which reasons
+  only about W8 and R8 - that is a different repository and this pass did not
+  write to it.  Someone should put a line there.
   Not fixed here because the fix is a user-facing decision rather than a patch:
   copy-on-write on first guest write, or confirm before wiping, or spare
   anything the catalog does not name, or keep the wipe and give the user an
@@ -73,75 +111,94 @@ KNOWN_PROBLEMS.md, so the next audit does not re-flag it. What is left:
 
 - two more that have sat in KNOWN_PROBLEMS.md and have never been in this list.
   Both verified still true against the source, both far smaller than the one
-  above.  New disks are always 8 MB: createNewDisk(at:size:) takes a size:, the
-  single call site in ContentView passes none, and there is no size picker,
-  while an imported disk is accepted up to maxDiskSize (64 MB).  And a created
-  disk is Data(repeating: 0xE5, ...) and nothing else - no HD1K filesystem is
-  laid down - so it is not usable until something formats it, which is what the
-  cpmtools recipe in KNOWN_PROBLEMS.md is a workaround for.
+  above.  New disks are always 8 MB, and the size is hardcoded twice, which is
+  the part that was missed: createNewDisk(at:size:) takes a size: that its
+  single call site in ContentView does not pass, and the .fileExporter that
+  runs first hands it EmptyDiskDocument, whose fileWrapper writes its own
+  Data(repeating: 0xE5, count: 8 * 1024 * 1024) without consulting
+  defaultDiskSize at all.  A size picker has to feed both or the exporter lays
+  down 8 MB and only the rewrite honours the choice.  Imported disks are
+  accepted up to maxDiskSize (64 MB).  And a created disk is 0xE5 fill and
+  nothing else - no HD1K filesystem is laid down - so it is not usable until
+  something formats it, which is what the cpmtools recipe in KNOWN_PROBLEMS.md
+  is a workaround for.
 
-- found while checking the above, not previously recorded: nothing verifies a
-  downloaded disk's SHA256.  There are two download implementations in
-  EmulatorViewModel.  downloadDiskWithRetry() does verify - it hashes the file,
-  deletes it and retries on a mismatch - but its only callers are its own four
-  retry arms, so nothing outside it ever reaches it.  Every real download goes
-  through downloadDiskFromSettings() - both downloadDisk() and
-  downloadDiskWithCompletion() call it - and that one moves the temp file into
-  place without hashing it at all.  The catalog's sha256 survives only as the
-  coloured text in DiskDownloadRow, computed after the file is installed and
-  acted on by nobody.  Disk images are downloaded content that the guest then
-  executes, so this matters most on exactly the release step above.  Either
-  delete the dead path or move its check into the live one; the second is the
-  point of having the hash in disks.xml at all.  docs/DISK_DISTRIBUTION.md
-  asserted the opposite in three places - "SHA256 checksum is verified", "All
+- nothing verifies a downloaded disk's SHA256.  There are two download
+  implementations in EmulatorViewModel.  downloadDiskWithRetry() does verify -
+  it hashes the file, deletes it and retries on a mismatch - but its only
+  callers are its own four retry arms, so nothing outside it ever reaches it.
+  Every real download goes through downloadDiskFromSettings() - both
+  downloadDisk() and downloadDiskWithCompletion() call it - and that one moves
+  the temp file into place without hashing it at all.  The catalog's sha256
+  survives only as the coloured text in DiskDownloadRow, computed after the file
+  is installed and acted on by nobody.  Disk images are downloaded content that
+  the guest then executes, so this matters most on exactly the release step
+  above.  Either delete the dead path or move its check into the live one; the
+  second is the point of having the hash in disks.xml at all.
+  What is shipped is at least self-consistent, so this is missing enforcement
+  rather than a live mismatch: on 2026-08-26 the published v1.4.5 hd1k_combo.img
+  was downloaded whole and hashes to the be19984e... its published disks.xml
+  names.  Four documents asserted the enforcement that does not exist -
+  docs/DISK_DISTRIBUTION.md in three places ("SHA256 checksum is verified", "All
   downloads are verified against the manifest's SHA256 checksum", "No disk is
-  used without passing verification".  Its "Integrity Verification" section is
-  now labelled intended-not-shipped and describes the live path; whichever way
-  this item is closed, that label comes off.
+  used without passing verification") and docs/DISK_W8FIX_RUNBOOK.md in a fourth
+  ("and verifies each image's SHA-256 against it").  All four now describe the
+  live path, and DISK_DISTRIBUTION.md's "Integrity Verification" section is
+  labelled intended-not-shipped.  Whichever way this item is closed, that label
+  comes off.
 
-- a zero-byte W8 export produces no file on this port.
-  emu_host_file_close_write() (emu_io_ios.mm) goes straight to IDLE when the
-  buffer is empty rather than to WRITE_READY, and emu_host_file_get_write_data()
-  returns nullptr for an empty buffer so checkHostFileState's guard bails out.
-  An empty CP/M file is a real file and the CLI and Windows backends both create
-  it; romwbw_emu fixed the identical thing in its browser backend in v1.36.
-  Left out of build 52 deliberately - that build is a security fix and was kept
-  minimal - so it is a divergence to close next, not a mystery.
-
+- emu_host_file_get_read_name() answers "", and could answer truthfully.  It is
+  newly defined here only because the v1.36 core made it a required backend
+  symbol (see CHANGELOG.md); "" is a legal answer that emu_io.h explicitly
+  allows, and it makes R8 print what the user asked for rather than what was
+  really opened.  This port can do better, and the difference is visible: the
+  Swift layer resolves the guest's leaf against Imports case-insensitively, so
+  R8 FOO.COM that really opened foo.com currently reports FOO.COM.  The reason
+  it was not done is that the resolved name never crosses back into the backend:
+  emu_host_file_load() (the extern "C" entry point Swift calls) carries bytes
+  and no name.  The shape of the fix is a named variant of that entry point -
+  emu_host_file_load_named(const char* path, const uint8_t*, size_t) - storing
+  the path in a g_host_read_filename that get_read_name() returns while
+  HOST_FILE_READING, exactly as the write side already does with
+  g_host_write_filename.  Small, but it is Swift plus Objective-C++ and nothing
+  here can compile either.  The browser backend answers "" for the same reason
+  and has the same item open.
 
 - needs a live pass on a Mac, which nothing here can substitute for. Run
   WordStar under Catalyst and walk the diamond: ^A ^D ^E ^F ^K ^P ^R ^S ^V ^X ^Y
   and ^QS. The analysis says AppKit's emacs StandardKeyBinding bindings cannot
   reach TerminalUIView - it is a plain UIView + UIKeyInput, not a UITextInput
-  responder, and the 26 Ctrl+letter UIKeyCommands it keeps
-  (TerminalView.swift:447) sit on the first responder UIKit consults first.
-  Confirm it. While there, confirm Escape still reaches the guest windowed and
-  full-screen now that it sets wantsPriorityOverSystemBehavior
-  (TerminalView.swift:431), and that it still dismisses a dialog rather than
-  being swallowed - keyCommands returns nil while captureKeyboard is false
-  (TerminalView.swift:424), and that flag follows modalHasKeyboard
-  (ContentView.swift:39), which covers all three dialogs drawn over the terminal
-  (disk-overwrite warning, error alert, reset confirmation). Sheets are
-  deliberately not in it: they cover the terminal and present their own
-  responder. If a fourth dialog is ever drawn over the terminal, add it to
+  responder, and the 26 Ctrl+letter UIKeyCommands it keeps (the
+  "abcdefghijklmnopqrstuvwxyz" loop in TerminalUIView.keyCommands) sit on the
+  first responder UIKit consults first. Confirm it. While there, confirm Escape
+  still reaches the guest windowed and full-screen now that it sets
+  wantsPriorityOverSystemBehavior (the escape UIKeyCommand in the same
+  keyCommands), and that it still dismisses a dialog rather than being swallowed
+  - keyCommands returns nil while captureKeyboard is false (the `guard
+  captureKeyboard else { return nil }` at the top of it), and that flag follows
+  modalHasKeyboard (ContentView.swift), which covers all three dialogs drawn
+  over the terminal (disk-overwrite warning, error alert, reset confirmation).
+  Sheets are deliberately not in it: they cover the terminal and present their
+  own responder. If a fourth dialog is ever drawn over the terminal, add it to
   modalHasKeyboard or it will lose Escape and Return to the guest.
 
-- also unverifiable without a device: the reset confirmation
-  (ContentView.swift:163-177). Built and reasoned about, never tapped.
+- also unverifiable without a device: the reset confirmation (the
+  showingResetConfirm .confirmationDialog("Reset the machine?") in
+  ContentView.swift). Built and reasoned about, never tapped.
 
 - Ctrl+Left / Ctrl+Right / Ctrl+Up / Ctrl+Down still emit the same bytes as the
-  plain arrows. The nav-key branch in pressesBegan (TerminalView.swift:594)
-  tests only for .command, so the modifier is discarded before the Ctrl fold
-  below it can see it, and neither SpecialKey nor KeyMap has a slot for a
-  modified variant. Both siblings bind them now, to different bytes: cpmemu's
-  Windows console sends ^A ^F ^W ^Z for word motion (extended_keys,
-  src/os/windows/platform.cc:123-126, commit 0b8dc2b), and z80cpmw sends the
-  xterm modified forms \E[1;5A..D out of a modifier-aware key map
-  (Keymap.h:164-167). Small, and it needs the choice between those two
-  conventions rather than an implementation. KNOWN_PROBLEMS.md said z80cpmw did
-  the same thing ioscpm does and had no equivalent; both were stale and are
-  corrected there now, without picking a convention. iPadOS only; macOS takes
-  Ctrl+arrow at WindowServer.
+  plain arrows. The nav-key branch in pressesBegan (TerminalView.swift, the
+  `!key.modifierFlags.contains(.command)` test) checks only for .command, so the
+  modifier is discarded before the Ctrl fold below it can see it, and neither
+  SpecialKey nor KeyMap has a slot for a modified variant. Both siblings bind
+  them now, to different bytes: cpmemu's Windows console sends ^A ^F ^W ^Z for
+  word motion (extended_keys, src/os/windows/platform.cc, commit 0b8dc2b), and
+  z80cpmw sends the xterm modified forms \E[1;5A..D out of a modifier-aware key
+  map (Keymap.h, the "Ctrl+Up".."Ctrl+Left" defaults). Small, and it needs the
+  choice between those two conventions rather than an implementation.
+  KNOWN_PROBLEMS.md said z80cpmw did the same thing ioscpm does and had no
+  equivalent; both were stale and are corrected there now, without picking a
+  convention. iPadOS only; macOS takes Ctrl+arrow at WindowServer.
 
 - the parity items still genuinely absent, in rough order of how much they are
   missed. Each is a feature, not a sync gap - none block taking a core release.
@@ -149,13 +206,14 @@ KNOWN_PROBLEMS.md, so the next audit does not re-flag it. What is left:
     touch-only device. This is the largest gap: the map has all 22 keys
     including F1-F12, and on an iPhone or a keyboard-less iPad there is still no
     way to press any of them. The toolbar in TerminalWithToolbar
-    (TerminalView.swift:105-118) is Ctrl, Esc, Tab and a Spacer, and is the
-    place to grow one; SpecialKey.functionKeys (KeyMap.swift:33) exists to feed
-    it. There is no worked example in the family to copy, whatever z80cpmw's
-    FEATURE_PARITY.md says - it points at cpmdroid's buildKeyRow and
-    sendNamedKey, and neither symbol is in cpmdroid at 7f46e98.
+    (TerminalView.swift, the VStack of ToolbarButtons) is Ctrl, Esc, Tab and a
+    Spacer, and is the place to grow one; SpecialKey.functionKeys (KeyMap.swift)
+    exists to feed it. There is no worked example in the family to copy,
+    whatever z80cpmw's FEATURE_PARITY.md says - it points at cpmdroid's
+    buildKeyRow and sendNamedKey, and neither symbol is anywhere in cpmdroid at
+    c06fa58 (was checked at 7f46e98 before; still absent).
   - no configuration profiles - named sets of ROM, disks, boot string, terminal
-    and key map. KeyProfile (KeyMap.swift:65) is only the key-map half.
+    and key map. KeyProfile (KeyMap.swift) is only the key-map half.
   - no Catalyst window-state persistence and no Emulator menu (iOSCPMApp.swift
     replaces only CommandGroup(.help)). Note this row is NOT N/A the way it is
     for mobile: a Catalyst window is a resizable desktop window that opens at
@@ -163,44 +221,62 @@ KNOWN_PROBLEMS.md, so the next audit does not re-flag it. What is left:
 
 - the terminal's remaining divergence from a strict VT: the erase family (ED,
   EL, ICH, DCH, ECH) blanks with a default cell rather than painting the current
-  SGR background - EL at EmulatorViewModel.swift:2269, :2273 and :2277, ICH at
-  :2341, DCH at :2355, ECH at :2367, and ED, which has no inline site of its own
-  because all three of its arms delegate, at clearFromCursor/clearToCursor
-  :2527-2552 and clearTerminal() :1340-1351. The neighbouring finals that fill a
-  whole line - DL :2300, IL :2319, SD :2397 - blank with a default cell for the
-  same reason and belong in the same sweep. A strict VT paints it. Changing
-  that is a decision for the whole family at once - doing it to half would be
-  worse than the current consistent-but-wrong behaviour. z80cpmw has since made
-  exactly this change on its side, so the convention question is settled and
-  only the work is left; none of it is shared code, so this port has to do its
-  own. While in there: clearTerminal() (:1340-1351) is the ESC[2J path and
-  resets scrollTop/scrollBottom, which erase-in-display does not do on a real
-  VT - z80cpmw split those two apart for the same reason.
+  SGR background. Every site is a `TerminalCell()` with no argument, and the
+  ones in this family are reachable from the case comments in executeCSI - EL
+  under `case 0x4B: // 'K' - Erase in Line` (three arms), ICH under `case 0x40:
+  // '@'`, DCH under `case 0x50: // 'P'`, ECH under `case 0x58: // 'X'` - and ED,
+  which has no inline site of its own because all three of its arms delegate, in
+  clearFromCursor() / clearToCursor() and clearTerminal(). The neighbouring
+  finals that fill a whole line - DL `case 0x4D: // 'M'`, IL `case 0x4C: // 'L'`,
+  SD `case 0x54: // 'T'` - blank with a default cell for the same reason and
+  belong in the same sweep. (The line numbers this entry used to carry, :2269
+  through :2397, were all 29 lines stale; grep the case comments instead.) A
+  strict VT paints it. Changing that is a decision for the whole family at once -
+  doing it to half would be worse than the current consistent-but-wrong
+  behaviour. z80cpmw has since made exactly this change on its side, so the
+  convention question is settled and only the work is left; none of it is shared
+  code, so this port has to do its own. While in there: clearTerminal() is the
+  ESC[2J path and resets scrollTop/scrollBottom, which erase-in-display does not
+  do on a real VT - z80cpmw split those two apart for the same reason.
 
-- the terminal parser has no unit tests. The four suites in Tests/ cover
-  TerminalDialect, ControlKey, KeyMap and the C++ core keyboard; the CSI
-  dispatch, executeCSI at EmulatorViewModel.swift:2211-2490, is verified only by
-  building and by reading, build 51's editing finals included. The obstacle is that the
-  parser lives in EmulatorViewModel, which is UIKit-bound; TerminalDialect,
-  ControlKey and KeyMap were each split out precisely so they could be tested,
-  and the screen model is the next candidate. It is a bigger extraction than
-  those three - it owns terminalCells, the cursor, the scrolling region and
-  scrollback - which is why it has not been done rather than that it should not
-  be. z80cpmw's tests/ is the shape to copy: bytes in through the public write
-  path, the screen read back through the public accessor, the cursor through
-  ESC [ 6 n.
+- the terminal parser has no unit tests. Tests/ has five suites - TerminalDialect,
+  ControlKey, KeyMap, ExportPath (added with build 52) and the C++ core keyboard
+  - and none of them touches the CSI dispatch. executeCSI (EmulatorViewModel.swift,
+  ~280 lines) is verified only by building and by reading, build 51's editing
+  finals included. The obstacle is that the parser lives in EmulatorViewModel,
+  which is UIKit-bound; TerminalDialect, ControlKey, KeyMap and ExportPath were
+  each split out precisely so they could be tested, and the screen model is the
+  next candidate. It is a bigger extraction than those four - it owns
+  terminalCells, the cursor, the scrolling region and scrollback - which is why
+  it has not been done rather than that it should not be. z80cpmw's tests/ is the
+  shape to copy: bytes in through the public write path, the screen read back
+  through the public accessor, the cursor through ESC [ 6 n.
 
-- release chore, not code: the published help_quick_start.md still says "Press
-  Ctrl+E to access the emulator console for debugging". There is no such
-  console, and ^E is WordStar cursor-up, so a networked user is still being told
-  to press a key that moves their cursor. The corrected text is in
-  release_assets/ and has shipped inside the app since build 51, so an offline
-  user and a user hitting a 404 both get the right thing - but the download
-  still wins whenever it succeeds, which is deliberate, so a user WITH a network
-  keeps seeing the stale copy. Mind which release to fix: help does NOT follow
-  the pinned tag. HelpView.swift:187-188 hardcode
-  releases/latest/download/help_index.json and the topic base, and the
+- release chore, not code, and it needs someone who can attach assets to a
+  GitHub release. Two of the eight published help files are stale, not one.
+  Measured 2026-08-26 by fetching all eight from releases/latest and comparing
+  them with release_assets/: help_index.json and five of the seven topics are
+  byte-identical, and these two are not:
+    - help_quick_start.md (published 1144 bytes, repo 2131).  Still says "Press
+      Ctrl+E to access the emulator console for debugging".  There is no such
+      console, and ^E is WordStar cursor-up, so a networked user is told to press
+      a key that moves their cursor.  It also still says `2` boots "slice 2 of
+      the Combo disk", which is a unit, not a slice.  The corrected text adds the
+      Control Keys section.
+    - help_file_transfer.md (published 1145 bytes, repo 1855).  Worse than
+      stale: it names the wrong app.  It sends iOS users to "Files app ->
+      iOSCPM", and macOS users to
+      ~/Library/Containers/com.awohl.iOSCPM/Data/Documents/, when the bundle id
+      is com.awohl.cpm and the Files-app name is Z80CPM (PRODUCT_BUNDLE_IDENTIFIER
+      in project.pbxproj, CFBundleDisplayName in Info.plist).  Both paths are
+      wrong on a real device.  It also predates "Import File... (for R8)".
+  Which release to fix: help does NOT follow the pinned tag.  HelpView.swift
+  hardcodes releases/latest/download/help_index.json and the topic base, and the
   releaseTag = "v1.4.5" in EmulatorViewModel.swift feeds the disk catalog only -
-  the comment just above it says so ("help floats, disks are pinned"). So the
-  copy to re-attach is the one on whichever release is Latest, not on v1.4.5.
-  Check the other six topics and help_index.json while there.
+  the comment just above it says so ("help floats, disks are pinned").  Latest is
+  v1.4.11, so v1.4.11 is what to re-attach to.  v1.4.5 carries the same two stale
+  copies, uploaded 2026-07-25, but it is a prerelease and nothing fetches help
+  from it; fix it too if it is cheap, so it cannot resurface.
+  The corrected text has shipped inside the app since build 51, so an offline
+  user and a user hitting a 404 both get the right thing - the download only wins
+  when it succeeds, which is deliberate.

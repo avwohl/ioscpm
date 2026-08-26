@@ -125,6 +125,19 @@ When the stack is rebuilt to RomWBW v3.6.0, do it in lockstep across all ports:
    **not** reuse `v1.4.5` (the installed v3.5.1 fleet is hardwired to it).
 3. Bump the pinned tag in **all three**: z80cpmw `DiskCatalog.cpp`, cpmdroid
    `DiskCatalogRepository.kt`, and this iOS constant.
+
+   > Two things gate that bump on this port, and neither is about the ROM.
+   > **(a)** The build that carries the new tag must also carry the `W8`/`R8`
+   > path sanitiser — build 52 or later. Refreshing the catalog is what puts a
+   > path-capable `W8` in front of every user; the order is romwbw_emu's
+   > `docs/RELEASE_ORDER_2026-08-25.md` (this port is step 1, the bump is
+   > step 5). **(b)** A new catalog almost certainly carries a new
+   > `<disks version="N">`, and changing that attribute makes every installed
+   > app delete every `.img` in its `Documents/Disks` on the next fetch —
+   > including disks the user imported or created, which the catalog cannot
+   > give back. That is unfixed and undecided; see `todo.txt`, "THE SECOND
+   > DATA-LOSS PATH ON THAT SAME RELEASE STEP", and
+   > `docs/DISK_DISTRIBUTION.md`'s "Version Attribute" section.
 4. Rebuild and ship all three apps with the v3.6.0 ROM.
 
 Until iOS ships a v3.6.0 ROM, keep any v3.6.0 ioscpm release marked

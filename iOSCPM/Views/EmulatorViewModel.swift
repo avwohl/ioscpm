@@ -1882,13 +1882,23 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             // (HBF_HOST_GETNAME) and a bare name tells them nothing about where
             // to look. saveToExportsFolder joins to Exports itself and must not
             // be handed an absolute path to join.
-            guard let dataPtr = emu_host_file_get_write_data_c(),
-                  let namePtr = emu_host_file_get_write_leaf_c() else {
+            guard let namePtr = emu_host_file_get_write_leaf_c() else {
                 emu_host_file_write_done_c()
                 return
             }
+            // The data pointer is NOT part of that guard. emu_host_file_get_write_data()
+            // returns nullptr for an empty buffer by the shared contract, so the
+            // pointer cannot say whether an export is waiting - the WRITE_READY
+            // state above already did. Guarding on it here made a zero-byte W8
+            // export vanish: an empty CP/M file is a real file, and the CLI and
+            // Windows backends both create it (cpmdroid c06fa58, same fix).
             let size = emu_host_file_get_write_size_c()
-            let data = Data(bytes: dataPtr, count: size)
+            let data: Data
+            if size > 0, let dataPtr = emu_host_file_get_write_data_c() {
+                data = Data(bytes: dataPtr, count: size)
+            } else {
+                data = Data()
+            }
             let filename = String(cString: namePtr)
 
             // W8 always writes to the Documents/Exports folder — no interaction,

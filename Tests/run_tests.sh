@@ -26,15 +26,35 @@ trap 'rm -rf "$OUT"' EXIT
 # xcrun so we get the Xcode toolchain rather than whatever xcode-select points
 # at; SDKROOT so Foundation resolves on a machine with only Command Line Tools
 # selected.
-SWIFTC="xcrun --sdk macosx swiftc -parse-as-library"
-CXX="xcrun --sdk macosx c++ -std=c++11 -Wall"
+#
+# Off a Mac there is no xcrun, and the two halves fare differently. The Swift
+# suites need Foundation and are skipped. The C++ suite does not: it compiles
+# the same symlinked core with any C++11 compiler, and it is the only check in
+# the repo that notices when an upstream core sync adds a backend function this
+# port has not defined yet - which has happened (see the CHANGELOG entry for
+# emu_host_file_get_read_name). Losing that check on every non-Mac machine is
+# worse than running it under a different compiler.
+if command -v xcrun >/dev/null 2>&1; then
+    SWIFTC="xcrun --sdk macosx swiftc -parse-as-library"
+    CXX="xcrun --sdk macosx c++ -std=c++11 -Wall"
+else
+    SWIFTC=""
+    CXX="${CXX:-c++} -std=c++11 -Wall"
+fi
 
 status=0
+skipped=0
 
 run_suite() {
     name=$1
     shift
     printf '%s\n' "=== $name ==="
+    if [ -z "$SWIFTC" ]; then
+        echo "SKIP: no Swift toolchain (needs a Mac with Xcode)"
+        skipped=$((skipped + 1))
+        echo
+        return
+    fi
     if $SWIFTC -O -o "$OUT/$name" "$@" 2>&1; then
         "$OUT/$name" || status=1
     else
@@ -123,5 +143,9 @@ run_core_suite CoreKeyboardTests \
 if [ "$status" -ne 0 ]; then
     echo "TESTS FAILED"
     exit 1
+fi
+if [ "$skipped" -ne 0 ]; then
+    echo "PASSED, $skipped suite(s) SKIPPED - this was not a full run"
+    exit 0
 fi
 echo "ALL TESTS PASSED"

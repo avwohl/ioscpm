@@ -1,5 +1,131 @@
 # Changelog
 
+## Unreleased - no build number yet, and nothing here was compiled
+
+Written on a Linux machine with no Xcode, no Swift and no Objective-C toolchain.
+Give it a `CURRENT_PROJECT_VERSION` when it is first built; it has deliberately
+not been given one here, because a build number in this file has so far meant a
+binary that existed.
+
+What *was* run: `Tests/run_tests.sh`'s C++ suite, against the real symlinked
+core, with `g++ -std=c++11` - 24 checks, all passing. The four Swift suites were
+skipped for want of a compiler and the script now says so out loud rather than
+claiming a pass. No Swift and no Objective-C++ in this section has been through
+a compiler at all.
+
+### This port had stopped linking, and nothing said so
+
+`iOSCPM/Core/` symlinks into `../romwbw_emu/src`, so an upstream commit moves
+the core under this repo without touching a file here. On 2026-08-26 romwbw_emu
+`322ca8e` added `emu_host_file_get_read_name()` - the read twin of
+`emu_host_file_get_write_name()`, for `HBF_HOST_GETRNAME` - and `emu_io.h` marks
+it a REQUIRED backend function precisely because `handleEXT()` references it
+unconditionally. `emu_io_ios.mm` did not define it. Build 52 was committed the
+day before, so the app has not been built since; the next build would have
+failed to link.
+
+- **`emu_io_ios.mm` defines it**, returning `""`. That is a legal answer and
+  `emu_io.h` names it as one: `HBF_HOST_GETRNAME` reports "no answer" and `R8`
+  falls back to printing what was asked for. It is not the *best* answer here -
+  the Swift layer resolves the name case-insensitively against `Imports` and
+  could report what it really opened - and the shape of that fix is in
+  `todo.txt` rather than written blind. romwbw_emu's browser backend answers
+  `""` for the same reason.
+- **`Tests/CoreKeyboardTests.cc` stubs it too.** That suite is the only check in
+  the repo that compiles the symlinked core, so it is the only thing that can
+  notice this class of break - and it was itself failing to link, which is how
+  this was found.
+- **A missing-symbol sweep of the whole backend contract**, not just the one the
+  linker happened to name first: every function declared in `emu_io.h` was
+  checked against `emu_io_ios.mm`, `emu_io_common.cc` and `hbios_core.cc`.
+  `emu_host_file_get_read_name()` was the only one missing. `emu_host_path_caps()`,
+  the other new required symbol, is already defined here.
+
+### A zero-byte W8 export vanished
+
+`W8` on an empty CP/M file told the guest it had succeeded and nothing appeared
+in `Exports`. An empty file is a real file - the CLI and Windows backends both
+create it, and romwbw_emu stopped dropping it in the browser backend for v1.36 -
+so this closes a divergence rather than choosing a behaviour. `cpmdroid` closed
+the identical one in `c06fa58`, in the same two shapes:
+
+- `emu_host_file_close_write()` moved to `WRITE_READY` only when the buffer had
+  bytes in it, so an empty export never reached the state the Swift layer polls.
+  The test is now on `HOST_FILE_WRITING` alone.
+- `checkHostFileState()` guarded on the data pointer, and
+  `emu_host_file_get_write_data()` returns `nullptr` for an empty buffer *by the
+  shared contract* - so the pointer could never answer the question the state
+  had already answered. Only the leaf name is guarded now; a zero-byte export
+  arrives as an empty `Data`, and `Data.write(to:)` creates the file.
+
+Either half alone would still have swallowed the export. Left out of build 52 on
+purpose - that build was a security fix and was kept minimal.
+
+### `Tests/run_tests.sh` runs off a Mac
+
+The C++ suite needs a C++11 compiler, not Xcode, and it is the only check that
+catches a core sync this port has not absorbed. It now falls back to `c++` when
+there is no `xcrun`, skips the four Swift suites explicitly, and ends with
+"PASSED, 4 suite(s) SKIPPED - this was not a full run" rather than "ALL TESTS
+PASSED". The Mac path is unchanged when `xcrun` is present and was not exercised
+here.
+
+### Docs: three claims that were false, and two steps that did not warn
+
+- **`docs/DISK_W8FIX_RUNBOOK.md` said the app "verifies each image's SHA-256"**
+  against the catalog. It does not - that was the fourth document asserting an
+  enforcement this port does not have, after the three in
+  `docs/DISK_DISTRIBUTION.md` corrected in build 52. Corrected, with the live
+  measurement that makes the distinction clear: on 2026-08-26 the published
+  `v1.4.5/hd1k_combo.img` was downloaded whole and *does* hash to the
+  `be19984e…` its published `disks.xml` names. What is shipped is consistent;
+  the enforcement is what is missing.
+- **The same runbook called the `<disks version>` bump "the app invalidates
+  cached disks on a version change"**, at the exact step that tells you to make
+  it. That bump deletes every `.img` in the user's `Documents/Disks`, imported
+  and app-created ones included, with no confirmation. The step now says so and
+  points at `todo.txt`. `docs/DISK_CATALOG_PINNING.md` gained the same warning
+  at the step that bumps the pin, together with the build-52 ordering
+  constraint.
+- **`todo.txt` said the pinned `v1.4.5` catalog was `<disks version="12">`.** It
+  is 13, byte-identical to `release_assets/disks.xml` (sha256 `6ae94b8c…`),
+  checked by fetching it. The correction matters: nothing is pending, and the
+  next respin fires the wipe on every installed device at once. It has also
+  already fired once in the field: the 12 → 13 catalog reached users on
+  2026-07-22, when `disks.xml` was uploaded to `v1.4.11` — which is Latest, and
+  which the app still floated on, the pin landing three days later in `4be8a13`
+  (build 42). Nothing recorded that until now.
+- **`KNOWN_PROBLEMS.md`'s disk-size entry described one hardcoded 8 MB.** There
+  are two: `EmptyDiskDocument.fileWrapper` (`ContentView.swift`) writes its own
+  `Data(repeating: 0xE5, count: 8 * 1024 * 1024)` with no reference to
+  `defaultDiskSize`, and `createNewDisk` then overwrites that file with a second
+  one. A size picker has to feed both.
+- **`todo.txt`'s erase-family line numbers were 29 lines stale** (`:2269`
+  through `:2397`), as was the `executeCSI` range and the count of suites in
+  `Tests/`. Cites in that file now name greppable symbols and case comments
+  instead of line numbers wherever they were touched.
+
+### Measured against the live releases, and recorded
+
+None of this changed code; it replaced belief with measurement, and it is in
+`todo.txt` and the runbook.
+
+- The published `v1.4.5` combo carries the **old** `W8`: its only usage string
+  is `Usage: W8 <cpmname>`, with no `[hostpath]`, and the interlock probe bytes
+  `06 e9 cf` appear nowhere in the image. romwbw_emu's
+  `RELEASE_ORDER_2026-08-25.md` has that as "Believed yes, not verified here";
+  it is verified now. The catalog as published cannot arm the host-path `W8`, so
+  the exposure build 52 closes is via images imported through Files.
+- It also still carries the fixed lowercase `w8` (broken signature 0, fixed
+  signature 10), which is what the runbook's 2026-07-22 audit claimed.
+- Help floats to **Latest**, which is `v1.4.11` - `v1.4.5` is a prerelease. All
+  eight published help assets were fetched and compared: `help_index.json` and
+  five of the seven topics are byte-identical to `release_assets/`. Two are not,
+  where `todo.txt` recorded one. `help_file_transfer.md` is the worse of them -
+  it names `com.awohl.iOSCPM` and "Files app → iOSCPM" when the bundle id is
+  `com.awohl.cpm` and the Files name is `Z80CPM`, so both folder paths it gives
+  a user are wrong.
+
 ## Version 1.5.1 (Build 52)
 
 ### W8 could delete the user's disk library

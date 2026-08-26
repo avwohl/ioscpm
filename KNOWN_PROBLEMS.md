@@ -8,6 +8,14 @@ New disks created in the app are always 8 MB (`EmulatorViewModel.defaultDiskSize
 is no size picker in the UI. Imported disks are accepted up to 64 MB (`maxDiskSize`).
 Need a size chooser so disks of arbitrary/correct sizes can be created.
 
+A size chooser is not enough on its own, because the size is hardcoded in **two**
+places and `defaultDiskSize` is only one of them. Creating a disk runs a
+`.fileExporter` whose document is `EmptyDiskDocument` (`ContentView.swift`), and
+its `fileWrapper` writes its own `Data(repeating: 0xE5, count: 8 * 1024 * 1024)`
+with no reference to `defaultDiskSize` at all; `createNewDisk` then overwrites
+that file with a second 8 MB buffer. Whoever adds the picker has to feed both, or
+the exporter will lay down 8 MB and only the rewrite will honour the choice.
+
 ### Proper Disk Initialization
 When creating a new disk, it should be properly initialized with:
 - Correct magic numbers for the disk format

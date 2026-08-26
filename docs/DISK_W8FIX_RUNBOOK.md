@@ -20,6 +20,17 @@ slices already had the fixed build. `hd1k_infocom.img` in romwbw_emu is fixed.
 That combo has since been patched and re-uploaded — the v1.4.5 release now
 serves the fixed one. See "Update the catalog and upload" below.
 
+Re-checked against the live release on 2026-08-26 by downloading
+`v1.4.5/hd1k_combo.img` and counting the signatures: **broken 0, fixed 10**, and
+the file hashes to the `be19984e…` the published `disks.xml` names. The same
+download also settles a question romwbw_emu's `RELEASE_ORDER_2026-08-25.md`
+leaves open ("Do shipped images carry the old W8? *Believed yes, not verified
+here*"): it does. The only `W8` usage string in the image is
+`Usage: W8 <cpmname>` — no `[hostpath]` — and the interlock probe bytes
+`06 e9 cf` do not occur anywhere in the image. So the catalog as published today
+cannot arm the host-path `W8` at all; the exposure that build 52 fixes is via
+images a user imports through Files, not via anything this release serves.
+
 Note: `cpmemu/util/cpm_disk.py` reads/writes **single hd1k** images correctly
 but its **combo** extract/add path is unreliable (it returned the wrong slice's
 `w8.com`). Always patch a combo via the dd-slice method below, never the combo
@@ -72,9 +83,20 @@ stable only if the same published combo and fixed w8.com are used.
 `6ae94b8c…`) together with the 51380224-byte fixed combo.
 
 The app downloads `disks.xml` from the pinned `releases/download/v1.4.5/`
-(`releaseTag` in `EmulatorViewModel.swift:128`; see `docs/DISK_CATALOG_PINNING.md`)
-and verifies each image's SHA-256 against it, so the image and catalog must be
-uploaded **together**.
+(`releaseTag` in `EmulatorViewModel.swift`; see `docs/DISK_CATALOG_PINNING.md`),
+so the image and catalog must be uploaded **together**.
+
+It does **not** verify the image's SHA-256 against the catalog, whatever this
+paragraph said before. The live download path, `downloadDiskFromSettings`, moves
+the temp file into `Documents/Disks/` without hashing it; the implementation that
+does hash, `downloadDiskWithRetry`, is dead. See `todo.txt` under "nothing
+verifies a downloaded disk's SHA256" and the "Integrity Verification" section of
+`docs/DISK_DISTRIBUTION.md`. The catalog hash is still worth getting right - it
+is displayed to the user, and it is what the fix will enforce - but nothing
+refuses a mismatched image today. (Checked 2026-08-26: the published v1.4.5
+`hd1k_combo.img` does hash to the `be19984e…` in the published `disks.xml`, so
+what is shipped is consistent; it is the enforcement that is missing, not the
+hash.)
 
 The two steps below are kept only as the recipe for a **future** combo respin.
 Do not re-run them against what is shipped now.
@@ -82,9 +104,19 @@ Do not re-run them against what is shipped now.
 1. In `release_assets/disks.xml` (the uploaded catalog):
    - set the `hd1k_combo.img` `<sha256>` to the new hash from step 4,
    - bump the `<disks version="…">` attribute from whatever version is live —
-     do **not** re-bump 13, that is the current shipped value — so clients
-     re-download the new combo (the app invalidates cached disks on a version
-     change).
+     do **not** re-bump 13, that is the current shipped value.
+
+   > **Bumping that attribute destroys user data.** It is not a cache hint. On
+   > the next catalog fetch after the bump, `checkCatalogVersionAndInvalidate`
+   > calls `deleteAllDownloadedDisks()`, which removes **every** `.img` in
+   > `Documents/Disks` — including disks the user imported through Files and
+   > disks the app created, neither of which the catalog can give back — and
+   > tells the user afterwards. It needs no tap and no download. This is the
+   > second data-loss path on the same release step the `releaseTag` block
+   > guards, it is unfixed, and what should happen instead is a product
+   > decision. Read `todo.txt`, "THE SECOND DATA-LOSS PATH ON THAT SAME RELEASE
+   > STEP", before running this step — it is not covered by romwbw_emu's
+   > `docs/RELEASE_ORDER_2026-08-25.md`, which reasons only about `W8` and `R8`.
 2. Upload both to the release:
    ```bash
    gh release upload <tag> --repo avwohl/ioscpm --clobber \
@@ -94,7 +126,7 @@ Do not re-run them against what is shipped now.
    deliberate prerelease pin that the installed v3.5.1 fleet is hardwired to; a
    new tag is cut only for the RomWBW v3.6.0 upgrade, in lockstep across all
    three ports — see `docs/DISK_CATALOG_PINNING.md`. Bumping the tag also means
-   bumping `releaseTag` in `EmulatorViewModel.swift:128` and shipping a new app
+   bumping `releaseTag` in `EmulatorViewModel.swift` and shipping a new app
    build, or no installed client will ever see it.
 
 ## Remaining audit (likely unnecessary)

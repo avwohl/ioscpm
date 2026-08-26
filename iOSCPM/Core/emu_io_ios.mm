@@ -480,7 +480,13 @@ void emu_host_file_close_read() {
 // here -- return true, the same as the browser backend. A late write failure in
 // the Swift layer is surfaced to the user there, not through this return value.
 bool emu_host_file_close_write() {
-  if (g_host_file_state == HOST_FILE_WRITING && !g_host_write_buffer.empty()) {
+  // WRITING alone, not "WRITING and the buffer has bytes in it". An empty CP/M
+  // file is a real file: the CLI and Windows backends both create it, and
+  // romwbw_emu stopped dropping it in the browser backend for v1.36. With the
+  // emptiness test here, W8 on a zero-byte file told the guest it had succeeded
+  // and nothing ever appeared in Exports, because this never reached the state
+  // the Swift layer polls. cpmdroid closed the identical divergence in c06fa58.
+  if (g_host_file_state == HOST_FILE_WRITING) {
     // Set state to WRITE_READY - UI will poll for this and show save picker
     // Data stays in buffer until emu_host_file_write_done() is called
     g_host_file_state = HOST_FILE_WRITE_READY;
@@ -536,6 +542,25 @@ const char* emu_host_file_get_write_name() {
   const std::string dir = exports_dir();
   reported = dir.empty() ? g_host_write_filename : dir + "/" + g_host_write_filename;
   return reported.c_str();
+}
+
+// The read twin, required by the v1.36 core: handleEXT() references it
+// unconditionally for HBF_HOST_GETRNAME, so this port does not link without it.
+// It was missing here - the symlinked core moved under this repo after build 52
+// was committed, and nothing in the app or the test suite named the symbol.
+//
+// "" is the answer this backend can honestly give, and emu_io.h says so
+// explicitly: an empty string is a correct answer for a backend that genuinely
+// cannot say, HBF_HOST_GETRNAME then reports "no answer", and R8 falls back to
+// printing what was asked for. The effective source is known only in Swift:
+// emu_host_file_open_read() hands a leaf to the delegate and the Swift layer
+// resolves it against Imports, case-insensitively, then calls
+// emu_host_file_load() - which carries bytes and no name. Answering properly
+// means giving that entry point the resolved path to record here, and that is
+// in todo.txt rather than done blind. The browser backend answers "" for the
+// same reason (romwbw_emu emu_io_wasm.cc).
+const char* emu_host_file_get_read_name() {
+  return "";
 }
 
 // The leaf name on its own, for the Swift layer, which joins it to the Exports
