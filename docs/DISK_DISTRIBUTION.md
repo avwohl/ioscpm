@@ -49,22 +49,35 @@ The manifest is an XML file listing all available disk images:
 | `description` | Yes | Human-readable description |
 | `size` | Yes | File size in bytes |
 | `license` | Yes | License type: Mixed, Abandonware, Open Source, Freeware |
-| `sha256` | Yes | SHA256 checksum for integrity verification |
+| `sha256` | Yes | SHA256 checksum, displayed but not enforced — see Integrity Verification |
 | `defaultSlot` | No | Optional default disk slot (0-3) for auto-mounting |
 
 ### Version Attribute
 
-The `<disks version="N">` attribute tracks catalog changes. When the version changes:
-- Clients detect the update on next catalog fetch
-- Previously downloaded disks may be invalidated if checksums changed
-- Users are notified of available updates
+The `<disks version="N">` attribute tracks catalog changes, and changing it is a
+data-loss event on every installed device. On each successful catalog fetch
+`checkCatalogVersionAndInvalidate` (`EmulatorViewModel.swift`) compares the
+attribute against the stored `catalogVersion` default, and on **any** difference:
+
+- `deleteAllDownloadedDisks()` removes every `.img` in `Documents/Disks`. No
+  checksum is consulted — the comparison is on the version attribute alone — and
+  the loop is not restricted to catalog filenames, so it also deletes disks the
+  user imported through Files and disks `createNewDisk` made in the app. Neither
+  can be re-downloaded.
+- the user is told afterwards, by an alert saying the disks have been cleared.
+  There is no confirmation beforehand, and nothing is offered as an update.
+
+So do not think of this attribute as metadata. Bumping it wipes the disk library
+of everyone on the current build, unprompted, on their next launch. What should
+happen instead is undecided; see `todo.txt`, "THE SECOND DATA-LOSS PATH ON THAT
+SAME RELEASE STEP".
 
 ## GitHub Releases Distribution
 
 ### Release URLs
 
 Clients read the catalog and the images from an explicit, pinned release tag —
-`releaseTag` in `EmulatorViewModel.swift:128`, currently `v1.4.5`:
+`releaseTag` in `EmulatorViewModel.swift`, currently `v1.4.5`:
 ```
 Catalog:  https://github.com/avwohl/ioscpm/releases/download/v1.4.5/disks.xml
 Base URL: https://github.com/avwohl/ioscpm/releases/download/v1.4.5
@@ -99,7 +112,7 @@ When creating a new GitHub release:
 
 3. The disk catalog does not follow `/latest/` (only the help system does).
    Clients read the pinned tag `v1.4.5`; a new release tag reaches no installed
-   client until `releaseTag` in `EmulatorViewModel.swift:128` is bumped and a
+   client until `releaseTag` in `EmulatorViewModel.swift` is bumped and a
    new app build ships. The
    `v1.4.5` release is intentionally marked **prerelease** so it never becomes
    the repo's "Latest". See `docs/DISK_CATALOG_PINNING.md`.
@@ -126,16 +139,33 @@ The `DiskCatalogXMLParser` class in `EmulatorViewModel.swift` parses the XML:
 
 1. User selects a disk in Settings
 2. Client downloads from GitHub Releases
-3. SHA256 checksum is verified
-4. File is stored in `Documents/Disks/`
-5. Download state is updated in UI
+3. The temp file is moved into `Documents/Disks/`, over any existing copy
+4. Download state is updated in UI
 
-### Integrity Verification
+There is no verification step between 2 and 3. See below.
 
-All downloads are verified against the manifest's SHA256 checksum:
-- Failed verification triggers automatic retry (up to 3 attempts)
-- Persistent failures show error to user
-- No disk is used without passing verification
+### Integrity Verification — intended, not shipped
+
+This section used to say that every download is verified against the manifest's
+SHA256, that a failed verification retries up to three times, and that no disk is
+used without passing. That is the intent. It is not what the iOS/macOS client
+does today.
+
+The live path is `downloadDiskFromSettings` in `EmulatorViewModel.swift`, reached
+from `downloadDisk` (the Settings button) and from `downloadDiskWithCompletion`
+(the first-run fetch). It retries on an HTTP or network error, then does
+`removeItem` + `moveItem` into `Documents/Disks/` without hashing the file at
+all. A second implementation, `downloadDiskWithRetry`, does verify — it hashes
+the installed file, deletes it and retries on a mismatch — but its only callers
+are its own retry arms, so nothing outside it ever reaches it.
+
+The manifest's `sha256` therefore survives only as display: `DiskDownloadRow`
+(`ContentView.swift`) hashes the file after it is installed and colours the
+first eight digits green or red. Nothing acts on the colour.
+
+Tracked in `todo.txt` under "nothing verifies a downloaded disk's SHA256": the
+fix is to delete the dead path or move its check into the live one, and until
+one of those happens, treat the `sha256` field as advisory on this port.
 
 ## Adding a New Disk
 

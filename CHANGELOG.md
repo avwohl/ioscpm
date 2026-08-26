@@ -71,6 +71,73 @@ the same step as, or before, this fix reaching them. The order is written down
 in romwbw_emu's `docs/RELEASE_ORDER_2026-08-25.md`; this build is step 1 of it,
 and the catalog bump is step 5.
 
+That order guards the `W8` path. It does not guard the other destructive thing
+the catalog bump does, which is new to `todo.txt` in this build and not fixed
+here: `disks.xml` carries a `version` attribute, and on any change to it
+`checkCatalogVersionAndInvalidate` calls `deleteAllDownloadedDisks()`, which
+removes **every** `.img` in `Documents/Disks` — including disks the user
+imported through Files and disks the app itself created, neither of which the
+catalog can give back — and tells the user afterwards. The attribute has moved
+on essentially every catalog change to date, so step 5 fires it. What should
+happen instead is a product decision, so it is written down rather than guessed
+at. `KNOWN_PROBLEMS.md`'s "Data Loss Risk with GitHub Disks" entry, which
+described only the download-over-the-top case, now names this trigger too, and
+`docs/DISK_DISTRIBUTION.md`'s "Version Attribute" section — which had it as
+disks that "may be invalidated if checksums changed", with users "notified of
+available updates", none of which the code does — now describes what actually
+happens.
+
+### Downloads are not checksum-verified on this port
+
+Found while checking the above and also only written down, not fixed.
+`EmulatorViewModel` has two download implementations. `downloadDiskWithRetry()`
+hashes the installed file against the manifest's `sha256`, deletes it and
+retries on a mismatch — and is dead: its only callers are its own four retry
+arms. Every real download goes through `downloadDiskFromSettings()`, which
+moves the temp file into place without hashing it. The catalog hash survives as
+the coloured digest in `DiskDownloadRow`, computed after the file is installed
+and acted on by nothing.
+
+`docs/DISK_DISTRIBUTION.md` asserted the opposite in three places ("SHA256
+checksum is verified", "All downloads are verified against the manifest's SHA256
+checksum", "No disk is used without passing verification"). Its "Integrity
+Verification" section is now marked intended-not-shipped and describes the live
+path, and `todo.txt` carries the choice — delete the dead path, or move its
+check into the live one.
+
+Two smaller facts that had sat only in `KNOWN_PROBLEMS.md` are now in `todo.txt`
+as well, re-verified against the source and otherwise unchanged: a new disk is
+always 8 MB (`createNewDisk(at:size:)` has a `size:`, the single call site in
+`ContentView` passes none, and there is no size picker, while an import is
+accepted up to `maxDiskSize`, 64 MB), and a created disk is `0xE5` fill with no
+HD1K filesystem laid down, so it is unusable until something formats it.
+
+### Stale claims in the docs
+
+`docs/notes_to_windos.md` warned about siblings on topic branches with a dated
+example: `../cpmemu` on `posix-console` (`55cc13f`) rather than `main`. That
+branch has since landed — `55cc13f` is dated 2026-08-23 and is an ancestor of
+`main`, and `posix-console` is no longer a local branch there — and a warning
+whose one concrete example is stale invites being dismissed. The hazard is
+unchanged, so the anecdote is replaced by what the tests do and do not prove:
+`Tests/run_tests.sh` (`=== CoreSymlinks ===`) asserts that all 21 entries under
+`iOSCPM/Core/` are still mode 120000 in the index and that none dangle, then
+compiles through them — but a symlink into a sibling parked on a topic branch
+resolves, compiles and passes exactly as a correct one does, so which commit is
+behind the link is not something any test here can see.
+
+`KNOWN_PROBLEMS.md` still described `SpecialKey` as "a flat 10-case enum".
+Build 51 made it twenty-two. The point it was supporting — that the binding
+schema has no slot for a modified arrow — is unaffected.
+
+The same entry said z80cpmw "does the same thing" with modifiers and elsewhere
+that it "has no equivalent" for Ctrl+arrow. Both are now false: z80cpmw's
+`TerminalView.cpp` passes a modifier mask to `m_keymap.find()`, and its
+`Keymap.h` defaults bind Ctrl+Up/Down/Right/Left to `\E[1;5A`..`D`. Corrected
+to say so. No convention is picked for ioscpm here — cpmemu sends the WordStar
+bytes `^A ^F ^W ^Z` and z80cpmw sends the xterm forms, and choosing between them
+is the open item in `todo.txt`, unchanged by this.
+
 ## Version 1.5.1 (Build 51)
 
 ### Three parity gaps closed

@@ -24,14 +24,80 @@ KNOWN_PROBLEMS.md, so the next audit does not re-flag it. What is left:
   not serve yet - copy one in through Files from romwbw_emu/disks/.
 
 - BLOCKING A RELEASE, and the reason build 52 exists: do not bump releaseTag
-  (EmulatorViewModel.swift:128, still v1.4.5) until build 52 or later is what
-  users are running.  Refreshing the disk-image catalog is what puts a
-  path-capable W8 in front of everyone, and before 52 that W8 could delete the
-  whole Documents folder.  The cross-repo order is romwbw_emu's
+  (grep releaseTag in EmulatorViewModel.swift, still v1.4.5) until build 52 or
+  later is what users are running.  Refreshing the disk-image catalog is what
+  puts a path-capable W8 in front of everyone, and before 52 that W8 could
+  delete the whole Documents folder.  The cross-repo order is romwbw_emu's
   docs/RELEASE_ORDER_2026-08-25.md - this port is step 1, the catalog bump is
   step 5, and the one thing that must never happen is refreshed images being
   attached to the EXISTING v1.4.5 tag, which would reach every installed app
-  with no update at all.
+  with no update at all.  Read the next item before walking that order: the
+  catalog bump destroys user data by a second route that has nothing to do with
+  W8, and it fires whether or not build 52 has shipped.
+
+- THE SECOND DATA-LOSS PATH ON THAT SAME RELEASE STEP.  disks.xml carries a
+  version attribute of its own (<disks version="12"> at the pinned v1.4.5, 13 in
+  release_assets/ today, and it has moved on essentially every catalog change -
+  1, 2, 6, 7, 8, 9, 10, 11, 12, 13).  On every successful
+  catalog fetch, checkCatalogVersionAndInvalidate (EmulatorViewModel.swift)
+  compares that attribute against the stored "catalogVersion" default and, on
+  any difference, calls deleteAllDownloadedDisks() before showing the user an
+  alert saying it has happened.  So step 5 does not merely put a new W8 in front
+  of users, it wipes disks on their devices, unprompted, on the next launch.
+  Two things make it worse than "the downloaded disks come back":
+    - deleteAllDownloadedDisks() loops over `contents where url.pathExtension ==
+      "img"` in Documents/Disks, so it also deletes disks the user imported
+      through Files and disks the app itself made with createNewDisk.  Neither
+      is in the catalog and neither can be re-downloaded.  Those are gone.
+    - a downloaded disk is writable and is exactly where a user's CP/M work
+      lives, which is the point KNOWN_PROBLEMS.md makes under "Data Loss Risk
+      with GitHub Disks" - except that entry describes the trigger as a new disk
+      being released and downloaded over the old one, and the real trigger is
+      broader and needs no download and no tap at all.  That entry now carries
+      the real trigger and points back here.
+  Where this was and was not written down before, since the answer is not
+  "nowhere": not in this list, not in the CHANGELOG, and not in
+  RELEASE_ORDER_2026-08-25.md, which reasons only about W8 and R8.  But it WAS
+  in docs/DISK_DISTRIBUTION.md's "Version Attribute" section, described wrongly
+  and softly enough to read as harmless - downloaded disks "may be invalidated
+  if checksums changed", users "are notified of available updates".  Every
+  clause of that was false: no checksum is consulted, the deletion is
+  unconditional on any attribute difference, it is not limited to catalog disks,
+  and the user is told after the fact rather than offered an update.  That
+  section now describes the code and points here.
+  Not fixed here because the fix is a user-facing decision rather than a patch:
+  copy-on-write on first guest write, or confirm before wiping, or spare
+  anything the catalog does not name, or keep the wipe and give the user an
+  export path first.  Whichever it is, it has to be in the same binary as the
+  catalog bump, for exactly the reason build 52 has to be.
+
+- two more that have sat in KNOWN_PROBLEMS.md and have never been in this list.
+  Both verified still true against the source, both far smaller than the one
+  above.  New disks are always 8 MB: createNewDisk(at:size:) takes a size:, the
+  single call site in ContentView passes none, and there is no size picker,
+  while an imported disk is accepted up to maxDiskSize (64 MB).  And a created
+  disk is Data(repeating: 0xE5, ...) and nothing else - no HD1K filesystem is
+  laid down - so it is not usable until something formats it, which is what the
+  cpmtools recipe in KNOWN_PROBLEMS.md is a workaround for.
+
+- found while checking the above, not previously recorded: nothing verifies a
+  downloaded disk's SHA256.  There are two download implementations in
+  EmulatorViewModel.  downloadDiskWithRetry() does verify - it hashes the file,
+  deletes it and retries on a mismatch - but its only callers are its own four
+  retry arms, so nothing outside it ever reaches it.  Every real download goes
+  through downloadDiskFromSettings() - both downloadDisk() and
+  downloadDiskWithCompletion() call it - and that one moves the temp file into
+  place without hashing it at all.  The catalog's sha256 survives only as the
+  coloured text in DiskDownloadRow, computed after the file is installed and
+  acted on by nobody.  Disk images are downloaded content that the guest then
+  executes, so this matters most on exactly the release step above.  Either
+  delete the dead path or move its check into the live one; the second is the
+  point of having the hash in disks.xml at all.  docs/DISK_DISTRIBUTION.md
+  asserted the opposite in three places - "SHA256 checksum is verified", "All
+  downloads are verified against the manifest's SHA256 checksum", "No disk is
+  used without passing verification".  Its "Integrity Verification" section is
+  now labelled intended-not-shipped and describes the live path; whichever way
+  this item is closed, that label comes off.
 
 - a zero-byte W8 export produces no file on this port.
   emu_host_file_close_write() (emu_io_ios.mm) goes straight to IDLE when the
@@ -72,9 +138,10 @@ KNOWN_PROBLEMS.md, so the next audit does not re-flag it. What is left:
   src/os/windows/platform.cc:123-126, commit 0b8dc2b), and z80cpmw sends the
   xterm modified forms \E[1;5A..D out of a modifier-aware key map
   (Keymap.h:164-167). Small, and it needs the choice between those two
-  conventions rather than an implementation - written up in KNOWN_PROBLEMS.md,
-  which still says z80cpmw has no equivalent and wants correcting whichever way
-  the decision goes. iPadOS only; macOS takes Ctrl+arrow at WindowServer.
+  conventions rather than an implementation. KNOWN_PROBLEMS.md said z80cpmw did
+  the same thing ioscpm does and had no equivalent; both were stale and are
+  corrected there now, without picking a convention. iPadOS only; macOS takes
+  Ctrl+arrow at WindowServer.
 
 - the parity items still genuinely absent, in rough order of how much they are
   missed. Each is a feature, not a sync gap - none block taking a core release.
@@ -132,16 +199,8 @@ KNOWN_PROBLEMS.md, so the next audit does not re-flag it. What is left:
   still wins whenever it succeeds, which is deliberate, so a user WITH a network
   keeps seeing the stale copy. Mind which release to fix: help does NOT follow
   the pinned tag. HelpView.swift:187-188 hardcode
-  releases/latest/download/help_index.json and the topic base, and
-  EmulatorViewModel.swift:128's releaseTag = "v1.4.5" feeds the disk catalog
-  only - the comment at :126 says so ("help floats, disks are pinned"). So the
+  releases/latest/download/help_index.json and the topic base, and the
+  releaseTag = "v1.4.5" in EmulatorViewModel.swift feeds the disk catalog only -
+  the comment just above it says so ("help floats, disks are pinned"). So the
   copy to re-attach is the one on whichever release is Latest, not on v1.4.5.
   Check the other six topics and help_index.json while there.
-
-- docs/notes_to_windos.md's symlink hazard section says "as of 2026-08-24,
-  ../cpmemu was on posix-console (55cc13f), not main". That is no longer true -
-  cpmemu is on main and posix-console does not exist as a branch any more - and
-  a warning whose one concrete example is stale is the kind a reader dismisses.
-  Reword it to keep the hazard and drop the anecdote. The hazard itself is real
-  and cannot be automated: Tests/run_tests.sh proves the 21 links are links, not
-  that the trees behind them are on the right branch.

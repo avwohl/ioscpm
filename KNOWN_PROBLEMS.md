@@ -94,9 +94,12 @@ For multi-slice disks, use slice-specific definitions (`wbw_hd1k_0`, `wbw_hd1k_1
 ### Data Loss Risk with GitHub Disks
 Disks downloaded from GitHub are writable, allowing users to store data in them. However, this data can be lost at any time if a new version of the disk is released and downloaded, overwriting the user's changes.
 
+The trigger is broader than a download, and the user does not have to do anything at all. `disks.xml` carries a `version` attribute; on every successful catalog fetch, `checkCatalogVersionAndInvalidate` (`EmulatorViewModel.swift`) compares it against the stored `catalogVersion` and, on any difference, calls `deleteAllDownloadedDisks()` - which removes every `.img` in `Documents/Disks` and then shows an alert saying it has happened. That loop is not restricted to catalog filenames, so it also takes disks the user imported through Files and disks `createNewDisk` made in the app, neither of which can be re-downloaded. Publishing a refreshed catalog is therefore destructive on every installed device, with no confirmation beforehand. See `todo.txt`: this is the second data-loss path on the same release step the `releaseTag` block guards, and deciding what should happen instead is what blocks it.
+
 **Potential solutions to consider:**
 - Copy-on-write: Create a local copy when user first modifies a downloaded disk
 - Separate user disks from system/downloaded disks
+- Confirm before the version-change wipe, and spare anything the catalog does not name
 
 ## Keyboard
 
@@ -130,23 +133,29 @@ ASCII-composing Option combo is the correct behaviour for a 7-bit guest.
 ### Nav keys ignore their modifiers
 `pressesBegan` excludes only Command before resolving `specialKey(for:)`, which
 switches on the HID usage alone, so Ctrl+Left and Shift+Up emit the same bytes
-as the bare key. z80cpmw does the same thing - `m_keymap.find(wParam)` on the
-virtual-key code alone (`z80cpmw/TerminalView.cpp`) - so this is cross-port
-behaviour, not an ioscpm defect. The binding schema has no slot for a modified
-variant anyway: `SpecialKey` is a flat 10-case enum and `KeyMap.bindings` is
-`[SpecialKey: String]`, and none of the WordStar / VT100 / VT52 profiles defines
-a modified arrow. Adding one would be a schema change on both ports.
+as the bare key. This was cross-port behaviour when the entry was written; it is
+not any more. z80cpmw's key map grew modifiers - `TerminalView.cpp` builds a
+modifier mask and calls `m_keymap.find(wParam, mods)`, and `Keymap.h`'s defaults
+bind Ctrl+Up / Down / Right / Left to the xterm forms `\E[1;5A`..`D`. ioscpm is
+now the port without it.
 
-Open, small: `cpmemu` is the exception in the family. Its Windows console
-translates Ctrl+Left/Right/Up/Down to ^A / ^F / ^W / ^Z - WordStar word left,
-word right, scroll up, scroll down - in the `extended_keys` table of
-`src/os/windows/platform.cc`. z80cpmw has no equivalent (its `Keymap.h` names
-only `left` / `right`), so this is a cpmemu-only capability rather than a
-contract ioscpm is behind on, and all four bytes are already reachable here by
-typing Ctrl+A / Ctrl+F / Ctrl+W / Ctrl+Z. If it is ever wanted, it is four more
-`SpecialKey` cases plus defaults for stored custom profiles - worth doing only
-the next time the keyboard settings screen is open, and on iPadOS only, per the
-Mac Catalyst note below.
+The binding schema here has no slot for a modified variant: `SpecialKey` is a
+flat 22-case enum - ten nav keys and F1-F12, every one of them unmodified - and
+`KeyMap.bindings` is `[SpecialKey: String]`, and none of the WordStar / VT100 /
+VT52 profiles defines a modified arrow. Adding one is a schema change.
+
+Open, small, and a choice rather than a gap, because the two siblings disagree
+on what these keys should send. `cpmemu`'s Windows console translates
+Ctrl+Left/Right/Up/Down to ^A / ^F / ^W / ^Z - WordStar word left, word right,
+scroll up, scroll down - in the `extended_keys` table of
+`src/os/windows/platform.cc`. z80cpmw sends the xterm modified forms above,
+though its own comment offers `"Ctrl+Left": "^A", "Ctrl+Right": "^F"` as one
+line of config. All four WordStar bytes are already reachable here by typing
+Ctrl+A / Ctrl+F / Ctrl+W / Ctrl+Z, so nothing is unreachable. If a binding is
+ever wanted, it is four more `SpecialKey` cases plus defaults for stored custom
+profiles, after picking a convention - worth doing only the next time the
+keyboard settings screen is open, and on iPadOS only, per the Mac Catalyst note
+below. See `todo.txt`.
 
 ### Ctrl+Home / Ctrl+End and Shift+PageUp / Shift+PageDown belong to the host
 Those four are consumed for scrollback navigation and never forwarded to the

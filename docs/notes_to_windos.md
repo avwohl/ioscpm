@@ -84,12 +84,16 @@ sibling commit went into a build. A topic branch left checked out in
 `../cpmemu` or `../romwbw_emu` ships into the app with no signal at all, and a
 released build has no record of what it contains.
 
-This was live as of 2026-08-24: `../cpmemu` was on `posix-console` (55cc13f),
-not `main` (1dd6a8e). It happened to be harmless - that branch is one commit
-ahead of `main` and touches only `src/os/linux/platform.cc`, tests, and notes
-(README, docs/BUILDING.md, todo.txt), none of which ioscpm symlinks or builds -
-but nothing detected it, and nothing would have detected it if the branch had
-touched `src/qkz80*`.
+Nothing detects this, and nothing here can. `Tests/run_tests.sh` checks the
+*shape* of the arrangement - its `=== CoreSymlinks ===` section asserts that all
+21 entries under `iOSCPM/Core/` are still mode 120000 in the index and that none
+of them dangle, and the compile step that follows names its sources through
+`iOSCPM/Core/` rather than reaching past it. That catches a flattening and a
+missing file. It cannot catch which commit the tree behind a link is sitting on:
+a symlink into a sibling parked on a topic branch resolves, compiles and passes
+every test below, exactly as a correct one does. So the check below is a habit
+rather than a test - nothing mechanical stands behind it, and a green
+`run_tests.sh` is not evidence that it was done.
 
 Check both siblings before building or releasing:
 
