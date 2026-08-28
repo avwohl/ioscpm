@@ -143,6 +143,67 @@ func runAllTests() {
     check(vt52.bytes(for: .up) == [0x1B, 0x41], "VT52 Up is ESC A, no bracket")
 
     // -------------------------------------------------------------------------
+    section("Ctrl+arrow is a binding of its own")
+    // -------------------------------------------------------------------------
+    //
+    // Until build 53 the Ctrl modifier on an arrow was discarded: the view
+    // tested only for .command before resolving a nav key, so Ctrl+Left was
+    // indistinguishable from Left and there was no slot to say otherwise.
+    //
+    // The sequences are the xterm modified forms, CSI 1 ; 5 <final>, asserted
+    // byte for byte against z80cpmw/Keymap.h - not WordStar's ^A/^F, which is
+    // what cpmemu sends and which has no meaning in the other ports. A plausible
+    // but different sequence is exactly the failure that makes maps silently
+    // non-portable.
+    let ctrlWanted: [(SpecialKey, [UInt8])] = [
+        (.ctrlUp,    [0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x41]),   // ESC [ 1 ; 5 A
+        (.ctrlDown,  [0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x42]),   // ESC [ 1 ; 5 B
+        (.ctrlRight, [0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x43]),   // ESC [ 1 ; 5 C
+        (.ctrlLeft,  [0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x44]),   // ESC [ 1 ; 5 D
+    ]
+    for profile in [KeyProfile.vt100, .wordStar] {
+        let map = KeyMap(bindings: profile.bindings ?? [:])
+        var ok = true
+        for (key, want) in ctrlWanted where map.bytes(for: key) != want {
+            print("      \(profile.rawValue) \(key.rawValue): wanted \(hex(want))"
+                  + ", got \(hex(map.bytes(for: key)))")
+            ok = false
+        }
+        check(ok, "\(profile.rawValue) sends the xterm CSI 1;5 forms for Ctrl+arrow")
+    }
+    // The WordStar profile is the one that could plausibly have gone the other
+    // way. It did not: the diamond is the unmodified arrows' convention.
+    check(ws.bytes(for: .ctrlLeft) != [0x01] && ws.bytes(for: .ctrlRight) != [0x06],
+          "WordStar Ctrl+Left/Right are not cpmemu's ^A/^F")
+
+    // A VT52 has no modifier convention - no parameterised CSI to put a 5 in -
+    // so Ctrl+arrow is just the arrow, which is also what this port did before
+    // the modified slots existed.
+    check(vt52.bytes(for: .ctrlLeft) == vt52.bytes(for: .left),
+          "VT52 Ctrl+Left is plain Left, not a CSI a VT52 could never send")
+
+    // The enum's two directions must agree, or the view would resolve a press to
+    // a slot the map falls back out of.
+    var pairsAgree = true
+    for key in SpecialKey.allCases {
+        if let mod = key.controlModified, mod.unmodifiedBase != key { pairsAgree = false }
+        if let base = key.unmodifiedBase, base.controlModified != key { pairsAgree = false }
+    }
+    check(pairsAgree, "controlModified and unmodifiedBase are inverses of each other")
+
+    // Migration: a Custom map saved before the Ctrl+arrow slots existed has no
+    // entry for them at all. Absent must fall back to the plain arrow - today's
+    // behaviour - while an explicitly empty binding still means "send nothing".
+    let legacy = KeyMap(bindings: [.left: "\\E[D"])
+    check(legacy.bytes(for: .ctrlLeft) == [0x1B, 0x5B, 0x44],
+          "an absent Ctrl+Left falls back to plain Left, so old maps do not go silent")
+    let unbound = KeyMap(bindings: [.left: "\\E[D", .ctrlLeft: ""])
+    check(unbound.bytes(for: .ctrlLeft) == [],
+          "but an explicitly empty Ctrl+Left sends nothing, and does not fall back")
+    check(KeyMap(bindings: [:]).bytes(for: .up) == [],
+          "an unbound plain key still sends nothing - the fallback added no new one")
+
+    // -------------------------------------------------------------------------
     section("Nothing a binding can say produces a byte above 0x7F")
     // -------------------------------------------------------------------------
     //

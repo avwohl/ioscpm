@@ -84,24 +84,61 @@ sibling commit went into a build. A topic branch left checked out in
 `../cpmemu` or `../romwbw_emu` ships into the app with no signal at all, and a
 released build has no record of what it contains.
 
-Nothing detects this, and nothing here can. `Tests/run_tests.sh` checks the
-*shape* of the arrangement - its `=== CoreSymlinks ===` section asserts that all
-21 entries under `iOSCPM/Core/` are still mode 120000 in the index and that none
-of them dangle, and the compile step that follows names its sources through
-`iOSCPM/Core/` rather than reaching past it. That catches a flattening and a
-missing file. It cannot catch which commit the tree behind a link is sitting on:
-a symlink into a sibling parked on a topic branch resolves, compiles and passes
-every test below, exactly as a correct one does. So the check below is a habit
-rather than a test - nothing mechanical stands behind it, and a green
-`run_tests.sh` is not evidence that it was done.
+### What it looks like when it fires
 
-Check both siblings before building or releasing:
+On 2026-08-26 `romwbw_emu` committed `322ca8e`, which declared
+`emu_host_file_get_read_name()` in `src/emu_io.h` and called it unconditionally
+from `src/hbios_dispatch.cc` for `HBF_HOST_GETRNAME`. That is a *required*
+backend function: every port has to define one or it stops linking.
+`hbios_dispatch.cc` is one of the 21 symlinks under `iOSCPM/Core/`, so the new
+call arrived in this port the moment that sibling checkout moved. No commit
+here, no diff here, no version number anywhere that changed - the build simply
+stopped linking, and the failure was the first anyone knew of it. It was the
+second time the same mechanism fired in a week: `emu_host_path_caps()` did it a
+few days earlier, and `49851aa` here is that fix.
 
-    git -C ../cpmemu     rev-parse --abbrev-ref HEAD    # expect main
-    git -C ../romwbw_emu rev-parse --abbrev-ref HEAD    # expect main
+The stale-checkout direction is the same hazard mirrored, and it bit at the same
+time. This repo's own checkout was two commits behind its origin - sitting on
+`49851aa` while origin had `15f48e9`, and `15f48e9` is the commit that defines
+the getter. So the tree on disk had a core that needed the function, a port that
+did not define it, and a fix that already existed on the remote. A symlink pins
+nothing at either end: not the sibling it points into, and not the checkout it
+points from. Pull this repo *and* check the siblings; either one alone leaves
+the other half of the gap open.
 
-and, if either is not on its default branch, confirm the files ioscpm actually
-consumes have not drifted:
+One part of this does have a mechanical check, and it is cheaper than a build.
+`Tests/run_tests.sh`'s `=== CoreKeyboardTests ===` suite compiles the symlinked
+core against its own stub backend in `Tests/CoreKeyboardTests.cc`, so a newly
+required core function fails to link there too - with no Xcode, no simulator and
+no Mac. Note what that does and does not prove: it proves the *test's* stub list
+is complete. Adding the stub there is a different edit from defining the real
+function in `iOSCPM/Core/emu_io_ios.mm`, and only the Xcode build checks the
+second one.
+
+Which commit is behind a link, though, nothing here can see. `run_tests.sh`
+checks the *shape* of the arrangement - its `=== CoreSymlinks ===` section
+asserts that all 21 entries under `iOSCPM/Core/` are still mode 120000 in the
+index and that none of them dangle, and the compile step that follows names its
+sources through `iOSCPM/Core/` rather than reaching past it. That catches a
+flattening and a missing file. It cannot catch which commit the tree behind a
+link is sitting on: a symlink into a sibling parked on a topic branch resolves,
+compiles and passes every test below, exactly as a correct one does. So the
+check below is a habit rather than a test - nothing mechanical stands behind it,
+and a green `run_tests.sh` is not evidence that it was done.
+
+Check all three checkouts before building or releasing - this one included, for
+the reason above:
+
+    git -C . fetch && git -C . status -sb                # expect no "behind"
+    git -C ../cpmemu     rev-parse --abbrev-ref HEAD     # expect main
+    git -C ../romwbw_emu rev-parse --abbrev-ref HEAD     # expect main
+
+The `fetch` is not optional: `status -sb` reports "behind" against the remote
+ref this checkout last heard about, so without it a stale tree reports itself
+up to date - which is exactly the state that hid the two-commit gap above.
+
+and, if either sibling is not on its default branch, confirm the files ioscpm
+actually consumes have not drifted:
 
     git -C ../cpmemu diff --stat main...HEAD -- 'src/qkz80*'
 

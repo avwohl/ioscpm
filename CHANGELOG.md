@@ -1,19 +1,151 @@
 # Changelog
 
-## Unreleased - no build number yet, and nothing here was compiled
+## Version 1.5.1 (Build 53)
 
-Written on a Linux machine with no Xcode, no Swift and no Objective-C toolchain.
-Give it a `CURRENT_PROJECT_VERSION` when it is first built; it has deliberately
-not been given one here, because a build number in this file has so far meant a
-binary that existed.
+Two terminal changes a user can see, and the section that had been sitting here
+without a build number because nothing in it had been compiled. It has been now.
 
-What *was* run: `Tests/run_tests.sh`'s C++ suite, against the real symlinked
-core, with `g++ -std=c++11` - 24 checks, all passing. The four Swift suites were
-skipped for want of a compiler and the script now says so out loud rather than
-claiming a pass. No Swift and no Objective-C++ in this section has been through
-a compiler at all.
+`Tests/run_tests.sh`: 180 checks across five suites plus the two `CoreSymlinks`
+shape checks, all passing (172 before; `KeyMapTests` grew from 34 to 42).
+`xcodebuild` clean for the iPhone 17 Pro simulator and for Mac Catalyst, with no
+new warnings. Installed and run on the iPhone 17 Pro simulator: booted the Combo
+disk to CP/M 2.2 and drove the escape sequences below through `R8` + `TYPE`,
+because the CCP echoes a typed ESC as `^[` and never lets one reach the parser.
+
+### An erase paints the current background
+
+Every erase in the terminal - `ED`, `EL`, `ECH`, `ICH`, `DCH`, `IL`, `DL`, `SU`,
+`SD`, the VT52 `ESC J` / `ESC K`, and both scroll paths - blanked cells with a
+default `TerminalCell()`: white on black, whatever the guest had set. So a
+program could select a background, clear the screen, and get a black screen with
+its own text drawn on a colour it had not asked for. A strict VT, xterm and both
+sibling ports paint the *current* SGR background; this port was the last one
+that did not. z80cpmw made the same change with tests, cpmdroid's `ED`/`EL`
+already used the current rendition, and the web frontend gets it from xterm.js.
+
+- **A new `blankCell`**, next to `displayAttr` and unpacking the attribute byte
+  exactly the way the glyph-write path does, so an erased cell and a character
+  written into it afterwards always agree. Seventeen call sites now use it. The
+  two that do not are the initial screen allocation and the scrollback padding,
+  which are not erases and must stay at the default.
+
+- **`clearTerminal()` split in two.** It was the `ESC[2J` path *and* the
+  machine-level clear, and it reset `scrollTop`/`scrollBottom`. Erase-in-display
+  says what to do with the cells and nothing about the terminal's modes - `ED`
+  is not `DECSTBM` - so a program that sets a scrolling region and then clears
+  its screen was silently losing the region. `eraseScreen()` is now the guest
+  path (`ESC[2J`, VT52 `ESC E`, the HBIOS VDA clear): cells and cursor only.
+  `clearTerminal()` is the machine path (Start, Reset): it resets the rendition
+  *first*, then erases, then resets the region. z80cpmw split the same two jobs
+  apart for the same reason.
+
+- **The ordering that made this dangerous.** `reset()` called `clearTerminal()`
+  before setting `currentAttr = 0x07`, which was harmless while an erase always
+  painted the default and would have painted a fresh boot in the dead session's
+  colour the moment it stopped. The power-on block now runs before the clear, and
+  `clearTerminal()` resets the rendition itself so `startEmulator()` - which has
+  no such block in front of it - is covered too.
+
+Verified on the simulator, not only by reading: `ESC[44m ESC[2J` filled all
+25x80 cells with the background and the text written after it matched. It came
+out *red*, not blue, which is a second bug this one made visible and did not
+cause - `applySGR` stores the raw ANSI index in a byte the painter reads as a
+CGA index, so 1 and 4 swap and 3 and 6 swap. Pre-existing, identical in
+z80cpmw, and now an open item in `todo.txt` rather than a surprise.
+
+Also verified there: `ESC[5;10r` survived a following `ESC[2J` - nine lines fed
+at the region bottom scrolled inside rows 5-10 and left the rest of the screen
+alone, which is the outcome that distinguishes a preserved region from a reset
+one - and Reset from a fully coloured screen came back black rather than
+coloured. All of it on the iPhone 17 Pro simulator; nothing in this build has
+been run on a device.
+
+### Ctrl+arrow is a binding of its own
+
+The nav-key branch in `pressesBegan` tested only for `.command`, so a held Ctrl
+was discarded before the general Ctrl fold below it could see it, and Ctrl+Left
+sent exactly what Left sent. Neither `SpecialKey` nor `KeyMap` had a slot for a
+modified variant, so a Custom profile could not say otherwise either.
+
+- **Four new `SpecialKey` cases** - `ctrlUp` / `ctrlDown` / `ctrlLeft` /
+  `ctrlRight` - bound in every preset profile and editable in Settings like any
+  other key. WordStar and VT100 send the xterm modified forms `\E[1;5A` / `B` /
+  `C` / `D`, byte for byte what `z80cpmw/Keymap.h` binds. cpmemu's WordStar
+  `^A ^F ^W ^Z` was the alternative and was not taken: the xterm form is the one
+  with a cross-terminal meaning, all four WordStar bytes are still reachable by
+  typing Ctrl+A/F/W/Z, and z80cpmw had already shipped this. `KNOWN_PROBLEMS.md`
+  records the reasoning.
+- **VT52 is the deliberate exception**, binding Ctrl+arrow to the plain VT52
+  arrow: a VT52 has no parameterised CSI to put a modifier in, and giving it one
+  would be the same lie as giving it F5-F12.
+- **An absent modified binding falls back to the unmodified one**, which is what
+  `z80cpmw`'s `KeyMap::find()` does and what keeps a Custom profile saved before
+  this build behaving exactly as it did instead of going silent. An explicitly
+  empty binding still means "send nothing" and does not fall back.
+- **iPadOS only, and the code says so** rather than pretending otherwise: macOS
+  claims Ctrl+arrow for Mission Control at the WindowServer level, so on Mac
+  Catalyst the press never reaches the app.
+
+`Tests/KeyMapTests.swift` gained eight checks for all of the above. The runtime
+half is unverified: synthetic arrow-key events do not reach the app inside the
+simulator at all (neither plain nor modified produced any guest input), so the
+end-to-end path was not exercised on a device or a simulator.
+
+### Documentation
+
+`docs/notes_to_windos.md`'s symlink-hazard section had no live example. It has
+one now, and it is this repository's own week: `romwbw_emu` `322ca8e` added the
+REQUIRED backend function `emu_host_file_get_read_name()` and called it from
+`hbios_dispatch.cc`, which is one of the 21 symlinks under `iOSCPM/Core/` - so
+the call arrived here with no commit, no diff and no version number changing,
+and the build simply stopped linking. The mirror of the same hazard bit at the
+same time: this checkout was two commits behind its own origin, on `49851aa`
+while `15f48e9` - the commit that defines the getter - was already on the
+remote. A symlink pins nothing at either end, so the check now covers this
+repo's own `git status -sb` alongside the two siblings. The section also names
+what `Tests/run_tests.sh` does and does not prove: its C++ suite catches a newly
+required core function without needing Xcode, but only because the *test's* stub
+list must grow too - defining the real function in `emu_io_ios.mm` is a separate
+edit that only the Xcode build checks.
+
+`KNOWN_PROBLEMS.md`'s "Nav keys ignore their modifiers" entry is now about the
+keys that still do (Shift+Up, Alt+Right, Shift+Insert), and records the
+Ctrl+arrow convention and the reasoning behind it.
+
+### `todo.txt` is open work again, and `MANUAL_CHECKS.md` is new
+
+`todo.txt` went 275 lines to 143. It had stopped being a list of things to do:
+closing an item was producing a paragraph explaining that it had closed, which
+was longer than the item had been, so roughly two lines in three were narration
+of finished work - reset confirmation tapped, `R8` fallback observed, which
+line cite had gone stale, what a previous round had corrected in another
+repository's document. None of that asks anyone to do anything, and all of it
+already lives in this file or in a commit message. It is deleted, not
+summarised.
+
+- **`MANUAL_CHECKS.md`** now holds the three things that need a person driving
+  the app: build 52's six destructive `W8`/`R8` checks, the WordStar diamond and
+  Escape under Catalyst, and Ctrl+arrow. `todo.txt` keeps one line pointing at
+  it, and the file says outright that a check is *deleted* once someone runs it.
+  It also corrects the premise those items had been carried on - only the
+  Ctrl+arrow one needs hardware. The rest run in the Simulator, whose sandbox is
+  a real directory under `simctl get_app_container`, or under Catalyst.
+- **Every surviving item is tagged** `[MAC]`, `[RELEASE]` or `[DECISION]`, so a
+  session on a machine that is not this one can see at a glance what it can
+  take.
+- **The release-order material collapses to one line** pointing at
+  romwbw_emu's `docs/RELEASE_ORDER_2026-08-25.md`, which owns it. The residue
+  that is genuinely this port's - do not bump `releaseTag` before build 52
+  ships, and the catalog bump's second data-loss path - stays.
+- **No file:line cites survive.** Every one this file carried into
+  `EmulatorViewModel.swift` had gone stale, some inside a single build. Items
+  name a function or a greppable string now.
 
 ### This port had stopped linking, and nothing said so
+
+The rest of this section was written on a Linux machine with no Xcode, no Swift
+and no Objective-C toolchain, and was committed uncompiled (`15f48e9`). It has
+been through a compiler now, as part of build 53, and it builds and runs.
 
 `iOSCPM/Core/` symlinks into `../romwbw_emu/src`, so an upstream commit moves
 the core under this repo without touching a file here. On 2026-08-26 romwbw_emu
@@ -107,8 +239,9 @@ here.
 
 ### Measured against the live releases, and recorded
 
-None of this changed code; it replaced belief with measurement, and it is in
-`todo.txt` and the runbook.
+None of this changed code; it replaced belief with measurement. What is still
+actionable is in `todo.txt`, the runbook and `MANUAL_CHECKS.md`; the rest is
+here.
 
 - The published `v1.4.5` combo carries the **old** `W8`: its only usage string
   is `Usage: W8 <cpmname>`, with no `[hostpath]`, and the interlock probe bytes

@@ -593,7 +593,21 @@ class TerminalUIView: UIView, UIKeyInput {
             // Command-modified nav keys are left to the system.
             if !key.modifierFlags.contains(.command),
                let special = Self.specialKey(for: key.keyCode) {
-                onSpecialKey?(special)
+                // Ctrl+arrow is a binding of its own, not the plain arrow with
+                // the modifier thrown away. This branch used to test only for
+                // .command, so the Ctrl was discarded here and the general Ctrl
+                // fold below never got a chance at it. Only the four arrows have
+                // a modified slot (SpecialKey.controlModified); Ctrl+Home and
+                // Ctrl+End were consumed above as scrollback jumps, and every
+                // other nav key still falls through unmodified.
+                //
+                // iPadOS only, and deliberately so: on Mac Catalyst WindowServer
+                // takes Ctrl+arrow for Mission Control / Spaces before the app
+                // is ever asked, so this resolves there but never fires.
+                let resolved = key.modifierFlags.contains(.control)
+                    ? (special.controlModified ?? special)
+                    : special
+                onSpecialKey?(resolved)
                 handled = true
                 continue
             }

@@ -138,32 +138,36 @@ z80cpmw maps Alt nowhere either: it has no `WM_SYSCHAR` handler at all, and its
 `DefWindowProc`, so every Alt combo lands there. Pass-through of an
 ASCII-composing Option combo is the correct behaviour for a 7-bit guest.
 
-### Nav keys ignore their modifiers
-`pressesBegan` excludes only Command before resolving `specialKey(for:)`, which
-switches on the HID usage alone, so Ctrl+Left and Shift+Up emit the same bytes
-as the bare key. This was cross-port behaviour when the entry was written; it is
-not any more. z80cpmw's key map grew modifiers - `TerminalView.cpp` builds a
-modifier mask and calls `m_keymap.find(wParam, mods)`, and `Keymap.h`'s defaults
-bind Ctrl+Up / Down / Right / Left to the xterm forms `\E[1;5A`..`D`. ioscpm is
-now the port without it.
+### Nav keys other than the arrows still ignore their modifiers
+Build 53 gave the four arrows a modified slot; nothing else has one. Shift+Up,
+Alt+Right and Shift+Insert still resolve through `specialKey(for:)`, which
+switches on the HID usage alone, and emit the bare key's bytes. That is the same
+shape z80cpmw has - its `Keymap.h` accepts `Shift+` and `Alt+` prefixes but its
+defaults bind none of them - so this is a gap in the *defaults*, not in the
+schema, and a Custom profile still cannot express those combinations here
+because the enum has no cases for them.
 
-The binding schema here has no slot for a modified variant: `SpecialKey` is a
-flat 22-case enum - ten nav keys and F1-F12, every one of them unmodified - and
-`KeyMap.bindings` is `[SpecialKey: String]`, and none of the WordStar / VT100 /
-VT52 profiles defines a modified arrow. Adding one is a schema change.
+**The convention Ctrl+arrow uses, and why.** Ctrl+Up / Down / Right / Left send
+the xterm modified forms `\E[1;5A` / `B` / `C` / `D` - CSI 1 ; 5 *final*, where
+the 5 is the Ctrl modifier - byte for byte what `z80cpmw/Keymap.h` binds. The
+alternative was `cpmemu`'s, which translates the same four keys to `^A` / `^F` /
+`^W` / `^Z` (WordStar word left, word right, scroll up, scroll down) in the
+`extended_keys` table of `src/os/windows/platform.cc`. The xterm form won for
+three reasons: it is the one with a cross-terminal meaning, so a map written for
+one port means the same thing in another - the whole point of sharing the
+termcap schema; the four WordStar bytes are already reachable by typing
+Ctrl+A / Ctrl+F / Ctrl+W / Ctrl+Z, so nothing became unreachable; and z80cpmw
+had already shipped it, so choosing WordStar would have created a divergence
+rather than closed one. A user who wants `^A`/`^F` has them one edit away in the
+Custom profile, which is exactly the escape hatch z80cpmw's own comment offers.
 
-Open, small, and a choice rather than a gap, because the two siblings disagree
-on what these keys should send. `cpmemu`'s Windows console translates
-Ctrl+Left/Right/Up/Down to ^A / ^F / ^W / ^Z - WordStar word left, word right,
-scroll up, scroll down - in the `extended_keys` table of
-`src/os/windows/platform.cc`. z80cpmw sends the xterm modified forms above,
-though its own comment offers `"Ctrl+Left": "^A", "Ctrl+Right": "^F"` as one
-line of config. All four WordStar bytes are already reachable here by typing
-Ctrl+A / Ctrl+F / Ctrl+W / Ctrl+Z, so nothing is unreachable. If a binding is
-ever wanted, it is four more `SpecialKey` cases plus defaults for stored custom
-profiles, after picking a convention - worth doing only the next time the
-keyboard settings screen is open, and on iPadOS only, per the Mac Catalyst note
-below. See `todo.txt`.
+The bindings live in all three preset profiles. VT52 is the deliberate
+exception: it binds Ctrl+arrow to the *plain* VT52 arrow (`\EA`..`\ED`), because
+a VT52 has no parameterised CSI to put a modifier in, and giving it one would be
+the same lie as giving it F5-F12. An absent binding falls back to the unmodified
+key, so a Custom profile saved before build 53 keeps behaving exactly as it did
+rather than going silent; an explicitly empty one means "send nothing" and does
+not fall back. `Tests/KeyMapTests.swift` asserts all of that.
 
 ### Ctrl+Home / Ctrl+End and Shift+PageUp / Shift+PageDown belong to the host
 Those four are consumed for scrollback navigation and never forwarded to the
@@ -177,6 +181,27 @@ Control, application windows) at the WindowServer level, so the presses are
 consumed before any app sees them; no app-side flag recovers them.
 `wantsPriorityOverSystemBehavior` works on `UIKeyCommand`s, and these are not
 key commands - they arrive, or fail to arrive, through `pressesBegan`. Nothing
-in the app rejects them: the nav branch excludes only Command. On iPadOS, where
-the system does not claim them, they resolve to the plain arrow binding as
-described above.
+in the app rejects them: the nav branch excludes only Command, and since build
+53 it resolves a held Ctrl to the modified binding. So the `\E[1;5A`..`D`
+sequences above are iPadOS-only in practice. They are still defined on Catalyst,
+and the code says so rather than pretending otherwise - if a future macOS lets
+the press through, or the user turns the Mission Control shortcuts off in
+System Settings > Keyboard > Keyboard Shortcuts, it works there with no change.
+
+### A dialog drawn over the terminal has to be listed in `modalHasKeyboard`
+`TerminalUIView.keyCommands` returns nil while `captureKeyboard` is false, and
+that flag follows `modalHasKeyboard` (`ContentView.swift`), which names the
+three dialogs drawn over the terminal: the disk-overwrite warning, the error
+alert and the reset confirmation. While one of them is up, Escape and Return
+reach the dialog instead of the guest, which is the point. Sheets are
+deliberately not in it - they cover the terminal and present their own
+responder. **A fourth dialog added over the terminal and not added there loses
+Escape and Return to the guest**, silently and only while it is on screen.
+
+The 26 Ctrl+letter `UIKeyCommand`s in the same `keyCommands` (the
+`"abcdefghijklmnopqrstuvwxyz"` loop) are also what is expected to keep AppKit
+emacs `StandardKeyBinding` bindings away from the guest under Mac Catalyst:
+`TerminalUIView` is a plain `UIView` + `UIKeyInput`, not a `UITextInput`
+responder, so those bindings should not apply to it at all, and the key
+commands sit on the first responder UIKit consults first. Reasoned, never
+watched - `MANUAL_CHECKS.md` has the WordStar pass that would settle it.

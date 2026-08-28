@@ -415,6 +415,31 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private var displayAttr: UInt8 {
         reverseVideo ? Self.swapNibbles(currentAttr) : currentAttr
     }
+
+    /// The cell every erase leaves behind: a space in the CURRENT rendition,
+    /// not a default one. This is background-colour-erase, what a real VT and
+    /// xterm do, and it is why a program can set a colour, clear, and get a
+    /// screen of that colour.
+    ///
+    /// The nibbles are unpacked exactly as the glyph-write path unpacks them
+    /// (see emulatorVDAWriteChar), so an erased cell and a character written
+    /// into it afterwards always agree - which is the whole point. Filling with
+    /// a hardcoded fg 7 / bg 0 was only survivable while the erase also reset
+    /// the rendition to that same default, and this file's erases never did.
+    ///
+    /// z80cpmw's TerminalView::blankCell() is the same function; cpmdroid's
+    /// ED/EL already fill from the current rendition, and the web frontend gets
+    /// it from xterm.js. This port was the last one filling with a default.
+    ///
+    /// The machine-level paths (reset(), startEmulator()) must put the
+    /// rendition back to 0x07 BEFORE they clear, or a fresh boot inherits the
+    /// colour the dead session ended on.
+    private var blankCell: TerminalCell {
+        let attr = displayAttr
+        return TerminalCell(character: " ",
+                            foreground: attr & 0x0F,
+                            background: (attr >> 4) & 0x07)
+    }
     private var scrollTop: Int = 0         // Top of scrolling region (0-based)
     private var scrollBottom: Int = 24     // Bottom of scrolling region (0-based, inclusive)
 
@@ -1145,7 +1170,10 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// Actually start the emulator after all disks are ready
     private func startEmulator() {
         debugPrint("🟢 [START] startEmulator called")
-        // Clear terminal before starting (removes "Press Play" message)
+        // Clear terminal before starting (removes "Press Play" message).
+        // clearTerminal(), not eraseScreen(): starting is a machine-level clear,
+        // so it must put the rendition back to the default before painting -
+        // an erase fills with the current background now.
         clearTerminal()
         // Print version info to terminal
         printVersionInfo()
@@ -1293,20 +1321,25 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // Apply boot setting - empty means no autoboot
         emulator?.setNvramSetting(bootString)
 
-        clearTerminal()
-        // A cold boot starts a fresh session — drop the old scrollback history.
-        scrollbackLines.removeAll()
-        scrollbackOffset = 0
-        // Cold boot returns the terminal to its ANSI/VT100 default.
+        // Cold boot returns the terminal to its ANSI/VT100 default. This block
+        // runs BEFORE the screen is cleared, not after: an erase now paints the
+        // current SGR background, so clearing first and resetting the rendition
+        // second would leave the screen in the dying session's colour.
+        // clearTerminal() resets the rendition itself for the same reason -
+        // startEmulator() has no such block in front of it - and this covers
+        // the rest of the power-on state.
         dialect.reset()
         escapeState = .normal
-        currentAttr = 0x07
-        reverseVideo = false
         // Both DEC modes back to power-on: a guest that hid the cursor and then
         // died must not leave it hidden for the next session, and DECAWM off is
         // just as sticky.
         autoWrap = true
         cursorVisible = true
+
+        clearTerminal()
+        // A cold boot starts a fresh session — drop the old scrollback history.
+        scrollbackLines.removeAll()
+        scrollbackOffset = 0
         isRunning = false
         statusText = "Reset - disk changes saved"
     }
@@ -1337,17 +1370,45 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     // MARK: - Terminal Operations
 
-    func clearTerminal() {
+    /// Erase the whole screen and home the cursor. Nothing else: not the
+    /// rendition, not the parser state, not the scrolling region.
+    ///
+    /// This is what ESC[2J, VT52 ESC E and the HBIOS VDA clear mean.
+    /// Erase-in-display says what to do with the cells and says nothing about
+    /// the terminal's modes, so a program that sets a colour, sets a scrolling
+    /// region and then clears its screen must come back to both still in force.
+    /// The scrolling-region reset that used to live here was a bug of exactly
+    /// that kind - ED is not DECSTBM - and it now belongs to clearTerminal()
+    /// alone. z80cpmw split the same two jobs apart for the same reason; see
+    /// its TerminalView::eraseScreen().
+    ///
+    /// Homing the cursor IS the one thing here a strict VT100 would not do, and
+    /// it stays: both sibling ports home it, and CP/M software written against
+    /// ANSI.SYS expects ESC[2J to home.
+    func eraseScreen() {
         for row in 0..<terminalRows {
             for col in 0..<terminalCols {
-                terminalCells[row][col] = TerminalCell()
+                terminalCells[row][col] = blankCell
             }
         }
         cursorRow = 0
         cursorCol = 0
+        pendingWrap = false
+    }
+
+    /// Erase the screen AND put the terminal back to power-on state. This is
+    /// the machine-level clear - Start and Reset - and no guest sequence
+    /// reaches it.
+    ///
+    /// The rendition goes back to the default FIRST, because eraseScreen()
+    /// paints the current one: reset it afterwards and a fresh boot would be
+    /// filled with whatever colour the last session happened to end on.
+    func clearTerminal() {
+        currentAttr = 0x07
+        reverseVideo = false
+        eraseScreen()
         scrollTop = 0
         scrollBottom = terminalRows - 1
-        pendingWrap = false
     }
 
     /// Write a string to the terminal at the current cursor position
@@ -1845,8 +1906,12 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
     // MARK: - VDA (Video Display Adapter)
 
     func emulatorVDAClear() {
+        // eraseScreen(), not clearTerminal(): this is the guest asking HBIOS to
+        // clear the display, which fills with the attribute the guest last set
+        // through emulatorVDASetAttr. It is not a machine reset, so it must not
+        // take the rendition or the scrolling region with it.
         DispatchQueue.main.async {
-            self.clearTerminal()
+            self.eraseScreen()
         }
     }
 
@@ -2101,7 +2166,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             pendingWrap = false
             if dialect.isVT52 {
                 // Heath/Zenith VT52: clear screen and home
-                clearTerminal()
+                eraseScreen()
             } else {
                 // VT100 Next Line
                 cursorCol = 0
@@ -2145,7 +2210,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
         case 0x4B: // 'K' - VT52 erase to end of line
             for col in cursorCol..<terminalCols {
-                terminalCells[cursorRow][col] = TerminalCell()
+                terminalCells[cursorRow][col] = blankCell
             }
 
         case 0x59: // 'Y' - VT52 direct cursor address (two bytes follow)
@@ -2296,7 +2361,9 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             case 1: // Clear from beginning to cursor
                 clearToCursor()
             case 2: // Clear entire screen
-                clearTerminal()
+                // eraseScreen(), not clearTerminal(): ED 2 erases cells and
+                // says nothing about the rendition or the scrolling region.
+                eraseScreen()
             default:
                 break
             }
@@ -2305,15 +2372,15 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             switch p1 {
             case 0: // Clear from cursor to end of line
                 for col in cursorCol..<terminalCols {
-                    terminalCells[cursorRow][col] = TerminalCell()
+                    terminalCells[cursorRow][col] = blankCell
                 }
             case 1: // Clear from beginning to cursor
                 for col in 0...cursorCol {
-                    terminalCells[cursorRow][col] = TerminalCell()
+                    terminalCells[cursorRow][col] = blankCell
                 }
             case 2: // Clear entire line
                 for col in 0..<terminalCols {
-                    terminalCells[cursorRow][col] = TerminalCell()
+                    terminalCells[cursorRow][col] = blankCell
                 }
             default:
                 break
@@ -2336,7 +2403,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
                 }
                 // Clear the bottom n lines
                 for row in max(endRow - n + 1, startRow)...endRow {
-                    terminalCells[row] = Array(repeating: TerminalCell(), count: terminalCols)
+                    terminalCells[row] = Array(repeating: blankCell, count: terminalCols)
                 }
             }
 
@@ -2355,15 +2422,15 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
                 }
                 // Clear the top n lines (at cursor position)
                 for row in startRow..<min(startRow + n, endRow + 1) {
-                    terminalCells[row] = Array(repeating: TerminalCell(), count: terminalCols)
+                    terminalCells[row] = Array(repeating: blankCell, count: terminalCols)
                 }
             }
 
-        // The five editing finals below blank cells with a default TerminalCell,
-        // matching clearFromCursor/clearToCursor and the rest of the erase family
-        // in this file. A strict VT would paint the current SGR background
-        // instead; changing that is a decision for the whole erase family at
-        // once, not something to introduce in half of it.
+        // The five editing finals below blank cells with `blankCell`, i.e. the
+        // current SGR background, matching clearFromCursor/clearToCursor and the
+        // rest of the erase family in this file. That decision was taken for the
+        // whole family at once rather than introduced in half of it; see
+        // blankCell for what it means and why.
         case 0x40: // '@' - ICH (Insert Character)
             // Shift the rest of the line right by n, blanking what opens up.
             // Characters pushed past the last column are lost, not wrapped:
@@ -2377,7 +2444,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
                     }
                 }
                 for col in cursorCol..<(cursorCol + n) {
-                    row[col] = TerminalCell()
+                    row[col] = blankCell
                 }
                 terminalCells[cursorRow] = row
             }
@@ -2391,7 +2458,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
                     row[col] = row[col + n]
                 }
                 for col in max(terminalCols - n, cursorCol)..<terminalCols {
-                    row[col] = TerminalCell()
+                    row[col] = blankCell
                 }
                 terminalCells[cursorRow] = row
             }
@@ -2403,7 +2470,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             if cursorRow < terminalRows, cursorCol < terminalCols {
                 let n = min(max(p1, 1), terminalCols - cursorCol)
                 for col in cursorCol..<(cursorCol + n) {
-                    terminalCells[cursorRow][col] = TerminalCell()
+                    terminalCells[cursorRow][col] = blankCell
                 }
             }
 
@@ -2433,7 +2500,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
                     for row in stride(from: bottom, through: top + 1, by: -1) {
                         terminalCells[row] = terminalCells[row - 1]
                     }
-                    terminalCells[top] = Array(repeating: TerminalCell(), count: terminalCols)
+                    terminalCells[top] = Array(repeating: blankCell, count: terminalCols)
                 }
             }
 
@@ -2566,12 +2633,12 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
     private func clearFromCursor() {
         // Clear rest of current line
         for col in cursorCol..<terminalCols {
-            terminalCells[cursorRow][col] = TerminalCell()
+            terminalCells[cursorRow][col] = blankCell
         }
         // Clear remaining lines
         for row in (cursorRow + 1)..<terminalRows {
             for col in 0..<terminalCols {
-                terminalCells[row][col] = TerminalCell()
+                terminalCells[row][col] = blankCell
             }
         }
     }
@@ -2581,12 +2648,12 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         // Clear lines before current
         for row in 0..<cursorRow {
             for col in 0..<terminalCols {
-                terminalCells[row][col] = TerminalCell()
+                terminalCells[row][col] = blankCell
             }
         }
         // Clear current line up to cursor
         for col in 0...cursorCol {
-            terminalCells[cursorRow][col] = TerminalCell()
+            terminalCells[cursorRow][col] = blankCell
         }
     }
 
@@ -2631,7 +2698,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             terminalCells[row] = terminalCells[row + lines]
         }
         for row in keep..<terminalRows {
-            terminalCells[row] = Array(repeating: TerminalCell(), count: terminalCols)
+            terminalCells[row] = Array(repeating: blankCell, count: terminalCols)
         }
     }
 
@@ -2644,7 +2711,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         }
         // Clear the bottom lines of the region
         for row in (bottom - lines + 1)...bottom {
-            terminalCells[row] = Array(repeating: TerminalCell(), count: terminalCols)
+            terminalCells[row] = Array(repeating: blankCell, count: terminalCols)
         }
     }
 
