@@ -117,25 +117,6 @@ Needs a Mac
     default every launch.
 
 
-Cross-port decision
--------------------
-
-- [DECISION] SGR colour indices are ANSI numbers stored in a CGA-ordered byte,
-  so four of the eight come out wrong.  applySGR stores the raw ANSI index -
-  (currentAttr & 0xF0) | (param - 30) for 30..37, (param - 40) << 4 for 40..47 -
-  and TerminalView's cgaColors is a CGA palette.  ANSI is black red green yellow
-  blue magenta cyan white; CGA is black blue green cyan red magenta brown
-  lightgray, so 1 and 4 swap and 3 and 6 swap: ESC[31m draws blue, ESC[34m draws
-  red, ESC[33m draws cyan, ESC[36m draws brown.  Seen on the simulator
-  2026-08-27, where ESC[44m ESC[2J filled the screen solid red.  NOT a
-  divergence: z80cpmw does the identical thing (applySGR stores param-30 /
-  param-40, cgaToRGB is the same table), so fixing it here alone would break the
-  one thing the ports agree on.  Three lines of lookup table on each side, and a
-  decision for whoever owns all three.  The VDA path must stay as it is - HBIOS
-  really does hand over CGA attribute bytes and emulatorVDASetAttr is right to
-  take them raw.  Only the SGR entry points are wrong.
-
-
 Needs a person at the app
 -------------------------
 

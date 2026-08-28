@@ -1,5 +1,82 @@
 # Changelog
 
+## Version 1.5.1 (Build 54)
+
+One terminal bug, seen and filed during build 53's simulator pass and fixed
+here, plus the second bug that was hiding inside the same expression.
+
+`Tests/run_tests.sh`: 251 checks across six suites plus the two `CoreSymlinks`
+shape checks, all passing (180 before; `CGAColorTests` is new and contributes
+71). `xcodebuild` clean for the iPhone 17 Pro simulator with no new warnings.
+Installed and run on that simulator: booted the Combo disk to CP/M 2.2 and drove
+the escape sequences below through `R8` + `TYPE`, because the CCP echoes a typed
+ESC as `^[` and never lets one reach the parser.
+
+### A program asking for blue got red
+
+`ESC[44m` then `ESC[2J` - select a blue background, clear the screen - filled
+all 25x80 cells solid **red**. That is what build 53's erase fix made visible
+and what put a `[DECISION]` item in `todo.txt` the same day.
+
+The SGR parameter carries an *ANSI* colour index, and `currentAttr` is a *CGA*
+attribute byte. The two orderings agree on four colours and disagree on four:
+
+    ANSI  0 black 1 red  2 green 3 yellow 4 blue 5 magenta 6 cyan 7 white
+    CGA   0 black 1 blue 2 green 3 cyan   4 red  5 magenta 6 brown 7 lt grey
+
+`applySGR` stored the parameter straight into the nibble, so `ESC[31m` drew
+blue, `ESC[44m` filled red, `ESC[33m` drew cyan and `ESC[36m` drew brown. Half
+of the palette a program can name came out as a different colour, and the four
+that were right - black, green, magenta, white - were right by coincidence.
+
+- **A new `CGAColor`**, next to `TerminalDialect` and `ControlKey` in `Views/`
+  and split out for the same reason: it is a pure function of a byte, so
+  `Tests/CGAColorTests.swift` can exercise it with no display, no emulator and
+  no UIKit. It holds the eight-entry table, both orderings written out by name,
+  and the reason the stored byte must stay CGA. The mapping is an exchange of
+  bits 0 and 2 and is therefore its own inverse, which the table records and
+  nothing relies on.
+
+- **The translation happens at the SGR parse site and nowhere else.** Not in the
+  renderer, not in the erase path, and above all not in the guest attribute
+  path: a CP/M program can hand over a raw CGA attribute byte through RomWBW's
+  HBIOS VDA "set attribute" call (`HBF_VDASAT` -> `emu_video_set_attr()` ->
+  `emulatorVDASetAttr`), and `TerminalView`'s `cgaColors` is a CGA palette.
+  Both of those are correct as they stand; only the SGR entry points were wrong.
+  The default attribute does not move either - `0x07` is light grey on black in
+  both orderings - so no reset value changed.
+
+- **This brings the port in line with `romwbw_emu`'s web frontend**, which
+  renders through xterm.js and has always read SGR colours as ANSI. `z80cpmw`
+  has the identical bug at the identical site and is not fixed by this change.
+
+### Bold no longer falls off when a colour arrives
+
+The same two lines masked the foreground with `0xF0`, which clears bit 3 - the
+intensity bit `SGR 1` sets - along with the colour. So `ESC[1;31m` came out dim
+while `ESC[31;1m` came out bright, for no reason a program could see. Intensity
+and colour are independent attributes and the order they arrive in must not
+matter. The mask is now `0xF8`, which is what `z80cpmw`'s `TerminalView` uses at
+the same site after hitting this in its own terminal; this port was the one
+still on `0xF0`. The background mask stays `0x0F`: the background is three bits
+and has no intensity bit of its own.
+
+### Verified on the simulator, not only by reading
+
+`ESC[44m ESC[2J` now fills the screen with RGB `(0, 0, 170)` - CGA 1, blue - and
+each colour sampled out of the screenshot is the palette entry it should be:
+`ESC[31m` is `(170, 0, 0)` red, `ESC[33m` is `(170, 85, 0)` brown, `ESC[36m` is
+`(0, 170, 170)` cyan, `ESC[32m` is `(0, 170, 0)` green and a bare `ESC[0m` is
+`(170, 170, 170)` light grey. `ESC[1;31m` and `ESC[31;1m` both come out
+`(255, 85, 85)`, bright red, where a plain `ESC[31m` on the same screen is
+`(170, 0, 0)` - the two orders now agree and the dim one is still dim.
+
+Not verified: the pre-fix binary was not rebuilt and re-run to watch the red
+screen again; build 53's entry above records that observation. Nothing in this
+build has been run on a device, or under Mac Catalyst. The CSI parser around
+`applySGR` still has no tests of its own - only the colour arithmetic does - and
+that remains the standing `[MAC]` item in `todo.txt`.
+
 ## Version 1.5.1 (Build 53)
 
 Two terminal changes a user can see, and the section that had been sitting here

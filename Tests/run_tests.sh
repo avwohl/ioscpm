@@ -137,6 +137,10 @@ run_suite ExportPathTests \
     "$ROOT/iOSCPM/Views/ExportPath.swift" \
     "$ROOT/Tests/ExportPathTests.swift"
 
+run_suite CGAColorTests \
+    "$ROOT/iOSCPM/Views/CGAColor.swift" \
+    "$ROOT/Tests/CGAColorTests.swift"
+
 run_core_suite CoreKeyboardTests \
     "$ROOT/Tests/CoreKeyboardTests.cc"
 

@@ -2618,12 +2618,14 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             reverseVideo = true
         case 27: // Reverse off - the colours underneath were never disturbed
             reverseVideo = false
+        // The SGR parameter is an ANSI colour index and currentAttr is a
+        // CGA-ordered byte, so the index has to be translated on the way in -
+        // see CGAColor.swift for both orderings and for why the byte is CGA.
+        // This is the only place the translation happens.
         case 30...37: // Foreground colors
-            let color = UInt8(param - 30)
-            currentAttr = (currentAttr & 0xF0) | color
+            currentAttr = CGAColor.withForeground(currentAttr, ansi: UInt8(param - 30))
         case 40...47: // Background colors
-            let color = UInt8(param - 40)
-            currentAttr = (currentAttr & 0x0F) | (color << 4)
+            currentAttr = CGAColor.withBackground(currentAttr, ansi: UInt8(param - 40))
         default:
             break
         }
