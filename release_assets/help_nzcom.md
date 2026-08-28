@@ -1,4 +1,4 @@
-# NZCOM User Guide for Z80CPM
+# NZCOM User Guide
 
 NZCOM (New Z-COM) is the "Automatic Z-System" - an easy way to run ZCPR3 on top of CP/M 2.2.
 
@@ -14,8 +14,8 @@ NZCOM provides ZCPR3 features as a loadable system that runs on CP/M 2.2:
 
 ## Getting Started
 
-1. Download the "NZCOM" disk image in Z80CPM Settings
-2. Boot from it (press `0` at boot menu)
+1. Download the "NZCOM" disk image in Settings
+2. At the boot prompt `Boot [H=Help]:`, type the unit number of the disk and press Enter. Units 0 and 1 are the RAM and ROM memory disks, so the first attached hard disk is unit `2`.
 3. Run NZCOM to load the Z-System:
    ```
    A>NZCOM
@@ -148,7 +148,7 @@ Create STARTZCM.COM for automatic setup when NZCOM loads.
 | Configuration | Menu-driven | Manual |
 | Return to CP/M | Easy | Reboot |
 
-## Tips for Z80CPM
+## Tips for the Emulator
 
 ### When to Use NZCOM
 

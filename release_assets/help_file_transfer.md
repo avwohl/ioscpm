@@ -1,10 +1,10 @@
 # File Transfer (R8/W8)
 
-The R8 and W8 utilities transfer files between the host and CP/M.
+The R8 and W8 utilities transfer files between the host device and CP/M.
 
 ## R8 - Read from Host
 
-Copies a file from the app's Imports folder into CP/M.
+Brings a file in from the host and copies it into CP/M.
 
 ### Usage
 ```
@@ -16,12 +16,13 @@ R8 filename.ext
 A>R8 MYFILE.TXT
 ```
 
-This copies `MYFILE.TXT` from the Imports folder to the current CP/M drive. Run
-`R8` with no name to read the first file in the folder.
+This copies `MYFILE.TXT` from the host into the current CP/M drive. Give the
+name of a file that is already in the folder for your platform — R8 reports an
+error if it cannot find that name, and never substitutes another file.
 
 ## W8 - Write to Host
 
-Copies a file from CP/M to the app's Exports folder.
+Sends a file out from CP/M to the host.
 
 ### Usage
 ```
@@ -33,12 +34,15 @@ W8 filename.ext
 A>W8 OUTPUT.TXT
 ```
 
-This copies `OUTPUT.TXT` from the current CP/M drive to the Exports folder.
+This copies `OUTPUT.TXT` from the current CP/M drive out to the host.
 
 ## Folder Locations
 
-R8 always reads from the app's **Imports** folder and W8 always writes to its
-**Exports** folder — there is no per-transfer Save/Open dialog.
+There is no per-transfer Save/Open dialog: R8 reads from a fixed folder and W8
+writes to one. Which folder depends on the platform. iOS, iPadOS, macOS and
+Android use a separate **Imports** and **Exports** pair; Windows uses a single
+data folder for both. A file that lives anywhere else has to be copied into the
+folder first — except on Windows, where R8 also takes a full host path.
 
 ### iOS / iPadOS
 The app's Documents folder is published to the Files app:
@@ -46,24 +50,49 @@ The app's Documents folder is published to the Files app:
 - **Imports**: Files → On My iPhone/iPad → **Z80CPM** → Imports
 - **Exports**: Files → On My iPhone/iPad → **Z80CPM** → Exports
 
-### macOS (Catalyst)
+### macOS
 The app is sandboxed, so the folders live inside its container:
 
 - **Imports**: ~/Library/Containers/com.awohl.cpm/Data/Documents/Imports
 - **Exports**: ~/Library/Containers/com.awohl.cpm/Data/Documents/Exports
 
-Use the **Open Imports Folder** and **Open Exports Folder** menu items for quick
-access (on macOS the container path is hidden in Finder, so use the menu).
+Finder hides that container, so use the **Open Imports Folder** and
+**Open Exports Folder** menu items to get to them.
 
-## Import File… — bring in a file from anywhere
+### Android
+The folders are in the app's own external files directory:
 
-R8 only reads the Imports folder. To use a file that lives somewhere else, choose
-**Import File… (for R8)** from the menu: it opens the system file picker, copies
-the file(s) you select into Imports, and then you run `R8 name` to read one into
-CP/M.
+- **Imports**: /storage/emulated/0/Android/data/com.awohl.cpmdroid/files/Imports
+- **Exports**: /storage/emulated/0/Android/data/com.awohl.cpmdroid/files/Exports
+
+Android 11 and later hide `Android/data` from the stock Files app, so that app
+cannot browse there no matter how you navigate. Reach the folders with a
+third-party file manager, over USB in MTP mode, or with `adb push` and
+`adb pull`.
+
+### Windows
+There is no Imports/Exports split. One flat data folder holds the disk images
+and the R8/W8 transfers together:
+
+- **Data folder**: %LOCALAPPDATA%\z80cpmw\data
+
+Settings shows it as **Data folder (disks and R8/W8 transfers)** with an
+**Open Folder** button beside it. An MSIX install — the Store build and the signed
+sideload beta — has Windows redirect that write into a per-package folder under
+`%LOCALAPPDATA%\Packages`, ending in `LocalCache\Local`, so the real folder is
+not the literal path above. The app displays the redirected path, so open the
+one Settings shows.
+
+R8 on Windows also accepts a full host path, so it is not limited to that
+folder: `R8 C:\Users\me\Desktop\GETKEY.COM` reads the file where it sits. W8
+does not do the same on the disk images shipping today — the utility passes on
+only the filename the CCP parsed into the FCB, so a path you type is discarded
+and every export lands in the data folder. That is a property of the R8 and W8
+programs on the images rather than of the app, and it is expected to change when
+the images are refreshed.
 
 ## Tips
 
 - Filenames must follow CP/M conventions (8.3 format)
 - Files are transferred as binary (no conversion)
-- The Combo disk includes R8.COM and W8.COM on drive B:
+- R8.COM and W8.COM are in user 0 of slice 0 of the Combo disk image. RomWBW maps the slice you boot as A:, so booting that slice puts them on A: — B: and C: are the RAM and ROM memory disks, not part of the image

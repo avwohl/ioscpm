@@ -1,4 +1,4 @@
-# ZSDOS User Guide for Z80CPM
+# ZSDOS User Guide
 
 ZSDOS (Z-System DOS) is an enhanced CP/M 2.2 compatible operating system with date/time stamping and many improvements.
 
@@ -17,8 +17,8 @@ ZSDOS is a drop-in replacement for the CP/M 2.2 BDOS (Basic Disk Operating Syste
 
 ## Getting Started
 
-1. Download the "ZSDOS" disk image in Z80CPM Settings
-2. Boot from it (press `0` at boot menu)
+1. Download the "ZSDOS" disk image in Settings
+2. At the boot prompt `Boot [H=Help]:`, type the unit number of the disk and press Enter. Units 0 and 1 are the RAM and ROM memory disks, so the first attached hard disk is unit `2`.
 3. You'll see the familiar `A>` prompt
 
 ZSDOS is fully compatible with CP/M 2.2 - all your CP/M programs work unchanged.
@@ -126,7 +126,7 @@ Now when you type a command, ZSDOS looks in:
 - Programs that directly access BDOS internals may behave differently
 - Date display requires date-aware utilities
 
-## Tips for Z80CPM
+## Tips for the Emulator
 
 ### Best Starter Choice
 
@@ -134,12 +134,12 @@ For most users, ZSDOS offers the best balance of compatibility and features. If 
 
 ### Using with Other Disks
 
-ZSDOS can read/write all CP/M 2.2 format disks. Mount a games or applications disk as B: and access it normally:
+ZSDOS can read/write all CP/M 2.2 format disks. Attach a games or applications disk as another unit in Settings, then switch to one of its drive letters - the drive map printed at boot shows which letter each slice got:
 
 ```
-A>B:
-B>DIR
-B>ZORK
+A>G:
+G>DIR
+G>ZORK
 ```
 
 ### File Transfer

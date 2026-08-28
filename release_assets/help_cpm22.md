@@ -1,15 +1,15 @@
-# CP/M 2.2 User Guide for Z80CPM
+# CP/M 2.2 User Guide
 
-This guide covers using CP/M 2.2 in the Z80CPM emulator on iOS and macOS.
+This guide covers using CP/M 2.2 in the emulator.
 
 ## Getting Started
 
 ### First Boot
 
-1. Open Z80CPM and tap the **gear icon** (Settings)
+1. Open the app and go to **Settings**
 2. Scroll to **Download Disk Images** and download "CP/M 2.2" (or "Combo" for more software)
-3. Return to main screen and tap **Play**
-4. At the boot menu, press `0` to boot from disk
+3. Return to the main screen and start the emulator
+4. At the boot prompt `Boot [H=Help]:`, type the unit number of the disk and press Enter. Units 0 and 1 are the RAM and ROM memory disks, so the first attached hard disk is unit `2`.
 
 You'll see the CP/M prompt:
 
@@ -17,7 +17,7 @@ You'll see the CP/M prompt:
 A>
 ```
 
-The `A>` means you're on drive A. CP/M supports drives A through D.
+The `A>` means you're on drive A. CP/M supports up to 16 drives, A through P; the drive map printed at boot shows which ones your disks provide.
 
 ### Switching Drives
 
@@ -219,41 +219,43 @@ Reads BATCH.SUB and executes commands.
 | Ctrl+R | Retype line |
 | Ctrl+X | Delete line |
 
-## Tips for Z80CPM
+## Tips for the Emulator
 
 ### Using the Combo Disk
 
 The Combo disk includes multiple slices:
-- Slice 0 (A:): CP/M 2.2 with utilities
-- Slice 1 (B:): Games and applications
+- Slice 0: CP/M 2.2 with utilities
+- Slice 1: Games and applications
 - Additional slices with more software
+
+The slice you boot becomes A:. B: and C: are the RAM and ROM memory disks, so the rest of that disk's slices start at D:. The drive map printed at boot shows the exact letters.
 
 Boot from Combo, then explore:
 ```
 A>DIR
-A>B:
-B>DIR
+A>D:
+D>DIR
 ```
 
 ### Host File Transfer
 
-The Combo disk includes R8 and W8 utilities for transferring files between CP/M and your device:
+The Combo disk includes R8 and W8 utilities for transferring files between CP/M and the host:
 
-Export a file to host (appears in Exports folder):
+Export a file to the host:
 ```
 A>W8 MYFILE.TXT
 ```
 
-Import a file from host (place in Imports folder):
+Import a file from the host:
 ```
 A>R8 MYFILE.TXT
 ```
 
-Access the Imports/Exports folders via the menu on Mac, or Files app on iOS.
+The host folder that W8 writes to and R8 reads from differs per platform - see the "File Transfer (R8/W8)" topic for the exact location on iOS, macOS, Android and Windows.
 
 ### Saving Your Work
 
-CP/M disk images are stored in the app's Documents folder. Any files you create or modify are saved to the disk image automatically.
+CP/M disk images are stored in the app's own data folder on the host. Any files you create or modify are saved to the disk image automatically.
 
 ### Multiple Disks
 

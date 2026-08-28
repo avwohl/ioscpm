@@ -1,4 +1,4 @@
-# QP/M User Guide for Z80CPM
+# QP/M User Guide
 
 QP/M is a CP/M 2.2 compatible operating system with automatic date/time stamping and program search features.
 
@@ -14,8 +14,8 @@ QP/M (Quick P/M) was developed by MICROCode Consulting as an enhanced alternativ
 
 ## Getting Started
 
-1. Download the "QPM" disk image in Z80CPM Settings
-2. Boot from it (press `0` at boot menu)
+1. Download the "QPM" disk image in Settings
+2. At the boot prompt `Boot [H=Help]:`, type the unit number of the disk and press Enter. Units 0 and 1 are the RAM and ROM memory disks, so the first attached hard disk is unit `2`.
 3. You'll see the familiar `A>` prompt
 
 QP/M looks and works like CP/M 2.2, with extra features running transparently.
@@ -159,7 +159,7 @@ B>STAT             ; still works - found in A0
 - Some very low-level programs may differ
 - Configuration stored on disk
 
-## Tips for Z80CPM
+## Tips for the Emulator
 
 ### Best Use Case
 

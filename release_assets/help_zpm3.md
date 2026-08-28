@@ -1,4 +1,4 @@
-# ZPM3 User Guide for Z80CPM
+# ZPM3 User Guide
 
 ZPM3 is an enhanced operating system combining CP/M 3 (Plus) compatibility with ZCPR3 command processor features.
 
@@ -14,8 +14,8 @@ ZPM3 (Z-System Plus/M3) was created by Simeon Cran and provides:
 
 ## Getting Started
 
-1. Download the "ZPM3" disk image in Z80CPM Settings
-2. Boot from it (press `0` at boot menu)
+1. Download the "ZPM3" disk image in Settings
+2. At the boot prompt `Boot [H=Help]:`, type the unit number of the disk and press Enter. Units 0 and 1 are the RAM and ROM memory disks, so the first attached hard disk is unit `2`.
 3. You'll see a prompt like `A0>`
 
 The `A0>` shows drive A, user 0. This is the ZCPR-style prompt.
@@ -144,7 +144,7 @@ ECHO Welcome to ZPM3!
 - Some resident commands differ
 - Environment requires initialization
 
-## Tips for Z80CPM
+## Tips for the Emulator
 
 ### Learning Curve
 
