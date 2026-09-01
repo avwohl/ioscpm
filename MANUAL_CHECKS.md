@@ -114,3 +114,25 @@ the rejection arm — only the passing one, which is every ordinary download.
       rather than starting the emulator with a missing disk.
 - [ ] A catalog entry with no `<sha256>` at all still installs. The field has
       always been optional and a missing hash is not a failure.
+
+## 6. The narrowed catalog invalidation
+
+Build 56 made `checkCatalogVersionAndInvalidate` delete only the images the new
+catalog names. It was driven on the **iPhone 17 Pro simulator** by editing the
+stored `catalogVersion` in the app container's preferences and relaunching, with
+two catalog disks and two of the user's own in `Documents/Disks`: the two catalog
+disks went, the two others stayed, and the alert gave both counts. What that
+could not cover:
+
+- [ ] A real catalog whose `version` attribute has genuinely moved, rather than a
+      stored default edited from underneath the app. The path is the same, but
+      nothing has run it end to end from a published catalog.
+- [ ] A disk that is *selected* in a slot when it is cleared. `refreshAvailableDisks`
+      and `restoreDiskSelections` run straight after; check the slot ends up empty
+      rather than pointing at a file that is gone.
+- [ ] The same, while the emulator is **running** off that disk. Disks are held in
+      memory, so the session should survive; the file underneath it will not.
+- [ ] A case-differing name — `HD1K_COMBO.IMG` beside the catalog's
+      `hd1k_combo.img`. The match is deliberately case-insensitive so it behaves
+      the same on both kinds of volume, which means such a file *is* treated as
+      the catalog's. Confirm that is what you want.

@@ -294,19 +294,22 @@ struct ContentView: View {
                     viewModel.createNewDisk(at: url)
                 }
             }
-            .alert(isPresented: $viewModel.showingError) {
-                Alert(
-                    title: Text("Error"),
-                    message: Text(viewModel.errorMessage),
-                    dismissButton: .default(Text("OK"))
-                )
+            // The iOS 15 alert API, not alert(isPresented:content:). Two of the
+            // OLD form were chained on this same view - this one and the
+            // manifest warning below - and only one alert(isPresented:) per view
+            // is ever honoured, so the later modifier replaced this one and
+            // showError() put up nothing at all. Measured, not deduced: build 56's
+            // catalog-invalidation alert fired and no alert appeared, while the
+            // manifest warning on the same screen worked. The newer API stacks.
+            .alert(viewModel.errorTitle, isPresented: $viewModel.showingError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(viewModel.errorMessage)
             }
-            .alert(isPresented: $viewModel.showingManifestWriteWarning) {
-                Alert(
-                    title: Text("Disk May Be Overwritten"),
-                    message: Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file."),
-                    dismissButton: .default(Text("OK"))
-                )
+            .alert("Disk May Be Overwritten", isPresented: $viewModel.showingManifestWriteWarning) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file.")
             }
             .sheet(isPresented: $showingAbout) {
                 AboutView()
@@ -717,19 +720,15 @@ struct SettingsView: View {
                     }
                 }
             }
-            .alert(isPresented: $viewModel.showingError) {
-                Alert(
-                    title: Text("Error"),
-                    message: Text(viewModel.errorMessage),
-                    dismissButton: .default(Text("OK"))
-                )
+            .alert(viewModel.errorTitle, isPresented: $viewModel.showingError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(viewModel.errorMessage)
             }
-            .alert(isPresented: $viewModel.showingManifestWriteWarning) {
-                Alert(
-                    title: Text("Disk May Be Overwritten"),
-                    message: Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file."),
-                    dismissButton: .default(Text("OK"))
-                )
+            .alert("Disk May Be Overwritten", isPresented: $viewModel.showingManifestWriteWarning) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file.")
             }
         }
         .navigationViewStyle(.stack)

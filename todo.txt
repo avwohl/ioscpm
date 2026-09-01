@@ -34,7 +34,7 @@ Release
   for every device actually in service, a NORMAL release becomes Latest and is
   fetched immediately, and those builds contain checkCatalogVersionAndInvalidate.
   What protected users at step 4 was --prerelease, which keeps a tag from
-  becoming Latest.  Treat that flag as load-bearing.  Build 55 is nineteen builds
+  becoming Latest.  Treat that flag as load-bearing.  Build 56 is twenty builds
   and six months past what the Store serves; the gap, not the pin, is the
   blocker.
 
@@ -43,43 +43,13 @@ Release
   forbidden absolutely, and hd1k_combo_ioscpm_w8fixed.img must never be
   republished - it is byte-identical to the UNFIXED combo despite its name.
 
-- [DECISION] the catalog bump wipes disks the catalog cannot give back, and
-  nothing decides what should happen instead.  checkCatalogVersionAndInvalidate
-  compares disks.xml's version attribute against the stored catalogVersion
-  default and calls deleteAllDownloadedDisks() on any difference; that loop
-  takes every .img in Documents/Disks, including ones the user imported through
-  Files and ones createNewDisk made in the app.  Nothing fires today - both
-  sides are at 13, and step 4 deliberately left the attribute alone - but the
-  release step that bumps it fires it on every installed device at once,
-  unprompted, and per the [RELEASE] item above "every installed device" means
-  builds 36/37, which reach it through releases/latest without any pin bump at
-  all.  The options are copy-on-write on first guest write, confirm before
-  wiping, spare anything the catalog does not name, or keep the wipe behind an
-  export path first.  Sparing what the catalog does not name is the one that is
-  strictly less destructive with no interaction and forecloses none of the
-  others, so it is the default if nobody chooses.  Whichever it is has to ship
-  in a binary users have BEFORE the attribute moves.  Mechanism written up under
-  "Data Loss Risk with GitHub Disks" in KNOWN_PROBLEMS.md.
-
-- [RELEASE] two published help files are behind and need someone who can attach
-  assets to a GitHub release.  Help does not follow the pin: HelpView.swift
-  hardcodes releases/latest, and releaseTag feeds the disk catalog only, so
-  Latest - v1.4.11 - is what to re-attach to.  help_quick_start.md still says
-  "Press Ctrl+E to access the emulator console"; there is no console and ^E is
-  WordStar cursor-up.  help_file_transfer.md names the wrong app and bundle id
-  ("Files app -> iOSCPM", com.awohl.iOSCPM; both are Z80CPM / com.awohl.cpm now)
-  and predates "Import File... (for R8)".  The corrected text is in
-  release_assets/ and ships inside the app, so only a networked user gets the
-  stale copy.  RE-CHECKED 2026-09-01 by downloading all seven topics from
-  releases/latest: those two still differ, and the other five plus
-  help_index.json are byte-identical and need nothing.  The fix is one command:
-
-    gh release upload v1.4.11 --repo avwohl/ioscpm --clobber \
-      release_assets/help_quick_start.md release_assets/help_file_transfer.md
-
-  --clobber is correct HERE and forbidden for disk images: these are help text
-  on the Latest release, they carry no W8, and no catalog hash names them.
-
+  The second data-loss path on this step - the catalog version attribute wiping
+  the disk library - is NARROWED as of build 56, not closed.  deleteCatalogDisks
+  takes only the images the new catalog names, so an imported or created disk
+  survives.  That does nothing for builds 36/37, which have the old loop and
+  fetch from releases/latest, so the ordering constraint above is unchanged.
+  Copy-on-write - the only option that helps a user who kept data INSIDE a
+  catalog disk - is still open and is in KNOWN_PROBLEMS.md.
 
 Needs a Mac
 -----------
@@ -155,4 +125,6 @@ Needs a person at the app
   and Escape under Catalyst, and Ctrl+arrow on an iPad with a hardware keyboard.
   Build 55 adds the underline, bold and blink faces on a real device (they were
   watched on the simulator only) and the SHA256 rejection path, which nothing has
-  exercised against a genuinely corrupt download.
+  exercised against a genuinely corrupt download.  Build 56 adds the narrowed
+  catalog invalidation against a real moved version attribute, and against a disk
+  that is selected or running when it is cleared.

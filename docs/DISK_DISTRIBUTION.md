@@ -54,23 +54,28 @@ The manifest is an XML file listing all available disk images:
 
 ### Version Attribute
 
-The `<disks version="N">` attribute tracks catalog changes, and changing it is a
-data-loss event on every installed device. On each successful catalog fetch
+The `<disks version="N">` attribute tracks catalog changes, and changing it
+deletes files on every installed device. On each successful catalog fetch
 `checkCatalogVersionAndInvalidate` (`EmulatorViewModel.swift`) compares the
-attribute against the stored `catalogVersion` default, and on **any** difference:
+attribute against the stored `catalogVersion` default, and on **any** difference
+clears downloaded images. No checksum is consulted — the comparison is on the
+version attribute alone — and it needs no tap and no download.
 
-- `deleteAllDownloadedDisks()` removes every `.img` in `Documents/Disks`. No
-  checksum is consulted — the comparison is on the version attribute alone — and
-  the loop is not restricted to catalog filenames, so it also deletes disks the
-  user imported through Files and disks `createNewDisk` made in the app. Neither
-  can be re-downloaded.
-- the user is told afterwards, by an alert saying the disks have been cleared.
-  There is no confirmation beforehand, and nothing is offered as an update.
+**Build 56 narrowed what "downloaded images" means**, and the narrowing is the
+whole safety property: `deleteCatalogDisks(named:)` deletes only the `.img` files
+the **new** catalog lists. That is the test for whether deleting one is
+recoverable — an image the new catalog does not name cannot be fetched back from
+it, so a disk the user imported through Files, one `createNewDisk` made, and one
+dropped from the catalog in the same bump are all kept. The alert afterwards
+gives both counts. Before build 56, `deleteAllDownloadedDisks()` took every `.img`
+in `Documents/Disks` regardless of where it came from.
 
-So do not think of this attribute as metadata. Bumping it wipes the disk library
-of everyone on the current build, unprompted, on their next launch. What should
-happen instead is undecided; see `todo.txt`, "THE SECOND DATA-LOSS PATH ON THAT
-SAME RELEASE STEP".
+There is still no confirmation beforehand, and nothing is offered as an update:
+the user is told after the fact. So do not think of this attribute as metadata.
+Bumping it clears the catalog half of everyone's disk library, unprompted, on
+their next launch — and for the builds actually in service (1.4.9, builds 36/37,
+which predate both the narrowing and the catalog pin) it still clears **all** of
+it. See `todo.txt`.
 
 ## GitHub Releases Distribution
 

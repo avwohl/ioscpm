@@ -204,17 +204,20 @@ version they replaced said to `--clobber` `v1.4.5` and to bump the catalog
      immediately below, which was always right; `v1.4.12` shipped with it left
      at `13` and that is what kept the wipe from firing.
 
-   > **Bumping that attribute destroys user data.** It is not a cache hint. On
-   > the next catalog fetch after the bump, `checkCatalogVersionAndInvalidate`
-   > calls `deleteAllDownloadedDisks()`, which removes **every** `.img` in
-   > `Documents/Disks` — including disks the user imported through Files and
-   > disks the app created, neither of which the catalog can give back — and
-   > tells the user afterwards. It needs no tap and no download. This is the
-   > second data-loss path on the same release step the `releaseTag` block
-   > guards, it is unfixed, and what should happen instead is a product
-   > decision. Read `todo.txt`, "THE SECOND DATA-LOSS PATH ON THAT SAME RELEASE
-   > STEP", before running this step — it is not covered by romwbw_emu's
-   > `docs/RELEASE_ORDER_2026-08-25.md`, which reasons only about `W8` and `R8`.
+   > **Bumping that attribute deletes files on every installed device.** It is
+   > not a cache hint. On the next catalog fetch after the bump,
+   > `checkCatalogVersionAndInvalidate` clears downloaded images and tells the
+   > user afterwards. It needs no tap and no download, and it is not covered by
+   > romwbw_emu's `docs/RELEASE_ORDER_2026-08-25.md`, which reasons only about
+   > `W8` and `R8`.
+   >
+   > Build 56 narrowed it to the images the **new** catalog names, so a disk the
+   > user imported or created is kept — but **the builds in service still have
+   > the old loop**, which took every `.img` in `Documents/Disks`. The App Store
+   > serves 1.4.9 (builds 36/37); those predate the narrowing *and* the catalog
+   > pin, so they fetch from `releases/latest/download/` and a normal release
+   > reaches them at once. Until a build carrying the narrowing is one users
+   > actually have, treat a version bump as destroying their whole disk library.
 2. Publish to a **new prerelease tag**, carrying every catalog asset:
    ```bash
    gh release create vX.Y.Z --repo avwohl/ioscpm --prerelease \

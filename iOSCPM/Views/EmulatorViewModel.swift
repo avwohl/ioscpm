@@ -76,6 +76,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var showingDiskExporter: Bool = false
     @Published var showingError: Bool = false
     @Published var errorMessage: String = ""
+    /// The alert's heading. "Error" for the overwhelming majority of callers,
+    /// which really are errors; the catalog-invalidation notice is not one, and
+    /// heading "your disks were cleared" with the word Error tells the user
+    /// something went wrong when the app did exactly what it meant to.
+    @Published var errorTitle: String = "Error"
     @Published var showingManifestWriteWarning: Bool = false
     @Published var isDownloading: Bool = false
     @Published var downloadingDiskName: String = ""
@@ -1361,8 +1366,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     // MARK: - Helpers
 
-    private func showError(_ message: String) {
+    private func showError(_ message: String, title: String = "Error") {
         errorMessage = message
+        errorTitle = title
         showingError = true
     }
 
@@ -1427,13 +1433,26 @@ class EmulatorViewModel: NSObject, ObservableObject {
                         self.debugPrint("[Catalog]   - '\(disk.filename)' (\(disk.name))")
                     }
                     if !result.disks.isEmpty {
-                        // Check if catalog version changed - if so, invalidate all downloaded disks
-                        self.checkCatalogVersionAndInvalidate(newVersion: result.version)
+                        // Check if catalog version changed - if so, invalidate the
+                        // downloaded disks this catalog can hand back. The NEW
+                        // catalog's names, not the old one's: a file the new
+                        // catalog does not list cannot be re-downloaded from it,
+                        // which is exactly the test for whether deleting it is
+                        // recoverable.
+                        let notice = self.checkCatalogVersionAndInvalidate(
+                            newVersion: result.version,
+                            catalogFilenames: Set(result.disks.map { $0.filename }))
 
                         self.diskCatalog = result.disks
                         self.saveCatalogToCache(data)
                         self.refreshAvailableDisks()
                         self.restoreDiskSelections()
+                        // AFTER restoreDiskSelections, which ends by setting
+                        // statusText to "Ready - Press Play to start" and so
+                        // silently swallowed anything set before it. The status
+                        // line was the only trace of an invalidation the user
+                        // could see while the alert was being eaten too.
+                        if let notice = notice { self.statusText = notice }
                         return
                     }
                 }
@@ -1445,8 +1464,35 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }.resume()
     }
 
-    /// Check if catalog version changed and invalidate downloaded disks if needed
-    private func checkCatalogVersionAndInvalidate(newVersion: String) {
+    /// Check if catalog version changed and invalidate the downloaded disks the
+    /// catalog is able to hand back.
+    ///
+    /// **`catalogFilenames` is the whole safety property of this function.** The
+    /// version attribute moving means the images behind those names may have
+    /// changed, so a stale copy has to go and be fetched again. It says nothing
+    /// about a file the catalog does not name — a disk the user imported through
+    /// Files, or one `createNewDisk` made in the app — and those cannot be
+    /// re-downloaded from anywhere. This used to delete every `.img` in
+    /// `Documents/Disks` regardless, so a catalog bump destroyed a user's own
+    /// disks, unprompted, on their next launch, with an alert afterwards.
+    ///
+    /// The names come from the **new** catalog rather than the stored one,
+    /// because "can this be given back" is a question about the catalog that is
+    /// about to be in force. An image dropped from the catalog in the same bump
+    /// is therefore spared, which is right: nothing can re-fetch it either.
+    ///
+    /// This is the least destructive of the four options `todo.txt` listed and
+    /// forecloses none of the others — a confirmation step or copy-on-write can
+    /// still be added in front of it. What it cannot do is help the builds
+    /// already in service: the App Store serves 1.4.9 (builds 36/37), those
+    /// fetch the catalog from `releases/latest/download/` rather than from a
+    /// pinned tag, and they carry the old loop. That is why the release order
+    /// still matters and why `--prerelease` is load-bearing; see `todo.txt`.
+    /// Returns the status-line text for what it did, for the caller to apply
+    /// after restoreDiskSelections - which ends by overwriting statusText.
+    @discardableResult
+    private func checkCatalogVersionAndInvalidate(newVersion: String,
+                                                 catalogFilenames: Set<String>) -> String? {
         let storedVersion = UserDefaults.standard.string(forKey: "catalogVersion") ?? ""
 
         print("[Catalog] Checking version: stored='\(storedVersion)' new='\(newVersion)'")
@@ -1455,16 +1501,35 @@ class EmulatorViewModel: NSObject, ObservableObject {
             // First run - just store the version
             print("[Catalog] First run, storing catalog version: '\(newVersion)'")
             UserDefaults.standard.set(newVersion, forKey: "catalogVersion")
+            return nil
         } else if storedVersion != newVersion {
-            // Version changed - delete all downloaded disks
-            print("[Catalog] ⚠️ VERSION CHANGED from '\(storedVersion)' to '\(newVersion)' - DELETING ALL DISKS")
-            deleteAllDownloadedDisks()
+            print("[Catalog] ⚠️ VERSION CHANGED from '\(storedVersion)' to '\(newVersion)'")
+            let (cleared, kept) = deleteCatalogDisks(named: catalogFilenames)
             UserDefaults.standard.set(newVersion, forKey: "catalogVersion")
-            statusText = "Disk catalog updated - disks need redownload"
-            showError("Disk catalog has been updated. Your downloaded disks have been cleared and need to be redownloaded.")
+
+            // Say nothing at all when nothing was cleared. A user who has only
+            // ever imported their own disks has had nothing done to them, and an
+            // alert claiming otherwise is its own small harm.
+            guard cleared > 0 else {
+                print("[Catalog] Nothing to clear (\(kept) disk(s) not in the catalog, kept)")
+                return nil
+            }
+
+            var message = "The disk catalog has been updated. "
+            message += cleared == 1
+                ? "1 downloaded disk was cleared and needs to be downloaded again."
+                : "\(cleared) downloaded disks were cleared and need to be downloaded again."
+            if kept > 0 {
+                message += kept == 1
+                    ? "\n\n1 disk that is not in the catalog — one you imported or created — was left alone."
+                    : "\n\n\(kept) disks that are not in the catalog — ones you imported or created — were left alone."
+            }
+            showError(message, title: "Disk Catalog Updated")
+            return "Disk catalog updated - \(cleared) disk(s) need redownload"
         } else {
             print("[Catalog] Version unchanged: '\(newVersion)'")
         }
+        return nil
     }
 
     /// Load catalog from local cache
@@ -1815,17 +1880,38 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
     }
 
-    /// Delete all downloaded disk images (used when catalog version changes)
-    private func deleteAllDownloadedDisks() {
+    /// Delete the downloaded images the catalog names, and only those.
+    ///
+    /// Returns (cleared, kept) so the caller can say what happened rather than
+    /// asserting that everything went. See checkCatalogVersionAndInvalidate for
+    /// why the set is the boundary.
+    ///
+    /// The comparison is case-insensitive. The catalog's filenames and the
+    /// on-disk names are written by the same code, so they agree today — but
+    /// `Documents` is published to the Files app on a case-insensitive volume,
+    /// and a user's own `HD1K_COMBO.IMG` must not be deleted as a catalog disk
+    /// on one device and kept on another.
+    @discardableResult
+    private func deleteCatalogDisks(named catalogFilenames: Set<String>) -> (cleared: Int, kept: Int) {
         let fm = FileManager.default
+        let lowercased = Set(catalogFilenames.map { $0.lowercased() })
+        var cleared = 0
+        var kept = 0
         if let contents = try? fm.contentsOfDirectory(at: downloadsDirectory, includingPropertiesForKeys: nil) {
-            for url in contents where url.pathExtension == "img" {
-                try? fm.removeItem(at: url)
+            for url in contents where url.pathExtension.lowercased() == "img" {
                 let filename = url.lastPathComponent
+                guard lowercased.contains(filename.lowercased()) else {
+                    kept += 1
+                    debugPrint("[Catalog] Keeping '\(filename)' - not in the catalog, cannot be re-downloaded")
+                    continue
+                }
+                try? fm.removeItem(at: url)
                 downloadStates[filename] = .notDownloaded
+                cleared += 1
             }
         }
-        debugPrint("[Catalog] Deleted all downloaded disks due to catalog version change")
+        debugPrint("[Catalog] Catalog version change: cleared \(cleared), kept \(kept)")
+        return (cleared, kept)
     }
 
     /// Load a downloaded disk into the emulator

@@ -1,5 +1,134 @@
 # Changelog
 
+## Version 1.5.1 (Build 56)
+
+The `[DECISION]` item that has been sitting on the release order since build 52,
+taken. Also the bug that would have made taking it pointless.
+
+`Tests/run_tests.sh`: 348 checks, unchanged and all passing - none of this is
+reachable from a suite with no app around it. `xcodebuild` clean for the iPhone
+17 Pro simulator and for Mac Catalyst.
+
+### A catalog bump no longer deletes disks the catalog cannot give back
+
+`disks.xml` carries a `version` attribute. On any change to it,
+`checkCatalogVersionAndInvalidate` called `deleteAllDownloadedDisks()`, which
+removed **every** `.img` in `Documents/Disks` - including disks the user imported
+through Files and disks `createNewDisk` made in the app, neither of which any
+catalog can restore - and said so afterwards. It needs no tap and no download, so
+publishing a refreshed catalog was destructive on every installed device at once.
+
+`deleteCatalogDisks(named:)` deletes only the images the **new** catalog lists.
+That set is the whole safety property, and it is the right test rather than a
+convenient one: "can this be fetched back" is a question about the catalog that
+is about to be in force. So an imported disk is kept, an app-created disk is
+kept, and an image *dropped* from the catalog in the same bump is kept - nothing
+can re-fetch that one either. The match is case-insensitive, because `Documents`
+is published to the Files app on a case-insensitive volume and a user's
+`HD1K_COMBO.IMG` must not be a catalog disk on one device and their own on
+another.
+
+`todo.txt` listed four options and this is the least destructive of them. It
+forecloses none of the others - a confirmation step or copy-on-write can still go
+in front of it - and copy-on-write stays open in `KNOWN_PROBLEMS.md` as the only
+one that helps a user who kept data *inside* a catalog disk.
+
+**What this cannot fix.** The App Store serves **1.4.9**, which is builds 36/37.
+Those predate the catalog pin (build 42) *and* this narrowing, and they fetch the
+catalog from `releases/latest/download/` rather than from a tag, so for every
+device actually in service a normal release still fires the old whole-library
+loop. The release order and the `--prerelease` flag it depends on are unchanged;
+`docs/DISK_W8FIX_RUNBOOK.md`, `docs/DISK_DISTRIBUTION.md` and
+`KNOWN_PROBLEMS.md` all now say which builds have which behaviour.
+
+### The alert saying so had never once appeared
+
+Found while watching the change above work: the disks were cleared and **no
+alert came up**, and the status line read "Ready - Press Play to start".
+
+- **Two `alert(isPresented:)` modifiers were chained on the same view** - the
+  error alert and the manifest write warning - and only one per view is ever
+  honoured, so the later modifier replaced the earlier and `showError()` put up
+  nothing at all. Every error this app has ever raised through that path went to
+  the screen the manifest warning was already using. Both pairs (`ContentView`
+  and the settings sheet) move to the iOS 15 `alert(_:isPresented:actions:message:)`
+  API, which stacks. The deployment target has been 15.0 throughout.
+- **`statusText` was overwritten a few lines later.** `restoreDiskSelections()`
+  ends by setting it to "Ready - Press Play to start", and it runs immediately
+  after the invalidation check. The check now returns its notice to the caller,
+  which applies it afterwards.
+- **The alert is no longer headed "Error"**, because nothing went wrong. A
+  `showError(_:title:)` parameter defaulting to `"Error"` lets this one say
+  "Disk Catalog Updated"; every other caller is unchanged and really is an error.
+
+The message gives both counts and gets the singular right: *"The disk catalog has
+been updated. 1 downloaded disk was cleared and needs to be downloaded again. 2
+disks that are not in the catalog — ones you imported or created — were left
+alone."* When nothing was cleared it says nothing at all, rather than telling a
+user who has only ever imported their own disks that something happened to them.
+
+### Verified
+
+Driven on the iPhone 17 Pro simulator by editing the stored `catalogVersion` in
+the app container's preferences and relaunching against the live `v1.4.5`
+catalog, with four files in `Documents/Disks`: `hd1k_combo.img` and
+`hd1k_zsdos.img`, which the catalog names, and `myown.img` and `scratch2.img`,
+which it does not. The two catalog disks were deleted, the two others survived,
+the alert appeared with the right heading and the right counts, and the status
+line kept its message. Repeated with one of each to check the singular.
+
+Not verified: no device, and Catalyst was built but not launched. Nothing has run
+this against a catalog whose `version` genuinely moved rather than a stored
+default edited from underneath the app, and nothing has cleared a disk that was
+selected in a slot or running at the time. `MANUAL_CHECKS.md` gains a section.
+
+### The published help is current again — all eight files, not two
+
+This was done twice, and the first attempt is worth recording because it is the
+failure mode of working from a stale checkout.
+
+Two files - `help_quick_start.md` and `help_file_transfer.md` - were uploaded to
+`v1.4.11` from `release_assets/` after checking them against the live release.
+They were an improvement and they were **not current**: `7569745` ("The shared
+help assets stop being written for iOS only", 2026-08-28) had rewritten all eight
+on `origin/main`, which this checkout did not have. The published set then held
+two files at one vintage and six at another.
+
+All eight - `help_index.json` and the seven topics - are now uploaded from the
+post-rebase tree and confirmed byte-identical through the release API. The topic
+set is unchanged, so no file was added or orphaned. `releases/latest` is still
+`v1.4.11` and `v1.4.12` is still a prerelease; both were checked afterwards.
+
+The text is worth having: a networked user no longer reads "Press Ctrl+E to
+access the emulator console" for a console that does not exist, or the old app
+name and bundle id, and the drive-letter table now describes what RomWBW actually
+prints - which is the map this build watched it print. Note that
+`releases/latest/download/` serves these through a CDN that was still handing
+back the old bytes minutes after the upload; verify through
+`repos/.../releases/tags/v1.4.11` rather than the redirect.
+
+`--clobber` is correct for help text on the Latest release and remains forbidden
+for disk images; the runbook says which is which. These assets are shared with
+the sibling ports, which fetch help from this repo's release, so the upload
+reaches `cpmdroid` and `z80cpmw` users too - which is what `7569745` was for.
+
+### The branch had moved, and this build is the first to compile what was on it
+
+`origin/main` had six commits this checkout did not, written on another machine
+today. Two of them fixed things this build had also fixed - the download checksum
+and the runbook - and theirs are the ones in the tree; build 55's entry above says
+where and why. What this build adds is that they now have a compiler and a
+simulator behind them.
+
+`066d00c` says "NOT COMPILED - there is no Swift toolchain on the machine this
+was written on". It compiles, for the simulator and for Mac Catalyst, with no new
+warnings, and it was driven end to end: `Documents/Disks` emptied, the app
+launched, Play pressed, and the 49 MB combo downloaded, verified and installed.
+The installed file hashes `be19984e…`, which is what the pinned `v1.4.5`
+`disks.xml` names for it, and it booted to `Boot [H=Help]:` and on to CP/M 2.2.
+Under that implementation an image only reaches `Documents/Disks` after the
+**temp** file's hash matches, so an installed disk is a passed check.
+
 ## Version 1.5.1 (Build 55)
 
 A cross-port sync. Four of the five sibling repositories moved between

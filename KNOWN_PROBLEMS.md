@@ -102,12 +102,15 @@ For multi-slice disks, use slice-specific definitions (`wbw_hd1k_0`, `wbw_hd1k_1
 ### Data Loss Risk with GitHub Disks
 Disks downloaded from GitHub are writable, allowing users to store data in them. However, this data can be lost at any time if a new version of the disk is released and downloaded, overwriting the user's changes.
 
-The trigger is broader than a download, and the user does not have to do anything at all. `disks.xml` carries a `version` attribute; on every successful catalog fetch, `checkCatalogVersionAndInvalidate` (`EmulatorViewModel.swift`) compares it against the stored `catalogVersion` and, on any difference, calls `deleteAllDownloadedDisks()` - which removes every `.img` in `Documents/Disks` and then shows an alert saying it has happened. That loop is not restricted to catalog filenames, so it also takes disks the user imported through Files and disks `createNewDisk` made in the app, neither of which can be re-downloaded. Publishing a refreshed catalog is therefore destructive on every installed device, with no confirmation beforehand. See `todo.txt`: this is the second data-loss path on the same release step the `releaseTag` block guards, and deciding what should happen instead is what blocks it.
+The trigger is broader than a download, and the user does not have to do anything at all. `disks.xml` carries a `version` attribute; on every successful catalog fetch, `checkCatalogVersionAndInvalidate` (`EmulatorViewModel.swift`) compares it against the stored `catalogVersion` and, on any difference, clears downloaded images and says so afterwards. So publishing a refreshed catalog reaches every installed device with no tap and no download.
 
-**Potential solutions to consider:**
-- Copy-on-write: Create a local copy when user first modifies a downloaded disk
-- Separate user disks from system/downloaded disks
-- Confirm before the version-change wipe, and spare anything the catalog does not name
+**Narrowed in build 56, and only for build 56 and later.** `deleteCatalogDisks(named:)` now deletes only the `.img` files the *new* catalog lists, which is the test for whether deleting one is recoverable: a disk the catalog does not name — one imported through Files, one `createNewDisk` made — cannot be fetched back from anywhere, and is kept. The alert says how many of each. Before that, `deleteAllDownloadedDisks()` took every `.img` in `Documents/Disks` regardless.
+
+**The builds in service still have the old loop.** The App Store serves 1.4.9 (builds 36/37); those also fetch the catalog from `releases/latest/download/` rather than from the pinned tag, so for them a *normal* release fires the old wipe immediately. That is why the release order in `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` still governs, and why `--prerelease` on an asset carrier is load-bearing rather than cosmetic. See the `[RELEASE]` item in `todo.txt`.
+
+**Still open, and not foreclosed by the narrowing:**
+- Copy-on-write: create a local copy when the user first modifies a downloaded disk. This is the only one that helps a user who kept data *in* a catalog disk, which is what the paragraph at the top of this entry is about.
+- Confirm before the wipe, rather than reporting it afterwards.
 
 ## Keyboard
 
