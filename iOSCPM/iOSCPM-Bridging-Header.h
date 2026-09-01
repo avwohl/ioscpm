@@ -17,6 +17,9 @@ typedef enum {
 // Call emu_host_file_load() after user picks a file to read
 // Call emu_host_file_cancel() if user cancels the file picker
 void emu_host_file_load(const uint8_t* data, size_t size);
+// The named form: `path` is the file that was really opened, which R8 prints
+// (HBF_HOST_GETRNAME) instead of echoing the name the CCP shouted at it.
+void emu_host_file_load_named(const uint8_t* data, size_t size, const char* path);
 void emu_host_file_cancel(void);
 
 // Get current host file state (for polling)

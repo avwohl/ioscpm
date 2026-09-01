@@ -141,6 +141,11 @@ run_suite CGAColorTests \
     "$ROOT/iOSCPM/Views/CGAColor.swift" \
     "$ROOT/Tests/CGAColorTests.swift"
 
+run_suite TerminalRenditionTests \
+    "$ROOT/iOSCPM/Views/CGAColor.swift" \
+    "$ROOT/iOSCPM/Views/TerminalRendition.swift" \
+    "$ROOT/Tests/TerminalRenditionTests.swift"
+
 run_core_suite CoreKeyboardTests \
     "$ROOT/Tests/CoreKeyboardTests.cc"
 

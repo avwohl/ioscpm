@@ -17,6 +17,7 @@
 		A1000008 /* KeyMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000008 /* KeyMap.swift */; };
 		A1000009 /* ExportPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000009 /* ExportPath.swift */; };
 		A1000090 /* CGAColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000090 /* CGAColor.swift */; };
+		A1000091 /* TerminalRendition.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000091 /* TerminalRendition.swift */; };
 		A1000010 /* RomWBWEmulator.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000010 /* RomWBWEmulator.mm */; };
 		A1000011 /* emu_io_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000012 /* emu_io_ios.mm */; };
 		A1000020 /* qkz80.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000020 /* qkz80.cc */; };
@@ -51,6 +52,7 @@
 		B1000008 /* KeyMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyMap.swift; sourceTree = "<group>"; };
 		B1000009 /* ExportPath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportPath.swift; sourceTree = "<group>"; };
 		B1000090 /* CGAColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGAColor.swift; sourceTree = "<group>"; };
+		B1000091 /* TerminalRendition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRendition.swift; sourceTree = "<group>"; };
 		B1000010 /* RomWBWEmulator.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomWBWEmulator.mm; sourceTree = "<group>"; };
 		B1000011 /* RomWBWEmulator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomWBWEmulator.h; sourceTree = "<group>"; };
 		B1000012 /* emu_io_ios.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = emu_io_ios.mm; sourceTree = "<group>"; };
@@ -147,6 +149,7 @@
 				B1000008 /* KeyMap.swift */,
 				B1000009 /* ExportPath.swift */,
 				B1000090 /* CGAColor.swift */,
+				B1000091 /* TerminalRendition.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -295,6 +298,7 @@
 				A1000008 /* KeyMap.swift in Sources */,
 				A1000009 /* ExportPath.swift in Sources */,
 				A1000090 /* CGAColor.swift in Sources */,
+				A1000091 /* TerminalRendition.swift in Sources */,
 				A1000010 /* RomWBWEmulator.mm in Sources */,
 				A1000011 /* emu_io_ios.mm in Sources */,
 				A1000020 /* qkz80.cc in Sources */,
@@ -321,7 +325,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = iOSCPM/iOSCPM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 54;
+				CURRENT_PROJECT_VERSION = 55;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -361,7 +365,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = iOSCPM/iOSCPM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 54;
+				CURRENT_PROJECT_VERSION = 55;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;

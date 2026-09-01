@@ -76,3 +76,41 @@ binding.
 - [ ] Under the VT100 or WordStar profile, Ctrl+Up / Down / Right / Left send
       `\E[1;5A` / `B` / `C` / `D` and the plain arrows still send what they did.
 - [ ] Under VT52, Ctrl+arrow sends the plain VT52 arrow (`\EA`..`\ED`).
+
+---
+
+## 4. The three per-cell faces, on a device
+
+Build 55 gave a cell a `flags` byte and taught `TerminalView` to draw it. All
+three were watched on the **iPhone 17 Pro simulator** and nothing was run on
+hardware, where the font metrics and the timer are not the simulator's.
+
+Drive them the way build 55 did: put the escape sequences in a file, `R8` it and
+`TYPE` it, because the CCP echoes a typed ESC as `^[` and never lets one reach
+the parser.
+
+- [ ] `ESC[1mBOLD` draws in a heavier face and the grid does not move. The
+      metrics come from the plain face alone, so a bold run must not push the
+      rest of its line right or overlap the cell beside it.
+- [ ] `ESC[4mUNDER` draws a rule in the *glyph's* colour, not in white.
+- [ ] `ESC[5mBLINK` alternates about twice a second, and the cell keeps its
+      background through the off phase - only the glyph and its rule go.
+- [ ] A screen with **no** blinking cell never repaints on its own. The timer is
+      created only while one is on screen (`syncBlinkTimer`); if an idle CP/M
+      prompt is redrawing twice a second, that is the bug this check exists for.
+- [ ] Scroll a blinking line up into scrollback and back down. The flags travel
+      with the cell.
+
+## 5. A download that fails its checksum
+
+Build 55 moved the SHA256 check onto the live download path. Nothing has driven
+the rejection arm — only the passing one, which is every ordinary download.
+
+- [ ] Point the app at a catalog whose `<sha256>` for one image is wrong (edit
+      the cached `Documents/Disks/disks_catalog.xml`, or serve your own). The
+      download must retry three times, end as **Checksum mismatch**, and leave
+      **no** `.img` behind in `Documents/Disks`.
+- [ ] The first-run fetch (`downloadDisksAndStart`) surfaces that as a failure
+      rather than starting the emulator with a missing disk.
+- [ ] A catalog entry with no `<sha256>` at all still installs. The field has
+      always been optional and a missing hash is not a failure.

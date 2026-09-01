@@ -183,7 +183,28 @@ class TerminalUIView: UIView, UIKeyInput {
     private var charWidth: CGFloat = 0
     private var charHeight: CGFloat = 0
     private var font: UIFont
+    /// The face a cell carrying CellFlags.bold is drawn in. A second UIFont
+    /// rather than a heavier weight applied per draw, because that is the only
+    /// way UIKit can vary weight for a single `draw(at:)` - z80cpmw keeps four
+    /// HFONTs for exactly the same reason.
+    ///
+    /// The grid is measured from the PLAIN face alone (updateCharDimensions),
+    /// so a wider bold face cannot move the grid; it cannot smear either,
+    /// because every glyph is positioned individually below.
+    private var boldFont: UIFont
     private var currentFontSize: CGFloat
+
+    /// The blink phase, shared by every cell carrying CellFlags.blink. Off
+    /// means those cells draw their background and no glyph.
+    ///
+    /// The timer is created only while a blinking cell is actually on screen
+    /// and torn down the moment the last one goes - see updateCells. A CP/M
+    /// session that never sends ESC[5m therefore costs exactly what it always
+    /// did: no timer, no repaint. There is nothing else in this view to hang a
+    /// phase on, because this port's cursor is a solid block and does not blink.
+    private var blinkOn: Bool = true
+    private var blinkTimer: Timer?
+    private static let blinkPeriod: TimeInterval = 0.5
 
     // CGA color palette
     private let cgaColors: [UIColor] = [
@@ -210,6 +231,7 @@ class TerminalUIView: UIView, UIKeyInput {
         self.cols = cols
         self.currentFontSize = fontSize
         self.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        self.boldFont = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .bold)
 
         super.init(frame: .zero)
 
@@ -273,6 +295,7 @@ class TerminalUIView: UIView, UIKeyInput {
         guard newSize != currentFontSize else { return }
         currentFontSize = newSize
         font = UIFont.monospacedSystemFont(ofSize: newSize, weight: .regular)
+        boldFont = UIFont.monospacedSystemFont(ofSize: newSize, weight: .bold)
         updateCharDimensions()
         setNeedsDisplay()
     }
@@ -315,7 +338,38 @@ class TerminalUIView: UIView, UIKeyInput {
         self.cells = newCells
         self.cursorRow = cursorRow
         self.cursorCol = cursorCol
+        syncBlinkTimer()
         setNeedsDisplay()
+    }
+
+    /// Run the blink phase only while something on screen is asking for it.
+    ///
+    /// The scan is one pass over 2000 cells testing one bit, against a repaint
+    /// twice a second that would otherwise run for the whole session - and for
+    /// an ordinary CP/M session the answer is "no blinking cells" and there is
+    /// no timer at all. Stopping it also parks the phase back at ON, so the
+    /// last blinking cell to leave the screen cannot freeze a later glyph out.
+    private func syncBlinkTimer() {
+        let wantsBlink = cells.contains { row in
+            row.contains { $0.flags & CellFlags.blink != 0 }
+        }
+        if wantsBlink {
+            guard blinkTimer == nil else { return }
+            blinkTimer = Timer.scheduledTimer(withTimeInterval: Self.blinkPeriod,
+                                              repeats: true) { [weak self] _ in
+                guard let self = self else { return }
+                self.blinkOn.toggle()
+                self.setNeedsDisplay()
+            }
+        } else if blinkTimer != nil {
+            blinkTimer?.invalidate()
+            blinkTimer = nil
+            blinkOn = true
+        }
+    }
+
+    deinit {
+        blinkTimer?.invalidate()
     }
 
     override func draw(_ rect: CGRect) {
@@ -360,12 +414,25 @@ class TerminalUIView: UIView, UIKeyInput {
                     context.fill(CGRect(x: x, y: y, width: charWidth, height: charHeight))
                 }
 
-                // Draw character
+                // Draw character. A blinking cell in the off phase keeps its
+                // background and loses the glyph - and loses its underline with
+                // it, because the rule is the font's own and goes with the
+                // text, which is what z80cpmw's rendering suite pins.
+                if cell.flags & CellFlags.blink != 0 && !blinkOn {
+                    continue
+                }
+
                 let fgColor = cgaColors[Int(cell.foreground) & 0x0F]
-                let charAttrs: [NSAttributedString.Key: Any] = [
-                    .font: font,
+                var charAttrs: [NSAttributedString.Key: Any] = [
+                    .font: cell.flags & CellFlags.bold != 0 ? boldFont : font,
                     .foregroundColor: fgColor
                 ]
+                if cell.flags & CellFlags.underline != 0 {
+                    charAttrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                    // Without this the rule is drawn in the label colour, which
+                    // is near-white on this black view whatever the glyph is.
+                    charAttrs[.underlineColor] = fgColor
+                }
 
                 let str = String(cell.character) as NSString
                 str.draw(at: CGPoint(x: x, y: y), withAttributes: charAttrs)

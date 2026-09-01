@@ -372,6 +372,10 @@ static std::vector<uint8_t> g_host_read_buffer;
 static size_t g_host_read_pos = 0;
 static std::vector<uint8_t> g_host_write_buffer;
 static std::string g_host_write_filename;
+// Where the bytes in g_host_read_buffer actually came from, as the Swift layer
+// resolved it - not the name the guest asked for. See
+// emu_host_file_get_read_name() for why the two differ.
+static std::string g_host_read_filename;
 
 emu_host_file_state emu_host_file_get_state() {
   return g_host_file_state;
@@ -400,6 +404,7 @@ bool emu_host_file_open_read(const char* filename) {
   // Close any existing read operation
   g_host_read_buffer.clear();
   g_host_read_pos = 0;
+  g_host_read_filename.clear();
 
   // Request file from user via delegate
   g_host_file_state = HOST_FILE_WAITING_READ;
@@ -470,6 +475,7 @@ bool emu_host_file_write_byte(uint8_t byte) {
 void emu_host_file_close_read() {
   g_host_read_buffer.clear();
   g_host_read_pos = 0;
+  g_host_read_filename.clear();
   g_host_file_state = HOST_FILE_IDLE;
 }
 
@@ -510,7 +516,13 @@ extern "C" void emu_host_file_write_done_c() {
 }
 
 void emu_host_file_provide_data(const uint8_t* data, size_t size) {
-  g_host_read_buffer.assign(data, data + size);
+  // `data` may be null when `size` is zero: an empty file has no first byte to
+  // point at, and assign(null, null) is undefined rather than merely empty.
+  if (data && size > 0) {
+    g_host_read_buffer.assign(data, data + size);
+  } else {
+    g_host_read_buffer.clear();
+  }
   g_host_read_pos = 0;
   g_host_file_state = HOST_FILE_READING;
 }
@@ -546,21 +558,54 @@ const char* emu_host_file_get_write_name() {
 
 // The read twin, required by the v1.36 core: handleEXT() references it
 // unconditionally for HBF_HOST_GETRNAME, so this port does not link without it.
-// It was missing here - the symlinked core moved under this repo after build 52
-// was committed, and nothing in the app or the test suite named the symbol.
 //
-// "" is the answer this backend can honestly give, and emu_io.h says so
-// explicitly: an empty string is a correct answer for a backend that genuinely
-// cannot say, HBF_HOST_GETRNAME then reports "no answer", and R8 falls back to
-// printing what was asked for. The effective source is known only in Swift:
-// emu_host_file_open_read() hands a leaf to the delegate and the Swift layer
-// resolves it against Imports, case-insensitively, then calls
-// emu_host_file_load() - which carries bytes and no name. Answering properly
-// means giving that entry point the resolved path to record here, and that is
-// in todo.txt rather than done blind. The browser backend answers "" for the
-// same reason (romwbw_emu emu_io_wasm.cc).
+// It answers with WHAT WAS OPENED, not what was asked for, which is the whole
+// point of the call - see the contract in emu_io.h. The two differ here more
+// often than they look like they would: R8 arrives after the CCP has
+// uppercased the command line, so `R8 FOO.COM` is what reaches the backend
+// even when the file in Imports is `foo.com`, and the Swift layer's
+// case-insensitive fallback is what actually finds it. Before this, R8's
+// `Reading:` line echoed the shouted name, which is a claim about the open
+// assembled out of the request. cpmdroid closed the identical gap in 167acbe.
+//
+// The resolution happens in Swift, against a folder this file cannot see, so
+// the path comes back down beside the bytes through emu_host_file_load_named().
+// It is absolute, as the CLI's realpath() answer and the Windows port's are,
+// and as this port's own write side already was.
+//
+// Gated on HOST_FILE_READING like every other backend's. "" is still the answer
+// at any other moment, and emu_io.h says in as many words that an empty string
+// is correct: HBF_HOST_GETRNAME reports "no answer" and R8 falls back to
+// printing what was asked for.
+//
+// MEASURED, and worth knowing before reading the paragraphs above as a promise:
+// with today's R8 that fallback is what usually happens on this port. R8 prints
+// its `Reading:` line between the open and the first read, and an open here only
+// parks the request - it dispatches to the main queue and returns, and the guest
+// is rewound on HBF_HOST_READ (hbios_dispatch.cc) until the Swift layer answers.
+// So at the moment R8 asks, the state is still WAITING_READ and this says so.
+// Watched on the simulator, build 55, against a combo image whose R8 does call
+// 0xEA: `R8 ESC.TXT` for a file stored as `esc.txt` printed
+// `Reading: ESC.TXT`. cpmdroid reaches the same answer through the same
+// asynchrony (167acbe) and documents it the same way.
+//
+// The name is still worth keeping. It is the honest answer for any guest that
+// asks once bytes are flowing, it is what a synchronous read path here would
+// answer without further work, and the alternative - answering the request
+// during WAITING_READ - would be manufacturing exactly the claim about the open
+// that this call exists to replace.
+//
+// The gate also matters because the plain emu_host_file_load() entry point still
+// exists for a caller with no path to give, and because a read that was
+// cancelled must not leave the last transfer's name behind for the next one.
 const char* emu_host_file_get_read_name() {
-  return "";
+  static std::string reported;
+  if (g_host_file_state != HOST_FILE_READING) {
+    reported.clear();
+    return reported.c_str();
+  }
+  reported = g_host_read_filename;
+  return reported.c_str();
 }
 
 // The leaf name on its own, for the Swift layer, which joins it to the Exports
@@ -582,8 +627,22 @@ extern "C" const char* emu_host_file_get_write_name_c() {
   return emu_host_file_get_write_name();
 }
 
-// C function for Swift to provide file data after picker selection
+// C function for Swift to provide file data after picker selection.
+//
+// The unnamed form is kept because emu_host_file_get_read_name()'s contract
+// allows "no answer": a caller that has bytes and no meaningful path is right
+// to use this rather than invent one.
 extern "C" void emu_host_file_load(const uint8_t* data, size_t size) {
+  g_host_read_filename.clear();
+  emu_host_file_provide_data(data, size);
+}
+
+// The named form, which is what the R8 path uses: `path` is the file the Swift
+// layer really opened, and emu_host_file_get_read_name() hands it to the guest.
+// A null or empty path is the same as the unnamed form above.
+extern "C" void emu_host_file_load_named(const uint8_t* data, size_t size,
+                                         const char* path) {
+  g_host_read_filename = path ? path : "";
   emu_host_file_provide_data(data, size);
 }
 
@@ -592,4 +651,5 @@ extern "C" void emu_host_file_cancel() {
   g_host_file_state = HOST_FILE_IDLE;
   g_host_read_buffer.clear();
   g_host_read_pos = 0;
+  g_host_read_filename.clear();
 }

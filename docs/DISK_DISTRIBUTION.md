@@ -49,7 +49,7 @@ The manifest is an XML file listing all available disk images:
 | `description` | Yes | Human-readable description |
 | `size` | Yes | File size in bytes |
 | `license` | Yes | License type: Mixed, Abandonware, Open Source, Freeware |
-| `sha256` | Yes | SHA256 checksum, displayed but not enforced — see Integrity Verification |
+| `sha256` | Yes | SHA256 checksum, verified on install since build 55 — see Integrity Verification |
 | `defaultSlot` | No | Optional default disk slot (0-3) for auto-mounting |
 
 ### Version Attribute

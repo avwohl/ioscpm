@@ -393,17 +393,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private var escapeState: EscapeState = .normal
     private var escapeParams: [Int] = []
     private var escapeCurrentParam: String = ""
-    private var escapePrivateMode: Bool = false  // True if '?' prefix (DEC private mode)
+    /// True once a private-parameter marker - '?', '<', '=' or '>' - has been
+    /// seen in the current CSI sequence.
+    private var escapePrivateMode: Bool = false
     private var savedCursorRow: Int = 0
     private var savedCursorCol: Int = 0
-    private var currentAttr: UInt8 = 0x07  // Default: white on black
-    /// True while SGR 7 is in effect. currentAttr keeps the true colours and the
-    /// swap is applied when a cell is written (see displayAttr), so reverse is a
-    /// clean toggle: SGR 7 twice is still reverse, and SGR 27 restores exactly
-    /// what was set. Folding the swap into currentAttr instead would be lossy -
-    /// the background nibble is three bits, so a bright foreground could not
-    /// survive the round trip.
-    private var reverseVideo = false
+    /// The current graphic rendition: the CGA attribute byte, the three
+    /// per-cell face flags, and the reverse-video toggle. The whole of SGR
+    /// lives in TerminalRendition.swift, which has no screen behind it and is
+    /// therefore the one part of this parser the test suite can reach.
+    private var rendition = TerminalRendition()
 
     /// DECAWM (ESC[?7h / l). On - the default, and what a VT100 powers up as -
     /// writing the last column arms `pendingWrap`. Off, the cursor stays put and
@@ -416,9 +415,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// own reasons.
     @Published var cursorVisible = true
 
-    /// currentAttr as it should actually be drawn.
+    /// The current attribute as it should actually be drawn.
     private var displayAttr: UInt8 {
-        reverseVideo ? Self.swapNibbles(currentAttr) : currentAttr
+        rendition.displayAttr
     }
 
     /// The cell every erase leaves behind: a space in the CURRENT rendition,
@@ -439,11 +438,17 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// The machine-level paths (reset(), startEmulator()) must put the
     /// rendition back to 0x07 BEFORE they clear, or a fresh boot inherits the
     /// colour the dead session ended on.
+    /// The flags are deliberately NOT carried. Underline and blink are visible
+    /// on a space, so an erase that kept them would draw a rule under all 2000
+    /// cells after ESC[4m ESC[2J - z80cpmw zeroes them at the same site and for
+    /// the same reason. The colours are carried, which is the whole point of
+    /// this being background-colour-erase.
     private var blankCell: TerminalCell {
         let attr = displayAttr
         return TerminalCell(character: " ",
                             foreground: attr & 0x0F,
-                            background: (attr >> 4) & 0x07)
+                            background: (attr >> 4) & 0x07,
+                            flags: 0)
     }
     private var scrollTop: Int = 0         // Top of scrolling region (0-based)
     private var scrollBottom: Int = 24     // Bottom of scrolling region (0-based, inclusive)
@@ -1266,8 +1271,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// paints the current one: reset it afterwards and a fresh boot would be
     /// filled with whatever colour the last session happened to end on.
     func clearTerminal() {
-        currentAttr = 0x07
-        reverseVideo = false
+        rendition.reset()
         eraseScreen()
         scrollTop = 0
         scrollBottom = terminalRows - 1
@@ -1762,6 +1766,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 try? fm.removeItem(at: destURL)
                 try fm.moveItem(at: tempURL, to: destURL)
                 self.debugPrint("[Settings Download] Move successful")
+
                 DispatchQueue.main.async {
                     self.downloadStates[disk.filename] = .downloaded
                     self.refreshAvailableDisks()
@@ -1875,6 +1880,14 @@ struct TerminalCell: Equatable {
     var character: Character = " "
     var foreground: UInt8 = 7  // White
     var background: UInt8 = 0  // Black
+
+    /// CellFlags.bold / .underline / .blink - the per-cell face, which the
+    /// packed CGA byte above has no room for. See TerminalRendition.swift for
+    /// the bit values, which are z80cpmw's and cpmdroid's byte for byte.
+    ///
+    /// Reverse video is deliberately absent: it is resolved into the two
+    /// colours at the write, which is what makes SGR 7 and 27 exact inverses.
+    var flags: UInt8 = 0
 }
 
 // MARK: - RomWBWEmulatorDelegate
@@ -2101,6 +2114,7 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
                 let attr = displayAttr
                 terminalCells[cursorRow][cursorCol].foreground = attr & 0x0F
                 terminalCells[cursorRow][cursorCol].background = (attr >> 4) & 0x07
+                terminalCells[cursorRow][cursorCol].flags = rendition.flags
                 if cursorCol >= terminalCols - 1 {
                     // At the rightmost column: arm a deferred wrap instead of
                     // moving now, so writing the corner cell does not scroll the
@@ -2263,9 +2277,24 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             return
         }
 
-        // Check for '?' prefix (DEC private mode)
-        if ch == 0x3F { // '?'
+        // Private-parameter markers. '?' introduces the DEC private modes;
+        // '<', '=' and '>' introduce the secondary and tertiary device-attribute
+        // forms and xterm's modifyOtherKeys. None of them is a FINAL byte, and
+        // treating the last three as one is what made ESC[>c end at the '>' and
+        // print its own tail as glyphs - the same shape of bug '?' had in
+        // z80cpmw before it learned the whole set.
+        if ch >= 0x3C && ch <= 0x3F { // '<' '=' '>' '?'
             escapePrivateMode = true
+            escapeState = .csiParam
+            return
+        }
+
+        // Intermediate bytes, space through '/'. They belong to the sequence
+        // and are not acted on here, but they must not end it either: ESC[!p
+        // (DECSTR) and ESC[<n> q (DECSCUSR, which is what a program sends to
+        // pick a cursor shape) both carry one, and both used to terminate at it
+        // and leave the final byte to print as a glyph.
+        if ch >= 0x20 && ch <= 0x2F {
             escapeState = .csiParam
             return
         }
@@ -2499,14 +2528,14 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             }
 
         case 0x6D: // 'm' - SGR (Select Graphic Rendition)
-            if escapeParams.isEmpty {
-                // ESC[m = reset
-                currentAttr = 0x07
-                reverseVideo = false
-            } else {
-                for param in escapeParams {
-                    applySGR(param)
-                }
+            // A private marker makes this something else entirely. ESC[>4;2m
+            // and ESC[>4m are xterm's modifyOtherKeys and say nothing about
+            // colour; without this guard the bare one reached SGR as ESC[m and
+            // reset the whole rendition. z80cpmw guards the same final for the
+            // same reason.
+            if !escapePrivateMode {
+                // An empty list is ESC[m, which is ESC[0m; applySGR handles it.
+                rendition.applySGR(escapeParams)
             }
 
         case 0x73: // 's' - Save cursor position (SCO)
@@ -2589,42 +2618,6 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         }
     }
 
-    /// Exchange the foreground and background nibbles of a CGA attribute byte.
-    /// Lossy by nature - the background is three bits - which is why this is
-    /// only ever applied on the way to a cell, never stored back in currentAttr.
-    private static func swapNibbles(_ attr: UInt8) -> UInt8 {
-        let fg = attr & 0x0F
-        let bg = (attr >> 4) & 0x07
-        return (fg << 4) | bg
-    }
-
-    /// Apply SGR (Select Graphic Rendition) parameter
-    private func applySGR(_ param: Int) {
-        switch param {
-        case 0: // Reset
-            currentAttr = 0x07
-            reverseVideo = false
-        case 1: // Bold (use bright colors)
-            currentAttr |= 0x08
-        case 22: // Normal intensity - bold off
-            currentAttr &= ~0x08
-        case 7: // Reverse video - a toggle, not a swap: SGR 7 twice is still reverse
-            reverseVideo = true
-        case 27: // Reverse off - the colours underneath were never disturbed
-            reverseVideo = false
-        // The SGR parameter is an ANSI colour index and currentAttr is a
-        // CGA-ordered byte, so the index has to be translated on the way in -
-        // see CGAColor.swift for both orderings and for why the byte is CGA.
-        // This is the only place the translation happens.
-        case 30...37: // Foreground colors
-            currentAttr = CGAColor.withForeground(currentAttr, ansi: UInt8(param - 30))
-        case 40...47: // Background colors
-            currentAttr = CGAColor.withBackground(currentAttr, ansi: UInt8(param - 40))
-        default:
-            break
-        }
-    }
-
     /// Clear from cursor to end of screen
     private func clearFromCursor() {
         // Clear rest of current line
@@ -2662,9 +2655,11 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
     func emulatorVDASetAttr(_ attr: UInt8) {
         // Attr is CGA-style: bits 0-3 = foreground, bits 4-6 = background, bit 7 = blink
         DispatchQueue.main.async {
-            // This replaces the whole byte, so any SGR 7 swap is gone with it.
-            self.currentAttr = attr
-            self.reverseVideo = false
+            // This replaces the whole byte, so any SGR 7 swap is gone with
+            // it - and so are the face flags, which the byte cannot express.
+            self.rendition.attr = attr
+            self.rendition.flags = 0
+            self.rendition.reverse = false
         }
     }
 
@@ -2782,10 +2777,23 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
             do {
                 let data = try Data(contentsOf: url)
+                // The NAMED form. `url` is what actually opened, which is not
+                // what the guest asked for whenever the case-insensitive
+                // fallback above did the finding - the CCP shouts the command
+                // line, so R8 FOO.COM is how a file called foo.com is reached.
+                // R8 prints this (HBF_HOST_GETRNAME) instead of echoing the
+                // request back at the person who typed it.
+                //
+                // Called even when the file is empty. `baseAddress` is nil for
+                // an empty Data, so guarding on it skipped the hand-off
+                // entirely and left the backend parked in WAITING_READ - the
+                // read side of the zero-byte hole the write side closed in
+                // build 53 (romwbw_emu v1.36, cpmdroid c06fa58). An empty file
+                // in Imports is a real file and R8 should make an empty CP/M
+                // one out of it, through the same states as any other size.
                 data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
-                    if let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt8.self) {
-                        emu_host_file_load(ptr, data.count)
-                    }
+                    let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt8.self)
+                    emu_host_file_load_named(ptr, data.count, url.path)
                 }
                 self.statusText = "R8: Loaded \(url.lastPathComponent) (\(data.count) bytes)"
             } catch {

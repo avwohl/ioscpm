@@ -15,13 +15,33 @@ Release
 -------
 
 - [RELEASE] do not bump releaseTag (grep releaseTag in EmulatorViewModel.swift,
-  still v1.4.5) until build 52 or later is what users are running.  Refreshing
-  the disk-image catalog is what puts a path-capable W8 in front of everyone.
-  The cross-repo order is romwbw_emu docs/RELEASE_ORDER_2026-08-25.md; this port
-  is step 1 and the catalog pin bump is step 5.  The one thing that must never
-  happen is refreshed images attached to the EXISTING v1.4.5 tag - that reaches
-  every installed app with no update at all.  Read the next item before walking
-  that order.
+  still v1.4.5).  This is step 5 of romwbw_emu docs/RELEASE_ORDER_2026-08-25.md
+  and it is the only step left; step 4 finished on 2026-09-01, publishing the
+  refreshed images as this repo's v1.4.12 - a PRERELEASE, 29 assets, catalog
+  version attribute deliberately left at 13, releases/latest still v1.4.11 and
+  v1.4.5 untouched.  Moving the pin is what puts a path-capable W8 in front of
+  users, so it waits on a build carrying the build 52 sanitiser being one users
+  actually HAVE.
+
+  The premise that made that wait look shorter than it is was corrected upstream
+  on the same day, and it is the thing to read before planning any release:
+
+    the App Store serves 1.4.9, released 2026-03-19, which is builds 36/37.
+    MEASURED - curl 'https://itunes.apple.com/lookup?bundleId=com.awohl.cpm'.
+
+  The catalog pin landed in build 42.  Builds 36/37 predate it and fetch the
+  catalog and the images from releases/latest/download/, not from any tag.  So
+  for every device actually in service, a NORMAL release becomes Latest and is
+  fetched immediately, and those builds contain checkCatalogVersionAndInvalidate.
+  What protected users at step 4 was --prerelease, which keeps a tag from
+  becoming Latest.  Treat that flag as load-bearing.  Build 55 is nineteen builds
+  and six months past what the Store serves; the gap, not the pin, is the
+  blocker.
+
+  Two hazards that came out of step 4 and are now written into
+  docs/DISK_W8FIX_RUNBOOK.md rather than left here: --clobber against v1.4.5 is
+  forbidden absolutely, and hd1k_combo_ioscpm_w8fixed.img must never be
+  republished - it is byte-identical to the UNFIXED combo despite its name.
 
 - [DECISION] the catalog bump wipes disks the catalog cannot give back, and
   nothing decides what should happen instead.  checkCatalogVersionAndInvalidate
@@ -29,13 +49,17 @@ Release
   default and calls deleteAllDownloadedDisks() on any difference; that loop
   takes every .img in Documents/Disks, including ones the user imported through
   Files and ones createNewDisk made in the app.  Nothing fires today - both
-  sides are at 13 - and the release step that bumps the attribute fires it on
-  every installed device at once, unprompted.  The options are copy-on-write on
-  first guest write, confirm before wiping, spare anything the catalog does not
-  name, or keep the wipe behind an export path first.  Whichever it is has to
-  ship in the same binary as the pin bump, for the same reason build 52 does.
-  Mechanism written up under "Data Loss Risk with GitHub Disks" in
-  KNOWN_PROBLEMS.md.
+  sides are at 13, and step 4 deliberately left the attribute alone - but the
+  release step that bumps it fires it on every installed device at once,
+  unprompted, and per the [RELEASE] item above "every installed device" means
+  builds 36/37, which reach it through releases/latest without any pin bump at
+  all.  The options are copy-on-write on first guest write, confirm before
+  wiping, spare anything the catalog does not name, or keep the wipe behind an
+  export path first.  Sparing what the catalog does not name is the one that is
+  strictly less destructive with no interaction and forecloses none of the
+  others, so it is the default if nobody chooses.  Whichever it is has to ship
+  in a binary users have BEFORE the attribute moves.  Mechanism written up under
+  "Data Loss Risk with GitHub Disks" in KNOWN_PROBLEMS.md.
 
 - [RELEASE] two published help files are behind and need someone who can attach
   assets to a GitHub release.  Help does not follow the pin: HelpView.swift
@@ -46,24 +70,19 @@ Release
   ("Files app -> iOSCPM", com.awohl.iOSCPM; both are Z80CPM / com.awohl.cpm now)
   and predates "Import File... (for R8)".  The corrected text is in
   release_assets/ and ships inside the app, so only a networked user gets the
-  stale copy.  The other five topics and help_index.json are already identical
-  and need nothing.
+  stale copy.  RE-CHECKED 2026-09-01 by downloading all seven topics from
+  releases/latest: those two still differ, and the other five plus
+  help_index.json are byte-identical and need nothing.  The fix is one command:
+
+    gh release upload v1.4.11 --repo avwohl/ioscpm --clobber \
+      release_assets/help_quick_start.md release_assets/help_file_transfer.md
+
+  --clobber is correct HERE and forbidden for disk images: these are help text
+  on the Latest release, they carry no W8, and no catalog hash names them.
 
 
 Needs a Mac
 -----------
-
-- [MAC] emu_host_file_get_read_name() answers "" and could answer truthfully.
-  "" is legal - emu_io.h says so, HBF_HOST_GETRNAME reports "no answer" and R8
-  falls back to printing what was asked for - but the Swift layer resolves the
-  guest's leaf against Imports case-insensitively, so R8 FOO.COM that really
-  opened foo.com reports FOO.COM.  The resolved name never crosses back into the
-  backend: emu_host_file_load(), the extern "C" entry point Swift calls, carries
-  bytes and no name.  Shape of the fix: a named variant of that entry point
-  storing the path in a g_host_read_filename that the getter returns while
-  HOST_FILE_READING, exactly as the write side already does with
-  g_host_write_filename.  romwbw_emu's browser backend answers "" for the same
-  reason and has the same item open.
 
 - [MAC] new disks are always 8 MB and the size is hardcoded twice.
   createNewDisk(at:size:) takes a size: its single ContentView call site does
@@ -75,17 +94,21 @@ Needs a Mac
   fill and no filesystem, which is what the cpmtools recipe in KNOWN_PROBLEMS.md
   works around.
 
-- [MAC] the CSI parser has no unit tests.  executeCSI (EmulatorViewModel.swift,
-  ~280 lines) is verified by reading and by building only - build 51's editing
-  finals and build 53's 17-site erase sweep included, and that sweep is exactly
-  what a test would have checked in a second.  The five suites in Tests/ cover
-  TerminalDialect, ControlKey, KeyMap, ExportPath and the C++ core keyboard;
-  each of the four Swift ones was split out of a view precisely so it could be
-  tested, and the screen model - terminalCells, the cursor, the scrolling
-  region, scrollback - is the next and biggest such extraction.  Copy z80cpmw's
-  tests/: bytes in through the public write path, screen out through the public
-  accessor, cursor through ESC [ 6 n.  Its tests/test_vt52.cpp already asserts
-  the erase cases.
+- [MAC] the CSI parser still has no unit tests OUTSIDE SGR.  Build 55 split the
+  rendition out - TerminalRendition.swift, 95 checks in
+  Tests/TerminalRenditionTests.swift - so the whole of `CSI ... m` is now driven
+  by a test.  Nothing else is.  executeCSI and processCSIChar are still inside
+  EmulatorViewModel with a screen behind them, so the cursor, the scrolling
+  region, the erase family, deferred autowrap and the answerbacks are verified
+  by reading and by watching a simulator.  Build 55's own private-marker and
+  intermediate-byte fixes are in that untested half and were checked with a
+  screenshot.  The screen model - terminalCells, the cursor, scrollTop and
+  scrollBottom, scrollback - is the next and biggest extraction, and it is the
+  same move TerminalDialect, ControlKey, ExportPath, CGAColor and now
+  TerminalRendition were each made for.  Copy z80cpmw's tests/: bytes in through
+  the public write path, screen out through the public accessor, cursor through
+  ESC [ 6 n.  Its tests/test_vt52.cpp is at 516 checks and already asserts the
+  erase cases.
 
 - [MAC] parity gaps, in rough order of how much they are missed.  Each is a
   feature, not a sync gap - none blocks taking a core release.
@@ -96,6 +119,11 @@ Needs a Mac
     is the place to grow one; SpecialKey.functionKeys exists to feed it.  No
     worked example in the family to copy - z80cpmw's FEATURE_PARITY.md says the
     same.
+  - the bell is not a setting.  processNormalChar's 0x07 arm calls
+    playBeep(durationMs: 100) with nothing to consult, so a guest that BELs in a
+    loop cannot be shut up.  cpmdroid made it a setting first and z80cpmw
+    followed in 480edcb (setBellEnabled); this port is now the only one without
+    it, and it is a Settings toggle and one guard.
   - no configuration profiles - named sets of ROM, disks, boot string, terminal
     and key map.  KeyProfile (KeyMap.swift) is only the key-map half.
   - no Catalyst window-state persistence and no Emulator menu; iOSCPMApp.swift
@@ -103,9 +131,28 @@ Needs a Mac
     Catalyst window is a resizable desktop window that opens at the system
     default every launch.
 
+- [MAC] emu_host_file_get_read_name() answers truthfully now and R8 still cannot
+  hear it, and that is a shape worth fixing rather than a wrong answer.  The
+  backend records the resolved path (emu_host_file_load_named) and the getter
+  returns it while HOST_FILE_READING.  But R8 prints its `Reading:` line between
+  the open and the first read, and an open here only parks the request for the
+  Swift layer's next main-queue turn - the guest is rewound on HBF_HOST_READ,
+  not on the open - so at the moment R8 asks the state is still WAITING_READ and
+  the honest answer is "".  Watched on the simulator at build 55 against an image
+  whose R8 does call 0xEA: `R8 ESC.TXT` for a file stored as `esc.txt` printed
+  `Reading: ESC.TXT`.  cpmdroid has the identical shape for the identical reason.
+  Closing it means resolving the name at OPEN time instead of at data time, which
+  means the backend doing the Imports lookup that Swift does today - two copies
+  of a case-insensitive scan that can drift - or the Swift layer answering the
+  open synchronously.  Neither is obviously right, which is why this is an item
+  and not a patch.
+
 
 Needs a person at the app
 -------------------------
 
 - See MANUAL_CHECKS.md: build 52's destructive W8/R8 paths, the WordStar diamond
   and Escape under Catalyst, and Ctrl+arrow on an iPad with a hardware keyboard.
+  Build 55 adds the underline, bold and blink faces on a real device (they were
+  watched on the simulator only) and the SHA256 rejection path, which nothing has
+  exercised against a genuinely corrupt download.

@@ -90,7 +90,10 @@ CPM=~/src/cpmemu/util/cpm_disk.py
 # 1. Get the current published combo and a known-good fixed w8.com
 #    (v1.4.5 now serves the already-fixed combo; this recipe is kept as the
 #     method for patching any future combo respin)
-gh release download v1.4.5 --repo avwohl/ioscpm --pattern hd1k_combo.img --clobber
+#    Build from the PUBLISHED bytes, as here - not from
+#    ~/src/romwbw_emu/disks/hd1k_combo.img, which is a superset carrying seven
+#    developer scratch files that shipping would publish.
+gh release download <tag-to-refresh> --repo avwohl/ioscpm --pattern hd1k_combo.img --clobber
 mkdir -p fixw8 && (cd fixw8 && python3 "$CPM" extract ~/src/romwbw_emu/disks/hd1k_infocom.img W8.COM)
 # fixw8/w8.com is the fixed 1280-byte build (contains fe41d8fe5bd0c620)
 

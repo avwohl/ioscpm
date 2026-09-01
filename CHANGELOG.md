@@ -1,5 +1,253 @@
 # Changelog
 
+## Version 1.5.1 (Build 55)
+
+A cross-port sync. Four of the five sibling repositories moved between
+2026-08-27 and 2026-09-01 - `romwbw_emu` to 1.38, `cpmemu` to 4.7.2, `cpmdroid`
+to 1.24, `z80cpmw` through its per-cell attribute work - and this build takes
+what those turned up, closes two `todo.txt` items outright, and corrects two
+documents that were telling a reader to do something forbidden.
+
+**Two of these had already been fixed on `origin/main` while this was being
+written**, from another machine and in a session this one could not see: the
+download checksum (`066d00c`) and the runbook's forbidden upload recipe
+(`55acbb5`). Both of those are theirs in the tree - they landed first and are
+better - and this entry says so where it used to claim them. The rest below is
+this build's.
+
+**The shared core needed nothing.** `iOSCPM/Core/` is 21 symlinks into
+`../romwbw_emu/src` and `../cpmemu/src`, so the core moved under this repo on its
+own; `qkz80` has not changed since 2026-08-26, and the `romwbw_emu` commits since
+build 54 are a narrowing-cast sweep, CI, and documentation. The tree builds clean
+against 1.38 with no port-side change, which is what `Tests/run_tests.sh`'s
+`CoreSymlinks` and `CoreKeyboardTests` pair exists to prove.
+
+`Tests/run_tests.sh`: 348 checks across seven suites plus the two `CoreSymlinks`
+shape checks, all passing. 253 before, and build 54's entry below says 251 -
+that entry undercounted `CGAColorTests` by two, which was checked by compiling
+that suite at `0dbab43` and running it: 73, not 71. `TerminalRenditionTests` is
+new and contributes 95. `xcodebuild` clean for the iPhone 17 Pro simulator with
+no new warnings. Installed on that simulator, booted the Combo disk to CP/M 2.2, and
+drove every sequence below through `R8` + `TYPE`.
+
+### The terminal was the last port without the bright half
+
+`ESC[91m` did nothing at all. `applySGR`'s whole switch was `0`, `1`, `22`, `7`,
+`27`, `30...37`, `40...47` and `default: break`, so the bright ranges fell
+through and the text drew in whatever was current - from a fresh reset, CGA 7,
+which is indistinguishable from asking for no colour. `z80cpmw` closed this on
+2026-08-28 with a suite that reads pixels, `cpmdroid` has carried `90-97` since
+its own ANSI fix, and `z80cpmw`'s `FEATURE_PARITY.md` named this port as the one
+without it.
+
+- **`90-97` set the ANSI colour and the intensity bit**, masking with `0xF0`
+  rather than `0xF8`: the bright bit *is* the intensity bit, so a bright colour
+  sets what `SGR 1` would have set. Preserving bit 3 instead would leave `ESC[22m`
+  unable to dim a colour that was asked for bright.
+- **`100-107` fold onto the plain background.** The background nibble is three
+  bits and the fourth is blink on real CGA hardware, so a bright background can
+  only be stored by borrowing it. A wrong shade beats a cell that starts
+  strobing. `z80cpmw` folds them the same way; `cpmdroid` keeps them bright
+  because a cell there is a full ARGB value with no blink bit to borrow.
+
+### `ESC[38;5;44m` was setting a red background
+
+The SGR loop acted on every parsed parameter in turn, so the sub-parameters of
+the extended-colour forms were read as colour codes in their own right: the `44`
+of `ESC[38;5;44m` landed as `SGR 44`. Both forms - `;5;<index>` and
+`;2;<r>;<g>;<b>` - are now stepped over. The value is discarded rather than
+approximated onto the CGA palette, because both siblings discard it and a port
+that guessed a nearest entry would put a colour on screen that no other port
+shows for the same bytes.
+
+`SGR 39` and `SGR 49` also arrive, which `cpmdroid` has and `z80cpmw` does not.
+Both preserve the intensity bit, for the same reason `30-37` do: bold and bright
+are one bit inside a packed byte, and the alternative would make `ESC[1m ESC[39m`
+silently drop the bold.
+
+### A cell can hold a face now
+
+`SGR 1`, `4`, `5` and `7` were parsed into a single intensity bit and nothing
+else, so underline and blink were accepted and dropped. `TerminalCell` gains a
+`flags` byte carrying `CellFlags.bold` / `.underline` / `.blink` - z80cpmw's
+`TCELL_*` values byte for byte, and `cpmdroid`'s, so a cell from any of the three
+ports can be compared with another's.
+
+- **Bold draws in a second `UIFont`**, because that is the only way UIKit can
+  vary weight for a single `draw(at:)` - z80cpmw keeps four `HFONT`s for exactly
+  the same reason. The grid is still measured from the plain face alone, so a
+  wider bold face cannot move it, and every glyph is positioned individually, so
+  it cannot smear either.
+- **Underline is the attributed string's own rule, in the glyph's colour.**
+  Without `.underlineColor` it draws in the label colour, which is near-white on
+  this black view whatever the text is.
+- **Blink shares one phase, and the phase only exists while something asks for
+  it.** There was nothing to hang it on: this port's cursor is a solid block and
+  does not blink, where z80cpmw shares the cursor's 500 ms timer. `syncBlinkTimer`
+  creates a timer when a blinking cell is on screen and tears it down when the
+  last one goes, so an ordinary CP/M session costs exactly what it did before -
+  no timer, no repaint. The off phase keeps the cell's background and loses the
+  glyph, and loses the underline with it, which is what z80cpmw's rendering suite
+  pins.
+- **An erase zeroes the flags and keeps the colours.** Underline and blink are
+  visible on a space, so carrying them through `ESC[4m ESC[2J` would underline
+  all 2000 cells. `blankCell` is the one site and z80cpmw zeroes at the same one.
+- **Reverse video stays out of the byte.** It is resolved into the two nibbles at
+  the write, which is what makes `SGR 7` and `27` exact inverses; the bold flag is
+  also the only record of bold that survives that swap, since the intensity bit
+  falls off the end of a three-bit background.
+
+### Three CSI sequences ended early and printed their own tails
+
+`processCSIChar` treated every non-digit, non-`;`, non-`?` byte as a FINAL
+character. So:
+
+- **`<`, `=` and `>`** - the secondary and tertiary device-attribute forms and
+  xterm's `modifyOtherKeys` - ended the sequence at the marker. `ESC[>c` printed
+  `c`; `ESC[>4;2m` printed `4;2m`. They are private-parameter markers now, the
+  same set `z80cpmw` learned when `?` had the identical bug there, and the `n`
+  and `c` answerbacks were already guarded on `escapePrivateMode` so the private
+  forms stay deliberately silent.
+- **Intermediate bytes, space through `/`**, did the same. `ESC[!p` (DECSTR) and
+  `ESC[<n> q` (DECSCUSR, which is what a program sends to choose a cursor shape)
+  both terminated at the intermediate and left their final byte to print as a
+  glyph.
+- **`m` under a private marker** now does nothing. Without the guard, a bare
+  `ESC[>4m` reached SGR as `ESC[m` and reset the whole rendition.
+
+### The SGR half of the parser has tests
+
+`todo.txt` has carried "the CSI parser has no unit tests" since build 51, and
+build 54's colour bug was found by looking at a simulator. `TerminalRendition` is
+split out of `EmulatorViewModel` for the reason `TerminalDialect`, `ControlKey`,
+`ExportPath` and `CGAColor` were: it is a pure value with no screen behind it, so
+`Tests/TerminalRenditionTests.swift` can drive the whole of `CSI ... m` with 95
+checks and no display. The rest of the parser - the cursor, the scrolling region,
+the erase family - is still untested, and the item stays open for that half; the
+private-marker fixes above are in it and were checked with a screenshot.
+
+### Downloads are verified, and that fix came from the other machine
+
+`066d00c` landed the SHA256 work on `origin/main` while this build was being
+written here, and it is the better of the two. It went in first and this build
+carries it unchanged; what was written here is discarded. Three things it does
+that the version drafted here did not, all of them mattering:
+
+- **It hashes the temp file *before* the destination is touched.** The version
+  here moved the file in and hashed it afterwards, so a corrupt or truncated
+  download deleted the good disk the user already had and left nothing in its
+  place. `Documents/Disks` holds disks the user imported and disks the app
+  created, and a downloaded disk is where their CP/M work lives.
+- **A catalog entry with no `<sha256>` is refused, not accepted.** Treating a
+  missing hash as "assume ok" - which is what was written here, on the grounds
+  that the field has always been optional - makes the whole check optional at
+  the catalog's choosing. All 20 entries in the pinned `v1.4.5` catalog carry
+  one, so an entry without is degraded or hostile.
+- **The catalog's `<filename>` is checked for being a plain leaf.** It reaches
+  `appendingPathComponent` and then `removeItem`, and that does not escape
+  `..` - the same shape as the `W8` export bug this app shipped in build 51.
+  That one was missed here entirely.
+
+What this build adds to it is the thing its commit message asked for: **it is
+compiled and run.** `066d00c` says "NOT COMPILED - there is no Swift toolchain on
+the machine this was written on". It builds clean for the simulator and for Mac
+Catalyst with no new warnings, and the app installs, launches, fetches the live
+`v1.4.5` catalog and boots a downloaded disk. The rejection arms - a bad hash, a
+missing hash, a non-leaf filename - are still unexercised and are in
+`MANUAL_CHECKS.md`.
+
+### R8 can be told which file it really read
+
+`emu_host_file_get_read_name()` returned `""` unconditionally. The resolved path
+was known only in Swift - `emu_host_file_open_read` hands a leaf to the delegate,
+the Swift layer resolves it against `Imports` case-insensitively, and
+`emu_host_file_load()` carried bytes and no name - so `R8`'s `Reading:` line
+echoed the name the CCP shouted, which is a claim about the open assembled out of
+the request. `cpmdroid` closed the identical gap in `167acbe`.
+
+`emu_host_file_load_named()` carries the path down beside the bytes, absolute, as
+the CLI's `realpath()` answer and the Windows port's are and as this port's write
+side already was. It is stored in `g_host_read_filename`, returned while
+`HOST_FILE_READING`, and cleared on open, close and cancel - none of which it was
+before, so a name could have outlived its transfer.
+
+**Measured, and recorded in the source rather than left to be discovered:** with
+today's `R8` this usually still answers `""`, and that is correct rather than
+broken. `R8` prints `Reading:` between the open and the first read, and an open
+here only parks the request for the Swift layer's next main-queue turn - the
+guest is rewound on `HBF_HOST_READ`, not on the open - so at the moment `R8` asks,
+the state is `WAITING_READ` and `""` is the truth. Watched against a Combo image
+whose `R8` does call `0xEA`: `R8 ESC.TXT` for a file stored as `esc.txt` printed
+`Reading: ESC.TXT`. `cpmdroid` reaches the same answer through the same
+asynchrony. Closing it properly means resolving at open time, which is a new
+`todo.txt` item rather than a guess.
+
+### A zero-byte file in Imports
+
+`R8` on an empty file skipped the hand-off entirely: `baseAddress` is nil for an
+empty `Data`, and the call was inside `if let ptr`. The backend stayed parked in
+`WAITING_READ`. This is the read side of the hole the write side closed in build
+53 (`romwbw_emu` v1.36, `cpmdroid` `c06fa58`) - an empty CP/M file is a real file.
+`emu_host_file_provide_data` now guards the null pointer itself rather than
+relying on every caller to, because `assign(null, null)` is undefined rather than
+merely empty.
+
+### Two documents were telling a reader to do the one forbidden thing
+
+`romwbw_emu`'s `fce8f87` finished step 4 of the release order - the refreshed
+images are published as **`v1.4.12`**, a prerelease, 29 assets, with the catalog
+`version` attribute deliberately left at `13` so the invalidation wipe never
+fired - and flagged this repo's `docs/DISK_W8FIX_RUNBOOK.md` as a live footgun
+while doing it.
+
+- **`docs/DISK_W8FIX_RUNBOOK.md`** said `gh release upload <tag> --clobber`,
+  under a paragraph arguing against cutting a fresh tag, with its download step
+  pulling from `v1.4.5`. Read together that is an instruction to overwrite the
+  assets every installed client fetches. It was never run. **That correction is
+  `55acbb5`'s**, which landed on `origin/main` first and is the fuller of the two
+  - it carries the `--prerelease` rule, the post-publish gates, the
+  `rebuild_disk_utils.sh` / `verify_disk_utils.sh` recipe and the
+  `hd1k_combo_ioscpm_w8fixed.img` warning. Only one line written here survives
+  alongside it: the download step no longer hardcodes `v1.4.5` as the tag to
+  refresh from.
+- **`todo.txt`**'s release item is rewritten around the correction that came with
+  step 4, which matters more than the completion: the App Store serves **1.4.9,
+  released 2026-03-19**, which is builds 36/37. Those predate the catalog pin
+  (build 42) and fetch from `releases/latest/download/`, so for every device in
+  service a *normal* release is fetched immediately and `--prerelease` is what
+  actually protects them - load-bearing, not cosmetic. Step 5 stays blocked, and
+  the blocker is the six-month gap between what the Store serves and what carries
+  the sanitiser, not the pin.
+
+### Also
+
+- The two stale published help files were re-checked against
+  `releases/latest`, and the finding stands: `help_quick_start.md` and
+  `help_file_transfer.md` still differ from `release_assets/`, and the other five
+  topics plus `help_index.json` are byte-identical. `todo.txt` now carries the
+  exact command, and why `--clobber` is right for help text and forbidden for
+  disk images.
+- `z80cpmw`'s `FEATURE_PARITY.md` says `ioscpm`'s `clearTerminal()` resets the
+  scrolling region on `ESC[2J`. That reading is stale: build 53's `0165dac` split
+  `eraseScreen()` out of `clearTerminal()`, and `ESC[2J` has gone through
+  `eraseScreen()` since - which does not touch the region. Nothing to fix here;
+  noted so the next sweep does not re-file it.
+- The bell is still not a setting. `cpmdroid` made it one and `z80cpmw` followed
+  in `480edcb`; this port is now the only one without it, and it is a new
+  `todo.txt` line rather than part of this build.
+
+### Not verified
+
+Nothing here has been run on a device, or under Mac Catalyst - the Catalyst
+target was *built* clean (`-destination 'platform=macOS,variant=Mac Catalyst'`)
+and not launched. The bold face,
+the underline rule and the blink phase were watched on the iPhone 17 Pro
+simulator only, where the font metrics and the timer are not a device's;
+`MANUAL_CHECKS.md` gains a section for them. The SHA256 rejection arm has never
+been driven against a genuinely bad download - only the passing arm, which is
+every ordinary one - and that has its own section there too. `executeCSI` and
+`processCSIChar` still have no tests of their own.
+
 ## Version 1.5.1 (Build 54)
 
 One terminal bug, seen and filed during build 53's simulator pass and fixed
