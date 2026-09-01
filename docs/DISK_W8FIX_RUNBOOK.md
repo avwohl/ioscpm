@@ -1,5 +1,51 @@
 # Runbook: refresh release disk images with the fixed w8.com
 
+> ## SUPERSEDED 2026-09-01 — read this before running anything below
+>
+> **The upload recipe in this file was wrong and would have destroyed the
+> safety property the whole plan depends on.** It said to
+> `gh release upload <tag> --clobber` and "Do **not** cut a fresh tag". Doing
+> that to `v1.4.5` overwrites the assets every installed client is pinned to,
+> which arms the changed images retroactively on every device with no update —
+> the one action `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` forbids
+> absolutely. It also told you to bump `<disks version="…">`, two paragraphs
+> after correctly warning that bumping it deletes every `.img` in the user's
+> `Documents/Disks`.
+>
+> **What was actually done, and what to copy instead.** The R8/W8 refresh
+> shipped on 2026-09-01 as **`v1.4.12`, a new prerelease tag**, with `v1.4.5`
+> untouched (still `be19984e…`, still 30 assets) and the catalog `version`
+> attribute deliberately left at `13`, so the wipe never fired. The rules that
+> came out of doing it:
+>
+> - **New tag, always. Never `--clobber` `v1.4.5`.** A new tag is cheap; the
+>   retroactive arming is not undoable.
+> - **`--prerelease`, always.** This is load-bearing, not cosmetic. The App
+>   Store fleet is 1.4.9 (builds 36/37, 2026-03-19), which predates the catalog
+>   pin and fetches from `releases/latest/download/` — so a *normal* release is
+>   fetched by every installed device immediately. Check afterwards that
+>   `gh api repos/avwohl/ioscpm/releases/latest --jq .tag_name` still names the
+>   old tag.
+> - **Never move `<disks version>`.** Change the affected `<sha256>` and nothing
+>   else. The warning below is right; the instruction to bump was not.
+> - **Attach the whole catalog's worth of assets to the new tag**, not just the
+>   changed image: every port derives asset URLs from its pinned tag, so a
+>   missing filename 404s for any build that later pins it.
+> - **Use `romwbw_emu/disks/rebuild_disk_utils.sh` and `verify_disk_utils.sh`**,
+>   which take a tree root, handle the combo through the `wbw_hd1k_0` diskdef,
+>   and assert the `06 e9 cf` interlock. They replace the `dd`-slice recipe
+>   below, which stays only as an explanation of the layout.
+> - **Refresh the *published* bytes, not `romwbw_emu/disks/hd1k_combo.img`.**
+>   The tracked image is a superset carrying developer scratch files.
+>
+> One artifact to know about: **`hd1k_combo_ioscpm_w8fixed.img`**, on `v1.4.5`,
+> is byte-identical to the *unfixed* combo despite its name, is in no catalog
+> entry, and was deliberately dropped from `v1.4.12`. Do not republish it.
+>
+> Everything below is kept for its audit history and its signature method, both
+> of which are still correct. The two numbered upload steps are corrected in
+> place.
+
 ## Background
 
 `w8.com` on every hd1k image built before 2026-07-21 has a broken lowercase
@@ -73,14 +119,23 @@ A verified build produced during the 2026-07-22 session has:
 (size unchanged: 51380224 bytes). Re-verify after re-running — the hash is
 stable only if the same published combo and fixed w8.com are used.
 
-## Update the catalog and upload — DONE (catalog 3c10095, 2026-07-22)
+## Update the catalog and upload — DONE twice (3c10095 2026-07-22; v1.4.12 2026-09-01)
 
 **Both halves of this step are already applied; nothing here is outstanding.**
-`release_assets/disks.xml` is `<disks version="13">` with the combo
-`<sha256>be19984edbcbb901973c268b870587235ea128e3c5e13b80a35d8c9488ec6d6e</sha256>`
-(bumped 12 → 13 in 3c10095, 2026-07-22), and the `v1.4.5` release assets
-— uploaded 2026-07-25 — serve that same catalog byte-for-byte (sha256
-`6ae94b8c…`) together with the 51380224-byte fixed combo.
+`release_assets/disks.xml` is `<disks version="13">`, and that attribute has not
+moved since `3c10095` (2026-07-22) bumped it 12 → 13. Its combo `<sha256>` has
+moved twice, and the two are no longer the same file:
+
+- **`v1.4.5`** (uploaded 2026-07-25) serves the catalog naming
+  `be19984e…` — the um80-lowercase-fixed combo, but still the *old* `R8`/`W8`.
+  Frozen. Every port pins this tag today.
+- **`v1.4.12`** (2026-09-01, prerelease) serves the catalog naming
+  `89b8ae1a…` — the same image with the current `r8.com`/`w8.com`. This is what
+  `release_assets/disks.xml` tracks now, as of `d31815e`.
+
+So `release_assets/` deliberately no longer matches what the fleet reads. If you
+need the bytes `v1.4.5` serves, fetch them from the release rather than from
+this checkout.
 
 The app downloads `disks.xml` from the pinned `releases/download/v1.4.5/`
 (`releaseTag` in `EmulatorViewModel.swift`; see `docs/DISK_CATALOG_PINNING.md`),
@@ -98,13 +153,18 @@ refuses a mismatched image today. (Checked 2026-08-26: the published v1.4.5
 what is shipped is consistent; it is the enforcement that is missing, not the
 hash.)
 
-The two steps below are kept only as the recipe for a **future** combo respin.
-Do not re-run them against what is shipped now.
+The two steps below are the recipe for a **future** combo respin, corrected
+2026-09-01 against what the `v1.4.12` respin actually did. Do not re-run them
+against what is shipped now, and do not use any earlier revision of them: the
+version they replaced said to `--clobber` `v1.4.5` and to bump the catalog
+`version`, and both are forbidden. See the SUPERSEDED block at the top.
 
 1. In `release_assets/disks.xml` (the uploaded catalog):
    - set the `hd1k_combo.img` `<sha256>` to the new hash from step 4,
-   - bump the `<disks version="…">` attribute from whatever version is live —
-     do **not** re-bump 13, that is the current shipped value.
+   - **leave the `<disks version="…">` attribute exactly as it is.** An earlier
+     revision of this line told you to bump it. Do not. See the warning
+     immediately below, which was always right; `v1.4.12` shipped with it left
+     at `13` and that is what kept the wipe from firing.
 
    > **Bumping that attribute destroys user data.** It is not a cache hint. On
    > the next catalog fetch after the bump, `checkCatalogVersionAndInvalidate`
@@ -117,17 +177,34 @@ Do not re-run them against what is shipped now.
    > decision. Read `todo.txt`, "THE SECOND DATA-LOSS PATH ON THAT SAME RELEASE
    > STEP", before running this step — it is not covered by romwbw_emu's
    > `docs/RELEASE_ORDER_2026-08-25.md`, which reasons only about `W8` and `R8`.
-2. Upload both to the release:
+2. Publish to a **new prerelease tag**, carrying every catalog asset:
    ```bash
-   gh release upload <tag> --repo avwohl/ioscpm --clobber \
-     hd1k_combo_fixed.img#hd1k_combo.img disks.xml
+   gh release create vX.Y.Z --repo avwohl/ioscpm --prerelease \
+     --title '... (asset carrier, not an app release)' \
+     --notes '...' \
+     upload/*          # all 20 catalog images + disks.xml + the 8 help files
    ```
-   Do **not** cut a fresh tag just to match the app version. `v1.4.5` is a
-   deliberate prerelease pin that the installed v3.5.1 fleet is hardwired to; a
-   new tag is cut only for the RomWBW v3.6.0 upgrade, in lockstep across all
-   three ports — see `docs/DISK_CATALOG_PINNING.md`. Bumping the tag also means
-   bumping `releaseTag` in `EmulatorViewModel.swift` and shipping a new app
-   build, or no installed client will ever see it.
+   **Never `--clobber`, and never upload to `v1.4.5`.** An earlier revision of
+   this step said to do exactly that and to not cut a fresh tag. That is the
+   forbidden action: overwriting `v1.4.5`'s assets arms the changed images
+   retroactively on every installed client, with no update and no way back.
+   A new tag reaches nobody until a build points at it — *provided* it is a
+   prerelease, because the installed fleet predates the pin and follows
+   `releases/latest`.
+
+   Bumping the *pin* is a separate, later decision: it means changing
+   `releaseTag` in `EmulatorViewModel.swift` and shipping an app build, and it
+   must not happen until that build carries the sanitiser. That is step 5 of
+   `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` and it is currently blocked.
+
+   Then verify, and treat any failure as a reason to
+   `gh release delete vX.Y.Z --cleanup-tag`:
+   ```bash
+   gh api repos/avwohl/ioscpm/releases/latest --jq .tag_name     # must be the OLD tag
+   gh api repos/avwohl/ioscpm/releases/tags/vX.Y.Z --jq .prerelease   # must be true
+   curl -sL .../releases/download/v1.4.5/hd1k_combo.img | sha256sum  # must be unchanged
+   curl -sL .../releases/latest/download/disks.xml | sha256sum       # must be unchanged
+   ```
 
 ## Remaining audit (likely unnecessary)
 
