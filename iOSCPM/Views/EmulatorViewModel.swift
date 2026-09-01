@@ -128,6 +128,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private static let releaseTag = "v1.4.5"
     private static let catalogURL = "https://github.com/avwohl/ioscpm/releases/download/\(releaseTag)/disks.xml"
     private static let releaseBaseURL = "https://github.com/avwohl/ioscpm/releases/download/\(releaseTag)"
+    /// Which releaseTag the cached catalog on disk was fetched under.  The cache
+    /// holds one tag's <sha256> values but parseDiskCatalogXML always rebuilds the
+    /// URLs from the CURRENT releaseTag, so a cache from a different pin pairs the
+    /// wrong hashes with the right URLs.  See loadCachedCatalog.
+    private static let catalogCacheTagKey = "catalogCacheTag"
 
     @Published var diskCatalog: [DownloadableDisk] = []
     @Published var catalogLoading: Bool = false
@@ -1462,6 +1467,58 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private func loadCachedCatalog() {
         catalogLoading = false
         let cacheURL = downloadsDirectory.appendingPathComponent("disks_catalog.xml")
+
+        // A cache fetched under a different release pin cannot be trusted for
+        // DOWNLOADS.  The cached XML carries the <sha256> values of the tag it came
+        // from, but parseDiskCatalogXML rebuilds every URL from the tag THIS build
+        // is pinned to - so after an app update that moved releaseTag, a device
+        // whose first launch has no network would pair the old hashes with the new
+        // URLs.  That was survivable while the hash was advisory; since downloads
+        // are verified it means three full downloads (49 MB each for the combo)
+        // that cannot succeed.  An absent stamp means the cache predates this
+        // bookkeeping and its tag is unknowable, which is the same problem.
+        //
+        // But it must NOT be thrown away wholesale, and the first version of this
+        // did exactly that.  This branch fires precisely when the network is down,
+        // so there is no refetch to fall back on: emptying diskCatalog would leave
+        // start() refusing to boot - it rejects an empty catalog before it ever
+        // checks whether anything still needs downloading - and would drop the
+        // user's own imported images too, since refreshAvailableDisks() is the only
+        // thing that scans the directory.  A user who already had every disk
+        // downloaded would have been unable to run the emulator at all, offline,
+        // which is worse than the bug being fixed.
+        //
+        // So keep exactly the entries whose file is already on disk.  Those are
+        // never re-downloaded, so their stale <sha256> is never consulted, and the
+        // guest can boot.  Everything else is dropped, which is what stops a
+        // mismatched hash reaching a download.  The cache file and stamp still go,
+        // so the next successful fetch replaces them.
+        let cachedTag = UserDefaults.standard.string(forKey: Self.catalogCacheTagKey)
+        let cacheExists = FileManager.default.fileExists(atPath: cacheURL.path)
+        if cacheExists && cachedTag != Self.releaseTag {
+            debugPrint("[Catalog] Cached catalog is from pin '\(cachedTag ?? "unstamped")', this build is pinned to '\(Self.releaseTag)'")
+            var salvaged: [DownloadableDisk] = []
+            if let data = try? Data(contentsOf: cacheURL) {
+                salvaged = parseDiskCatalogXML(data).disks.filter { isDiskDownloaded($0.filename) }
+            }
+            try? FileManager.default.removeItem(at: cacheURL)
+            UserDefaults.standard.removeObject(forKey: Self.catalogCacheTagKey)
+
+            let msg = "Disk catalog is out of date for this version. Connect to the internet to refresh it."
+            if salvaged.isEmpty {
+                debugPrint("[Catalog] Nothing already downloaded to keep - catalog is empty until a refresh")
+                catalogError = msg
+                showError(msg)
+            } else {
+                debugPrint("[Catalog] Keeping \(salvaged.count) already-downloaded disk(s) so the emulator can still start")
+                diskCatalog = salvaged
+                refreshAvailableDisks()
+                restoreDiskSelections()
+                catalogError = msg
+            }
+            return
+        }
+
         if let data = try? Data(contentsOf: cacheURL) {
             let result = parseDiskCatalogXML(data)
             if !result.disks.isEmpty {
@@ -1478,7 +1535,19 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// Save catalog XML to local cache
     private func saveCatalogToCache(_ data: Data) {
         let cacheURL = downloadsDirectory.appendingPathComponent("disks_catalog.xml")
-        try? data.write(to: cacheURL)
+        do {
+            // .atomic: a kill or a full disk partway through a plain write leaves a
+            // truncated catalog that still carries a matching stamp from an earlier
+            // successful write, so it would pass the check above and parse to zero
+            // disks.  Temp-file-and-rename makes the file wholly old or wholly new.
+            try data.write(to: cacheURL, options: .atomic)
+            // Stamp the pin only after the bytes are down.  Stamping a write that
+            // failed would claim a cache matching this build when the file on disk
+            // is still the previous one.
+            UserDefaults.standard.set(Self.releaseTag, forKey: Self.catalogCacheTagKey)
+        } catch {
+            debugPrint("[Catalog] Failed to cache catalog: \(error.localizedDescription)")
+        }
     }
 
     /// Parse disks.xml into DownloadableDisk array and catalog version
