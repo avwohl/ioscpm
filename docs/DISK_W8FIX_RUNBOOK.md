@@ -147,10 +147,46 @@ three attempts; the dead `downloadDiskWithRetry` that used to hold the only
 hashing code is deleted. See the "Integrity Verification" section of
 `docs/DISK_DISTRIBUTION.md`. So the catalog hash is now enforced, not advisory,
 and getting it wrong stops the disk installing rather than merely colouring a
-label red. It was already worth getting right; now it is load-bearing. (Checked 2026-08-26: the published v1.4.5
-`hd1k_combo.img` does hash to the `be19984e…` in the published `disks.xml`, so
-what is shipped is consistent; it is the enforcement that is missing, not the
-hash.)
+label red. It was already worth getting right; now it is load-bearing.
+
+**Pre-ship gate, run 2026-09-01: every published asset matches its catalog, on
+both tags.** An earlier note here recorded checking one file, `hd1k_combo.img`,
+which was not enough once a mismatch became fatal rather than cosmetic. All
+twenty entries of each catalog were streamed from the release and hashed against
+the `<sha256>` and `<size>` the same release serves:
+
+	Tag	Entries	Bad	Missing a hash
+	v1.4.5	20	0	0
+	v1.4.12	20	0	0
+
+The nineteen non-combo hashes are identical across both tags, which is the
+independent confirmation that `v1.4.12` re-uploaded them byte-identical rather
+than rebuilding them. Only `hd1k_combo.img` differs: `be19984e…` on `v1.4.5`,
+`89b8ae1a…` on `v1.4.12`.
+
+Re-run this before any release that changes an asset, because enforcement turns
+a stale catalog hash into a disk that cannot be installed at all:
+
+```bash
+tag=v1.4.5   # or the tag being shipped
+base=https://github.com/avwohl/ioscpm/releases/download/$tag
+python3 - "$base" <<'PY'
+import re,sys,hashlib,urllib.request
+base=sys.argv[1]
+xml=urllib.request.urlopen(base+"/disks.xml").read().decode()
+for m in re.finditer(r'<disk>(.*?)</disk>', xml, re.S):
+    b=m.group(1)
+    fn=re.search(r'<filename>(.*?)</filename>',b)
+    h=re.search(r'<sha256>\s*([0-9a-fA-F]+)\s*</sha256>',b)
+    if not fn: continue
+    if not h: print("NOHASH", fn.group(1)); continue
+    d=hashlib.sha256(); n=0
+    with urllib.request.urlopen(f"{base}/{fn.group(1)}") as r:
+        while (c:=r.read(1<<20)): d.update(c); n+=len(c)
+    ok = d.hexdigest()==h.group(1).lower()
+    print("OK  " if ok else "FAIL", fn.group(1), n)
+PY
+```
 
 The two steps below are the recipe for a **future** combo respin, corrected
 2026-09-01 against what the `v1.4.12` respin actually did. Do not re-run them
