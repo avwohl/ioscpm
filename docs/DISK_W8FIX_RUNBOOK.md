@@ -141,14 +141,13 @@ The app downloads `disks.xml` from the pinned `releases/download/v1.4.5/`
 (`releaseTag` in `EmulatorViewModel.swift`; see `docs/DISK_CATALOG_PINNING.md`),
 so the image and catalog must be uploaded **together**.
 
-It does **not** verify the image's SHA-256 against the catalog, whatever this
-paragraph said before. The live download path, `downloadDiskFromSettings`, moves
-the temp file into `Documents/Disks/` without hashing it; the implementation that
-does hash, `downloadDiskWithRetry`, is dead. See `todo.txt` under "nothing
-verifies a downloaded disk's SHA256" and the "Integrity Verification" section of
-`docs/DISK_DISTRIBUTION.md`. The catalog hash is still worth getting right - it
-is displayed to the user, and it is what the fix will enforce - but nothing
-refuses a mismatched image today. (Checked 2026-08-26: the published v1.4.5
+**Since 2026-09-01 it does verify.** `downloadDiskFromSettings` hashes the temp
+file against the catalog's `<sha256>` and refuses to install a mismatch, after
+three attempts; the dead `downloadDiskWithRetry` that used to hold the only
+hashing code is deleted. See the "Integrity Verification" section of
+`docs/DISK_DISTRIBUTION.md`. So the catalog hash is now enforced, not advisory,
+and getting it wrong stops the disk installing rather than merely colouring a
+label red. It was already worth getting right; now it is load-bearing. (Checked 2026-08-26: the published v1.4.5
 `hd1k_combo.img` does hash to the `be19984e…` in the published `disks.xml`, so
 what is shipped is consistent; it is the enforcement that is missing, not the
 hash.)

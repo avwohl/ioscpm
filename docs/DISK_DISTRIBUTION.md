@@ -138,34 +138,46 @@ The `DiskCatalogXMLParser` class in `EmulatorViewModel.swift` parses the XML:
 ### Download Flow
 
 1. User selects a disk in Settings
-2. Client downloads from GitHub Releases
-3. The temp file is moved into `Documents/Disks/`, over any existing copy
-4. Download state is updated in UI
+2. Client downloads from GitHub Releases to a temp file
+3. The catalog `<filename>` is checked to be a plain name, not a path
+4. The **temp file** is hashed and compared against the manifest's `sha256`
+5. Only on a match is the temp file moved into `Documents/Disks/`
+6. Download state is updated in UI
 
-There is no verification step between 2 and 3. See below.
+### Integrity Verification
 
-### Integrity Verification — intended, not shipped
+**Shipped 2026-09-01.** Every download is verified before it is installed.
 
-This section used to say that every download is verified against the manifest's
-SHA256, that a failed verification retries up to three times, and that no disk is
-used without passing. That is the intent. It is not what the iOS/macOS client
-does today.
+The only download path is `downloadDiskFromSettings` in
+`EmulatorViewModel.swift`, reached from `downloadDisk` (the Settings button) and
+from `downloadDiskWithCompletion` (the first-run fetch). It hashes the temp file
+and, on a mismatch, retries up to three times before failing with
+`Checksum mismatch - not saved`.
 
-The live path is `downloadDiskFromSettings` in `EmulatorViewModel.swift`, reached
-from `downloadDisk` (the Settings button) and from `downloadDiskWithCompletion`
-(the first-run fetch). It retries on an HTTP or network error, then does
-`removeItem` + `moveItem` into `Documents/Disks/` without hashing the file at
-all. A second implementation, `downloadDiskWithRetry`, does verify — it hashes
-the installed file, deletes it and retries on a mismatch — but its only callers
-are its own retry arms, so nothing outside it ever reaches it.
+**The order is the point.** Verification happens on the temp file, before the
+destination is touched. A corrupt or truncated download therefore costs a retry
+and nothing else — the copy the user already had is still in place and still
+usable. The earlier dead implementation, `downloadDiskWithRetry`, hashed only
+*after* `removeItem` + `moveItem`, so a bad download would have destroyed a good
+disk and left nothing behind. `Documents/Disks/` also holds disks the user
+imported and disks the app created, neither of which any catalog can restore.
+That dead path is deleted; there is one download path and it verifies.
 
-The manifest's `sha256` therefore survives only as display: `DiskDownloadRow`
-(`ContentView.swift`) hashes the file after it is installed and colours the
-first eight digits green or red. Nothing acts on the colour.
+Two entries are refused rather than installed:
 
-Tracked in `todo.txt` under "nothing verifies a downloaded disk's SHA256": the
-fix is to delete the dead path or move its check into the live one, and until
-one of those happens, treat the `sha256` field as advisory on this port.
+- **No `<sha256>` in the catalog entry.** Not "assume ok" — all 20 entries in
+  the pinned `v1.4.5` catalog carry a hash, so an entry without one is a
+  degraded or hostile catalog. Accepting it would have made the check optional
+  at the catalog's choosing.
+- **A `<filename>` that is not a plain name.** The catalog is downloaded
+  content and its filename reaches `removeItem`; `appendingPathComponent` does
+  not escape `..`. Refused rather than silently reduced, because rewriting the
+  name would desync it from `refreshAvailableDisks`.
+
+`DiskDownloadRow` (`ContentView.swift`) still shows the installed file's first
+eight hash digits, green on a match. That display is now confirmation of a check
+that already happened, not the only check — and it no longer paints green when
+the catalog carries no hash to compare against.
 
 ## Adding a New Disk
 

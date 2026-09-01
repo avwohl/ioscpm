@@ -1024,149 +1024,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
     }
 
-    /// Internal download with retry logic
-    private func downloadDiskWithRetry(_ disk: DownloadableDisk, attemptsRemaining: Int, completion: @escaping (Bool) -> Void) {
-        let attempt = 4 - attemptsRemaining
-        debugPrint("[Download] Starting download of '\(disk.filename)' (attempt \(attempt)/3) from \(disk.url)")
-
-        guard let url = URL(string: disk.url) else {
-            debugPrint("[Download] ERROR: Invalid URL: \(disk.url)")
-            completion(false)
-            return
-        }
-
-        downloadStates[disk.filename] = .downloading(progress: 0)
-
-        let task = downloadSession.downloadTask(with: url) { [weak self] tempURL, response, error in
-            guard let self = self else {
-                DispatchQueue.main.async { completion(false) }
-                return
-            }
-
-            // Check HTTP status code first (can check on background thread)
-            if let httpResponse = response as? HTTPURLResponse {
-                self.debugPrint("[Download] HTTP status: \(httpResponse.statusCode)")
-                if httpResponse.statusCode < 200 || httpResponse.statusCode >= 300 {
-                    self.debugPrint("[Download] ERROR: Bad HTTP status \(httpResponse.statusCode)")
-                    DispatchQueue.main.async {
-                        if attemptsRemaining > 1 {
-                            self.debugPrint("[Download] Retrying in 1 second... (\(attemptsRemaining - 1) attempts left)")
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                                self.downloadDiskWithRetry(disk, attemptsRemaining: attemptsRemaining - 1, completion: completion)
-                            }
-                        } else {
-                            self.downloadStates[disk.filename] = .error("HTTP error \(httpResponse.statusCode)")
-                            completion(false)
-                        }
-                    }
-                    return
-                }
-            }
-
-            // Check for errors - retry if attempts remaining
-            if let error = error {
-                self.debugPrint("[Download] ERROR: \(error.localizedDescription)")
-                DispatchQueue.main.async {
-                    if attemptsRemaining > 1 {
-                        self.debugPrint("[Download] Retrying in 1 second... (\(attemptsRemaining - 1) attempts left)")
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            self.downloadDiskWithRetry(disk, attemptsRemaining: attemptsRemaining - 1, completion: completion)
-                        }
-                    } else {
-                        self.downloadStates[disk.filename] = .error(error.localizedDescription)
-                        completion(false)
-                    }
-                }
-                return
-            }
-
-            guard let tempURL = tempURL else {
-                self.debugPrint("[Download] ERROR: No temp file received")
-                DispatchQueue.main.async {
-                    if attemptsRemaining > 1 {
-                        self.debugPrint("[Download] Retrying in 1 second... (\(attemptsRemaining - 1) attempts left)")
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            self.downloadDiskWithRetry(disk, attemptsRemaining: attemptsRemaining - 1, completion: completion)
-                        }
-                    } else {
-                        self.downloadStates[disk.filename] = .error("Download failed - no data")
-                        completion(false)
-                    }
-                }
-                return
-            }
-
-            // IMPORTANT: Move file BEFORE returning from completion handler!
-            // URLSession deletes the temp file when the completion handler returns.
-            let fm = FileManager.default
-            let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
-            let disksDir = docs.appendingPathComponent("Disks", isDirectory: true)
-            try? fm.createDirectory(at: disksDir, withIntermediateDirectories: true)
-            let destURL = disksDir.appendingPathComponent(disk.filename)
-
-            self.debugPrint("[Download] Moving temp file to \(destURL.path)")
-            do {
-                try? fm.removeItem(at: destURL)
-                try fm.moveItem(at: tempURL, to: destURL)
-
-                // Verify the file exists
-                let fileExists = fm.fileExists(atPath: destURL.path)
-                self.debugPrint("[Download] SUCCESS: '\(disk.filename)' saved, fileExists=\(fileExists)")
-
-                // Verify SHA256 checksum if available
-                if let expectedSha256 = disk.sha256 {
-                    let actualSha256 = self.sha256OfFile(at: destURL)
-                    if actualSha256?.lowercased() != expectedSha256.lowercased() {
-                        self.debugPrint("[Download] ERROR: SHA256 mismatch for '\(disk.filename)'")
-                        self.debugPrint("[Download]   Expected: \(expectedSha256)")
-                        self.debugPrint("[Download]   Got:      \(actualSha256 ?? "nil")")
-                        try? fm.removeItem(at: destURL)
-                        DispatchQueue.main.async {
-                            if attemptsRemaining > 1 {
-                                self.debugPrint("[Download] Retrying in 1 second... (\(attemptsRemaining - 1) attempts left)")
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                                    self.downloadDiskWithRetry(disk, attemptsRemaining: attemptsRemaining - 1, completion: completion)
-                                }
-                            } else {
-                                self.downloadStates[disk.filename] = .error("Checksum mismatch")
-                                completion(false)
-                            }
-                        }
-                        return
-                    }
-                    self.debugPrint("[Download] SHA256 verified: \(expectedSha256.prefix(16))...")
-                }
-
-                DispatchQueue.main.async {
-                    self.downloadStates[disk.filename] = .downloaded
-                    self.refreshAvailableDisks()
-                    // Update the selected disk to mark it as downloaded
-                    for i in 0..<self.selectedDisks.count {
-                        if self.selectedDisks[i]?.filename == disk.filename {
-                            self.selectedDisks[i] = self.availableDisks.first { $0.filename == disk.filename }
-                            self.debugPrint("[Download] Updated selectedDisks[\(i)] isDownloaded=\(self.selectedDisks[i]?.isDownloaded ?? false)")
-                        }
-                    }
-                    completion(true)
-                }
-            } catch {
-                self.debugPrint("[Download] ERROR moving file: \(error.localizedDescription)")
-                DispatchQueue.main.async {
-                    self.downloadStates[disk.filename] = .error("Save failed: \(error.localizedDescription)")
-                    completion(false)
-                }
-            }
-        }
-
-        let observation = task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
-            DispatchQueue.main.async {
-                self?.downloadStates[disk.filename] = .downloading(progress: progress.fractionCompleted)
-            }
-        }
-        objc_setAssociatedObject(task, "progressObservation", observation, .OBJC_ASSOCIATION_RETAIN)
-        task.resume()
-    }
-
     /// Actually start the emulator after all disks are ready
     private func startEmulator() {
         debugPrint("🟢 [START] startEmulator called")
@@ -1513,7 +1370,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// Calculate SHA256 hash of a file
     func sha256OfFile(at url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        // .mappedIfSafe, not a plain read: the combo image is 49 MB and this runs
+        // on a phone.  Reading it whole puts 49 MB of dirty pages in the process
+        // right after a download has already used memory; mapping lets SHA256 walk
+        // the file and lets the OS evict pages behind it.  Falls back to a normal
+        // read on its own when mapping is unsafe (a non-regular file, or a volume
+        // that cannot be mapped), which is what "ifSafe" means.
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
         let hash = SHA256.hash(data: data)
         return hash.map { String(format: "%02x", $0) }.joined()
     }
@@ -1759,12 +1622,74 @@ class EmulatorViewModel: NSObject, ObservableObject {
             let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
             let disksDir = docs.appendingPathComponent("Disks", isDirectory: true)
             try? fm.createDirectory(at: disksDir, withIntermediateDirectories: true)
+
+            // The catalog is downloaded content, so its <filename> is untrusted
+            // input - and two lines below it reaches removeItem.  appendingPathComponent
+            // does not escape "..", so a catalog naming "../Imports/x" would delete
+            // outside Disks/.  That is the same shape as the W8 export bug this app
+            // shipped (see docs and romwbw_emu's RELEASE_ORDER), so it is refused
+            // here rather than reduced: a legitimate catalog names a plain file, and
+            // silently rewriting the name would desync it from refreshAvailableDisks.
+            let leaf = (disk.filename as NSString).lastPathComponent
+            guard !disk.filename.isEmpty, disk.filename == leaf,
+                  leaf != ".", leaf != ".." else {
+                self.debugPrint("[Settings Download] REFUSED: catalog filename is not a plain name: '\(disk.filename)'")
+                DispatchQueue.main.async {
+                    self.downloadStates[disk.filename] = .error("Bad filename in catalog")
+                }
+                return
+            }
             let destURL = disksDir.appendingPathComponent(disk.filename)
+
+            // Verify the checksum on the TEMP file, before anything replaces what
+            // the user already has.  Order matters: the old code below removed the
+            // destination first, so a corrupt or truncated download destroyed a good
+            // disk and left nothing in its place.  Verifying first makes a bad
+            // download cost a retry instead of the disk they were using.
+            //
+            // Nothing enforced this until 2026-09-01.  There WAS an implementation
+            // that hashed, downloadDiskWithRetry, but nothing ever called it - the
+            // only caller of a download path is this function - so every disk the
+            // app has ever downloaded was written unverified.  That dead copy is
+            // deleted in the same change that added this, so there is one download
+            // path and it verifies.
+            if let expectedSha256 = disk.sha256 {
+                let actualSha256 = self.sha256OfFile(at: tempURL)
+                if actualSha256?.lowercased() != expectedSha256.lowercased() {
+                    self.debugPrint("[Settings Download] ERROR: SHA256 mismatch for '\(disk.filename)'")
+                    self.debugPrint("[Settings Download]   Expected: \(expectedSha256)")
+                    self.debugPrint("[Settings Download]   Got:      \(actualSha256 ?? "unreadable")")
+                    DispatchQueue.main.async {
+                        if attemptsRemaining > 1 {
+                            self.debugPrint("[Settings Download] Retrying in 1 second...")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1)
+                            }
+                        } else {
+                            self.downloadStates[disk.filename] = .error("Checksum mismatch - not saved")
+                        }
+                    }
+                    return
+                }
+                self.debugPrint("[Settings Download] SHA256 verified: \(expectedSha256.prefix(16))...")
+            } else {
+                // No hash means no guarantee, so refuse rather than install.  This
+                // is not a hypothetical branch to be lenient about: every one of the
+                // 20 entries in the pinned v1.4.5 catalog carries a <sha256>, so an
+                // entry without one is a degraded or hostile catalog, not a normal
+                // one.  Accepting it silently would have made the whole check
+                // optional at the attacker's choosing.
+                self.debugPrint("[Settings Download] REFUSED: no SHA256 in catalog for '\(disk.filename)'")
+                DispatchQueue.main.async {
+                    self.downloadStates[disk.filename] = .error("No checksum in catalog - not saved")
+                }
+                return
+            }
 
             self.debugPrint("[Settings Download] Moving from \(tempURL.path) to \(destURL.path)")
 
             do {
-                // Remove existing file if any
+                // Remove the existing file only now, with the download verified.
                 try? fm.removeItem(at: destURL)
                 try fm.moveItem(at: tempURL, to: destURL)
                 self.debugPrint("[Settings Download] Move successful")

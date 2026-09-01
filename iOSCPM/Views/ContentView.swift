@@ -798,19 +798,28 @@ struct DiskDownloadRow: View {
         viewModel.downloadStates[disk.filename] ?? .notDownloaded
     }
 
-    /// Actual SHA256 of the downloaded file (first 8 chars)
-    var actualSha256Short: String? {
+    /// The installed file's SHA256 (first 8 chars) and whether it matches the
+    /// catalog - computed together, in ONE pass over the file.
+    ///
+    /// This used to be two computed properties, and `body` read both: the text
+    /// from one and its colour from the other. Each hashed the whole image, so
+    /// every render of every downloaded row read the file twice - 98 MB of reads
+    /// per render for the combo. SwiftUI re-evaluates `body` freely, so that was
+    /// not a one-off cost.
+    var checksumStatus: (shown: String, matches: Bool)? {
         guard case .downloaded = downloadState else { return nil }
         let url = viewModel.downloadsDirectory.appendingPathComponent(disk.filename)
         guard let hash = viewModel.sha256OfFile(at: url), hash.count >= 8 else { return nil }
-        return String(hash.prefix(8))
-    }
-
-    /// Check if actual hash matches expected
-    var checksumMatches: Bool {
-        guard let actual = actualSha256Short,
-              let expected = disk.sha256Short else { return true }  // No expected = assume ok
-        return actual.lowercased() == expected.lowercased()
+        let shown = String(hash.prefix(8))
+        guard let expected = disk.sha256Short else {
+            // Not "assume ok", which is what this said before. As of 2026-09-01 the
+            // download path refuses an entry that carries no catalog hash, so a file
+            // sitting here with nothing to compare against was installed before that
+            // check existed or by a catalog that has since changed. Neither is a
+            // green tick.
+            return (shown, false)
+        }
+        return (shown, shown.lowercased() == expected.lowercased())
     }
 
     var body: some View {
@@ -833,13 +842,13 @@ struct DiskDownloadRow: View {
                         Text(disk.license)
                             .font(.caption2)
                             .foregroundColor(.blue)
-                        if let sha256Short = actualSha256Short {
+                        if let status = checksumStatus {
                             Text("•")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
-                            Text(sha256Short)
+                            Text(status.shown)
                                 .font(.system(.caption2, design: .monospaced))
-                                .foregroundColor(checksumMatches ? .green : .red)
+                                .foregroundColor(status.matches ? .green : .red)
                         } else if let expectedShort = disk.sha256Short {
                             Text("•")
                                 .font(.caption2)

@@ -65,19 +65,6 @@ Needs a Mac
   g_host_write_filename.  romwbw_emu's browser backend answers "" for the same
   reason and has the same item open.
 
-- [MAC] nothing verifies a downloaded disk's SHA256.  downloadDiskWithRetry()
-  does hash, delete and retry on a mismatch, but its only callers are its own
-  four retry arms, so nothing outside it reaches it.  Every real download goes
-  through downloadDiskFromSettings() - both downloadDisk() and
-  downloadDiskWithCompletion() call it - and that one moves the temp file into
-  place without hashing.  The catalog's sha256 survives only as the coloured
-  text in DiskDownloadRow, computed after the file is installed and acted on by
-  nobody.  Disk images are downloaded content the guest then executes, so this
-  matters most on exactly the release step above.  Either delete the dead path
-  or move its check into the live one.  DISK_DISTRIBUTION.md's "Integrity
-  Verification" section is labelled intended-not-shipped; that label comes off
-  when this closes.
-
 - [MAC] new disks are always 8 MB and the size is hardcoded twice.
   createNewDisk(at:size:) takes a size: its single ContentView call site does
   not pass, and the .fileExporter that runs first hands it EmptyDiskDocument,
