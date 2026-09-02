@@ -1,5 +1,96 @@
 # Changelog
 
+## Version 1.5.1 (Build 57)
+
+Scrollback has been in the app since build 42 and has never captured a line of
+ordinary output. Found by instrumenting a Catalyst build and driving it: boot
+CP/M 2.2, run `DIR` six times, watch the screen scroll seven lines - and watch
+`scrollUp()` get called zero times.
+
+`Tests/run_tests.sh`: 350 checks, all passing. `xcodebuild` clean for Mac
+Catalyst, and this time the app was launched, booted and scrolled rather than
+merely built.
+
+### The line feed threw history away
+
+`scrollRegion()` shifts rows and blanks the bottom of a region. `scrollUp()` does
+that *and* pushes the departing lines into `scrollbackLines`. The escape-sequence
+scroll handler chose between them correctly - whole screen to `scrollUp`, partial
+region to `scrollRegion` - but the LF handler (`case 0x0A`) called
+`scrollRegion(scrollTop, scrollBottom, 1)` unconditionally. With the default
+region of the whole screen, which is the state the terminal is in essentially
+always, every newline-driven scroll discarded its top line. That is nearly every
+scroll there is, so the buffer stayed empty, `adjustScrollback` clamped every
+gesture to an offset of 0, and the feature was invisible from the outside.
+
+The test now lives in `scrollRegion()` instead of at the call sites: a region
+that *is* the whole screen delegates to `scrollUp()`. One rule, and a third call
+site cannot reintroduce the bug. The two implementations were otherwise
+identical for the full-screen case, so nothing else changes.
+
+### The wheel could not scroll either
+
+Two independent defects in `handlePan`, both of which would have kept the wheel
+dead even with a full buffer:
+
+- It converted the gesture's pixel translation to whole lines with
+  `Int(translationY / rowHeight)` and reset its bookkeeping on `.ended`. A scroll
+  wheel arrives on Mac Catalyst as an indirect-scroll pan, one short gesture per
+  notch, and a notch is a fraction of a row - so the truncation yielded 0 and the
+  remainder died with the gesture. The remainder now survives, and indirect
+  scrolls get 3 lines per notch, matching the Windows port's `WM_MOUSEWHEEL`
+  (`z80cpmw/TerminalView.cpp:604-611`). A finger or pointer drag stays 1:1.
+- `rowHeight` was `bounds.height / rows`, but `draw(_:)` letterboxes the grid
+  with a uniform `min(scaleX, scaleY)`. Where width binds - every portrait
+  layout, any tall Mac window - the pan step exceeded the row actually drawn.
+  `drawnRowPitch` is now the pitch on screen.
+
+### The status bar says how much history there is
+
+`sb <offset>/<available>`. `sb 0/0` after a boot and a couple of `DIR`s is the
+symptom of this bug, and there was previously no way to tell it apart from the
+scroll input being broken - which is what made the diagnosis take three passes.
+
+### Selection, and a copy that copies what you selected
+
+There was no selection at all: `copyText()` copied the entire visible screen and
+nothing less - no anchor, no drag, no highlight - while z80cpmw has had real
+click-drag selection since the beginning (`TerminalView.cpp:913-967`). A pointer
+drag now selects, the highlight is drawn under the glyphs so guest colours stay
+readable, and Cmd+C (and the long-press menu's new **Copy**) copies the
+selection when there is one, falling back to **Copy All** when there is not.
+
+The span is linear rather than rectangular - anchor cell to focus cell, wrapping
+at the row end - so copying a wrapped line gives you the line. Because the
+selection reads the cells that are *on screen*, it copies out of scrollback when
+the view is scrolled back. A click clears it, and so does scrolling: the
+selection is in screen coordinates and the content underneath is about to move.
+
+Telling a drag from a wheel turned out to be the hard part. `allowedTouchTypes`
+does not separate them - a Catalyst pointer drag matches neither `.direct` nor
+`.indirectPointer` - and neither does `numberOfTouches`, which is 0 for a
+pointer drag there, exactly as it is for the wheel. What does separate them is
+that a scroll never delivers a `UITouch` at all, so
+`TouchAwarePanGestureRecognizer` records whether `touchesBegan` ever fired. On
+iOS a finger drag is the only way to scroll, so it keeps that job; the split is
+Mac-only.
+
+### Still missing, and not Mac regressions
+
+- **No scrollbar,** in any of the three GUI ports.
+- **The Settings gear is `.disabled(viewModel.isRunning)`** (`ContentView.swift:149`),
+  so the Scrollback picker cannot be reached while the machine is running.
+
+### Why the parity table said this was done
+
+`z80cpmw/FEATURE_PARITY.md:1085` scores scrollback ✅ for ioscpm. The cell was
+flipped in `d630619`, twelve minutes after ioscpm's `b703acf`, from a paraphrase
+of that commit message - no ioscpm symbol was ever read. The check compares
+commits, never artifacts and never behaviour, so "the code exists" and "the
+feature works" were the same statement to it. All three gaps above - capture,
+wheel, selection - are visible in a side-by-side source reading, and none of them
+needed a device to find.
+
 ## Version 1.5.1 (Build 56)
 
 The `[DECISION]` item that has been sitting on the release order since build 52,

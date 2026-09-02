@@ -160,6 +160,26 @@ struct ToolbarButton: View {
 }
 
 
+/// A pan recognizer that records whether actual touches drove it. A scroll
+/// wheel or trackpad scroll reaches a pan recognizer as an *indirect scroll*
+/// and never delivers a UITouch; a finger or pointer drag always does. Counting
+/// `numberOfTouches` does not separate the two on Mac Catalyst - a pointer drag
+/// reports zero there, exactly like the wheel - so the flag is set from the
+/// touch callbacks themselves, which only one of the two ever reaches.
+class TouchAwarePanGestureRecognizer: UIPanGestureRecognizer {
+    private(set) var sawTouches = false
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        sawTouches = true
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func reset() {
+        sawTouches = false
+        super.reset()
+    }
+}
+
 // MARK: - Terminal UI View
 
 class TerminalUIView: UIView, UIKeyInput {
@@ -171,7 +191,28 @@ class TerminalUIView: UIView, UIKeyInput {
         didSet { if oldValue != showCursor { setNeedsDisplay() } }
     }
     // Accumulated whole-row translation already reported during the current pan.
-    private var panReportedLines: Int = 0
+    // Pan/scroll bookkeeping. `panResidual` is the sub-row remainder and it
+    // deliberately survives the end of a gesture: a scroll wheel delivers each
+    // notch as its own short gesture, so a per-gesture reset threw the whole
+    // notch away and the wheel scrolled nothing at all.
+    private var panLastTranslation: CGFloat = 0
+    private var panResidual: CGFloat = 0
+    /// Lines per wheel notch, matching z80cpmw's WM_MOUSEWHEEL handler.
+    private static let wheelLineMultiplier: CGFloat = 3
+
+    // Text selection. Anchor is where the drag started, focus where it is now;
+    // the span between them is linear (anchor cell to focus cell, wrapping at
+    // the row end) rather than rectangular, which is what every terminal does
+    // and what makes copying a wrapped line give you the line.
+    private var selAnchor: GridPos?
+    private var selFocus: GridPos?
+    struct GridPos: Equatable { var row: Int; var col: Int
+        var linear: Int { row * 10_000 + col }   // cols is bounded well under this
+    }
+    var hasSelection: Bool {
+        guard let a = selAnchor, let f = selFocus else { return false }
+        return a != f
+    }
 
     private let rows: Int
     private let cols: Int
@@ -253,27 +294,158 @@ class TerminalUIView: UIView, UIKeyInput {
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
         addGestureRecognizer(longPress)
 
-        // Pan / scroll-wheel gesture for scrollback history
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        // One pan recognizer serves both scrolling and selecting; which one a
+        // gesture means is decided in handlePan from whether it carries touches.
+        // Splitting them by allowedTouchTypes looked cleaner and did not work:
+        // a Catalyst mouse drag matched neither .direct nor .indirectPointer,
+        // so both recognizers went silent.
+        let pan = TouchAwarePanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pan.allowedScrollTypesMask = .all  // trackpad two-finger + mouse wheel on Mac Catalyst
         addGestureRecognizer(pan)
     }
 
-    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        // One on-screen text row of vertical movement = one scrollback line.
-        let rowHeight = bounds.height / CGFloat(max(rows, 1))
-        guard rowHeight > 0 else { return }
-        let translationY = gesture.translation(in: self).y
-        // Dragging down (positive y) reveals older content -> scroll into history.
-        let totalLines = Int(translationY / rowHeight)
-        let delta = totalLines - panReportedLines
-        if delta != 0 {
-            onScroll?(delta)
-            panReportedLines = totalLines
+    /// The letterbox transform draw(_:) applies: uniform scale plus the offset
+    /// that centres the grid. Hit-testing has to use the very same numbers, so
+    /// they live in one place rather than being re-derived at each site - the
+    /// pan step used to re-derive them wrongly and scrolled at the wrong rate.
+    private var gridTransform: (scale: CGFloat, offsetX: CGFloat, offsetY: CGFloat)? {
+        let terminalWidth = CGFloat(cols) * charWidth
+        let terminalHeight = CGFloat(rows) * charHeight
+        guard terminalWidth > 0, terminalHeight > 0, bounds.width > 0, bounds.height > 0 else {
+            return nil
         }
+        let scale = min(bounds.width / terminalWidth, bounds.height / terminalHeight)
+        return (scale,
+                (bounds.width - terminalWidth * scale) / 2 + 2,
+                (bounds.height - terminalHeight * scale) / 2)
+    }
+
+    /// The cell under a point in view coordinates, clamped to the grid so a drag
+    /// that leaves the view still selects to the edge instead of stopping dead.
+    private func cell(at point: CGPoint) -> GridPos? {
+        guard let t = gridTransform, charWidth > 0, charHeight > 0 else { return nil }
+        let gx = (point.x - t.offsetX) / t.scale
+        let gy = (point.y - t.offsetY) / t.scale
+        let col = min(max(0, Int(gx / charWidth)), cols - 1)
+        let row = min(max(0, Int(gy / charHeight)), rows - 1)
+        return GridPos(row: row, col: col)
+    }
+
+    /// Selection ordered start-to-end regardless of which way the drag went.
+    private var selectionSpan: (start: GridPos, end: GridPos)? {
+        guard let a = selAnchor, let f = selFocus, a != f else { return nil }
+        return a.linear <= f.linear ? (a, f) : (f, a)
+    }
+
+    private func isSelected(row: Int, col: Int) -> Bool {
+        guard let span = selectionSpan else { return false }
+        let l = GridPos(row: row, col: col).linear
+        return l >= span.start.linear && l < span.end.linear
+    }
+
+    func clearSelection() {
+        guard selAnchor != nil || selFocus != nil else { return }
+        selAnchor = nil
+        selFocus = nil
+        setNeedsDisplay()
+    }
+
+    @objc private func handleSelectPan(_ gesture: UIPanGestureRecognizer) {
+        let point = gesture.location(in: self)
+        switch gesture.state {
+        case .began:
+            becomeFirstResponder()
+            selAnchor = cell(at: point)
+            selFocus = selAnchor
+            setNeedsDisplay()
+        case .changed:
+            let f = cell(at: point)
+            if f != selFocus { selFocus = f; setNeedsDisplay() }
+        case .ended:
+            selFocus = cell(at: point)
+            setNeedsDisplay()
+            // A drag that never left its starting cell is a click, not a
+            // selection; leaving a zero-width selection behind would make the
+            // next Cmd+C copy nothing at all.
+            if !hasSelection { clearSelection() }
+        case .cancelled, .failed:
+            clearSelection()
+        default:
+            break
+        }
+    }
+
+    /// The selected text: linear from start to end, one "\n" per row boundary,
+    /// trailing blanks on each row dropped. Because `cells` is whatever is on
+    /// screen, this copies out of scrollback when the view is scrolled back.
+    private func selectedText() -> String? {
+        guard let span = selectionSpan else { return nil }
+        var out = ""
+        for row in span.start.row...span.end.row {
+            guard row < cells.count else { break }
+            let first = (row == span.start.row) ? span.start.col : 0
+            let last = (row == span.end.row) ? span.end.col - 1 : cols - 1
+            guard first <= last else { if row != span.end.row { out += "\n" }; continue }
+            var line = ""
+            for col in first...min(last, cells[row].count - 1) {
+                line.append(cells[row][col].character)
+            }
+            out += String(line.reversed().drop(while: { $0 == " " }).reversed())
+            if row != span.end.row { out += "\n" }
+        }
+        return out
+    }
+
+    /// Height of one *drawn* text row, in view points - the pitch the user
+    /// actually sees, not bounds.height / rows, which overstates it whenever
+    /// width is the binding dimension.
+    private var drawnRowPitch: CGFloat {
+        guard let t = gridTransform else { return 0 }
+        return charHeight * t.scale
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        // Did touches drive this gesture, or is it a wheel/trackpad scroll?
+        let droveByTouch = (gesture as? TouchAwarePanGestureRecognizer)?.sawTouches ?? false
+        let indirect = !droveByTouch
+
+        #if targetEnvironment(macCatalyst)
+        // On a Mac a pointer drag selects text, the way every desktop terminal
+        // behaves, and the wheel does the scrolling. On iOS a finger drag is the
+        // only way to scroll at all, so it keeps that job.
+        if droveByTouch {
+            handleSelectPan(gesture)
+            return
+        }
+        #endif
+
+        let rowPitch = drawnRowPitch
+        guard rowPitch > 0 else { return }
+
+        if gesture.state == .began { panLastTranslation = 0 }
+
+        let translationY = gesture.translation(in: self).y
+        let step = translationY - panLastTranslation
+        panLastTranslation = translationY
+
+        // One notch is a fraction of a row, so give indirect scrolls the coarser
+        // step the Windows port uses (3 lines/notch); a finger drag stays 1:1.
+        panResidual += step * (indirect ? Self.wheelLineMultiplier : 1)
+
+        // Dragging down (positive y) reveals older content -> back into history.
+        let lines = Int(panResidual / rowPitch)
+        if lines != 0 {
+            panResidual -= CGFloat(lines) * rowPitch
+            // The selection is in screen coordinates and the content under it is
+            // about to move, so it would otherwise come to cover different text
+            // than the user highlighted.
+            clearSelection()
+            onScroll?(lines)
+        }
+
         switch gesture.state {
         case .ended, .cancelled, .failed:
-            panReportedLines = 0
+            panLastTranslation = 0   // residual survives on purpose
         default:
             break
         }
@@ -306,6 +478,7 @@ class TerminalUIView: UIView, UIKeyInput {
 
     @objc private func handleTap() {
         becomeFirstResponder()
+        clearSelection()
     }
 
     @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
@@ -313,8 +486,11 @@ class TerminalUIView: UIView, UIKeyInput {
         becomeFirstResponder()
 
         let menuController = UIMenuController.shared
-        let copyItem = UIMenuItem(title: "Copy All", action: #selector(copyText))
-        menuController.menuItems = [copyItem]
+        var items = [UIMenuItem(title: "Copy All", action: #selector(copyAllText))]
+        if hasSelection {
+            items.insert(UIMenuItem(title: "Copy", action: #selector(copyText)), at: 0)
+        }
+        menuController.menuItems = items
 
         let location = gesture.location(in: self)
         let menuRect = CGRect(x: location.x, y: location.y, width: 1, height: 1)
@@ -324,7 +500,8 @@ class TerminalUIView: UIView, UIKeyInput {
     override var canBecomeFirstResponder: Bool { true }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        if action == #selector(copyText) || action == #selector(copy(_:)) {
+        if action == #selector(copyText) || action == #selector(copyAllText)
+            || action == #selector(copy(_:)) {
             return true
         }
         return super.canPerformAction(action, withSender: sender)
@@ -379,26 +556,12 @@ class TerminalUIView: UIView, UIKeyInput {
         UIColor.black.setFill()
         context.fill(bounds)
 
-        let viewWidth = bounds.width
-        let viewHeight = bounds.height
-
-        // Terminal size based on current font
-        let terminalWidth = CGFloat(cols) * charWidth
-        let terminalHeight = CGFloat(rows) * charHeight
-
-        // Scale to fill view (uniform scaling to maintain aspect ratio)
-        let scaleX = viewWidth / terminalWidth
-        let scaleY = viewHeight / terminalHeight
-        let scale = min(scaleX, scaleY)
-
-        let scaledWidth = terminalWidth * scale
-        let scaledHeight = terminalHeight * scale
-        let offsetX = (viewWidth - scaledWidth) / 2 + 2  // Padding from left edge
-        let offsetY = (viewHeight - scaledHeight) / 2
+        // The one letterbox transform, shared with hit-testing and the pan step.
+        guard let t = gridTransform else { return }
 
         context.saveGState()
-        context.translateBy(x: offsetX, y: offsetY)
-        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: t.offsetX, y: t.offsetY)
+        context.scaleBy(x: t.scale, y: t.scale)
 
         // Draw cells
         for row in 0..<min(rows, cells.count) {
@@ -411,6 +574,14 @@ class TerminalUIView: UIView, UIKeyInput {
                 if cell.background != 0 {
                     let bgColor = cgaColors[Int(cell.background) & 0x0F]
                     bgColor.setFill()
+                    context.fill(CGRect(x: x, y: y, width: charWidth, height: charHeight))
+                }
+
+                // Selection sits over the cell's own background and under its
+                // glyph, so selected text stays readable whatever colours the
+                // guest picked for it.
+                if isSelected(row: row, col: col) {
+                    UIColor.systemBlue.withAlphaComponent(0.45).setFill()
                     context.fill(CGRect(x: x, y: y, width: charWidth, height: charHeight))
                 }
 
@@ -520,7 +691,18 @@ class TerminalUIView: UIView, UIKeyInput {
         return commands
     }
 
+    /// Copy the selection if there is one, otherwise the whole screen. Cmd+C
+    /// and the menu both land here, so "copy" means what it means everywhere
+    /// else once a selection exists.
     @objc private func copyText() {
+        if let selected = selectedText(), !selected.isEmpty {
+            UIPasteboard.general.string = selected
+            return
+        }
+        copyAllText()
+    }
+
+    @objc private func copyAllText() {
         // Copy all terminal content to clipboard
         var text = ""
         for row in cells {

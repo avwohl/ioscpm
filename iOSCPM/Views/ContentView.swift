@@ -86,6 +86,14 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
 
+                    // Scrollback state, in the open. "sb 0/0" after a boot and a
+                    // couple of DIRs means nothing ever scrolled off the top, so
+                    // there is nothing to scroll back to - which is otherwise
+                    // indistinguishable from the scroll input being broken.
+                    Text("sb \(viewModel.scrollbackOffset)/\(viewModel.scrollbackAvailable)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
                     Text(viewModel.statusText)
                         .font(.caption)
                         .foregroundColor(.secondary)

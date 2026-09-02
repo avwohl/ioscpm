@@ -2782,6 +2782,19 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
     private func scrollRegion(_ top: Int, _ bottom: Int, _ lines: Int) {
         guard lines > 0 && top >= 0 && bottom < terminalRows && top < bottom else { return }
 
+        // A region that is the whole screen IS the screen scrolling, and the
+        // lines leaving the top are history. scrollUp() is the one path that
+        // captures them. Routing that case here rather than at each call site
+        // is the point: the LF handler called scrollRegion() directly, so every
+        // ordinary newline-driven scroll - which is nearly all of them - threw
+        // its top line away, and the scrollback buffer stayed empty for the
+        // whole life of the feature. The SU handler had this test inline and so
+        // was the only path that ever captured anything.
+        if top == 0 && bottom == terminalRows - 1 {
+            scrollUp(lines)
+            return
+        }
+
         // Scroll lines within the region [top, bottom]
         for row in top..<(bottom - lines + 1) {
             terminalCells[row] = terminalCells[row + lines]
