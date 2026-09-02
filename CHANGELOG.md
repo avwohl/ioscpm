@@ -1,5 +1,29 @@
 # Changelog
 
+## Version 1.5.1 (Build 58)
+
+`Tests/run_tests.sh`: 350 checks, all passing.  Catalyst build clean, launched
+and driven: Stop then Play, and the previous session is gone from the history
+rather than sitting above the new banner.
+
+### Starting the machine clears the history, as resetting it already did
+
+`reset()` dropped the scrollback and `startEmulator()` did not, so Stop then Play
+left the dead machine's transcript above the new banner - and because the offset
+survived too, a session could open already parked in history, showing output
+that had nothing to do with what was now running.
+
+The clear is now `resetScrollback()`, called from both, rather than written out
+at the one call site that remembered it.  That is the same fix as build 57's
+`scrollRegion` delegation and for the same reason: a rule kept at one of two call
+sites is a rule that is already broken.  z80cpmw has had exactly this shape all
+along - `TerminalView::resetScrollback`, called from `MainWindow`'s start and
+reset paths - and the name here is taken from it.
+
+The spec line item 2 of z80cpmw's FEATURE_PARITY.md states, "history cleared on
+emulator start/reset", now holds on two ports of three.  cpmdroid diverges
+deliberately and documents why in `clear()`.
+
 ## Version 1.5.1 (Build 57)
 
 Scrollback has been in the app since build 42 and has never captured a line of

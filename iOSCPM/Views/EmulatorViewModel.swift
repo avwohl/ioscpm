@@ -359,6 +359,19 @@ class EmulatorViewModel: NSObject, ObservableObject {
         if scrollbackOffset != 0 { scrollbackOffset = 0 }
     }
 
+    /// Drop the transcript of the session that just ended.
+    ///
+    /// Called from both places a fresh session begins, rather than written out
+    /// at each, because only one of them used to do it: reset() cleared the
+    /// history and startEmulator() did not, so Stop then Play left the dead
+    /// machine's output above the new banner and could open already parked in
+    /// history. z80cpmw calls resetScrollback() from both of its own, and this
+    /// carries the name for that reason.
+    private func resetScrollback() {
+        if !scrollbackLines.isEmpty { scrollbackLines.removeAll() }
+        if scrollbackOffset != 0 { scrollbackOffset = 0 }
+    }
+
     /// Apply a changed capacity to the existing buffer: 0 clears history, a
     /// smaller cap trims the oldest lines. New captures honour the cap in scrollUp.
     private func applyScrollbackCapacity() {
@@ -1047,6 +1060,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // so it must put the rendition back to the default before painting -
         // an erase fills with the current background now.
         clearTerminal()
+        // Starting is a fresh session too. The screen was already cleared above;
+        // leaving the history behind it meant the banner printed on top of the
+        // previous machine's transcript, and a drag walked back into output that
+        // no longer had anything to do with what was running.
+        resetScrollback()
         // Print version info to terminal
         printVersionInfo()
         // Load selected ROM and disks before starting
@@ -1210,8 +1228,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         clearTerminal()
         // A cold boot starts a fresh session — drop the old scrollback history.
-        scrollbackLines.removeAll()
-        scrollbackOffset = 0
+        resetScrollback()
         isRunning = false
         statusText = "Reset - disk changes saved"
     }
