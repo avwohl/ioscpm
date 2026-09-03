@@ -135,9 +135,11 @@ When the stack is rebuilt to RomWBW v3.6.0, do it in lockstep across all ports:
    > `<disks version="N">`, and changing that attribute makes every installed
    > app delete every `.img` in its `Documents/Disks` on the next fetch —
    > including disks the user imported or created, which the catalog cannot
-   > give back. That is unfixed and undecided; see `todo.txt`, "THE SECOND
-   > DATA-LOSS PATH ON THAT SAME RELEASE STEP", and
-   > `docs/DISK_DISTRIBUTION.md`'s "Version Attribute" section.
+   > give back. Narrowed in build 56 — `deleteCatalogDisks(named:)` takes only
+   > the images the new catalog names, so an imported or created disk survives —
+   > but not closed, and it does nothing for the builds actually in service.
+   > See "User Data Persistence" in `KNOWN_PROBLEMS.md`, which carries what is
+   > still open, and `docs/DISK_DISTRIBUTION.md`'s "Version Attribute" section.
 4. Rebuild and ship all three apps with the v3.6.0 ROM.
 
 Until iOS ships a v3.6.0 ROM, keep any v3.6.0 ioscpm release marked

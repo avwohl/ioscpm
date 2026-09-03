@@ -95,12 +95,34 @@ struct TerminalWithToolbar: View {
     var isControlifyActive: Bool = false
     var captureKeyboard: Bool = true
     var showCursor: Bool = true
+    /// Whether to draw the on-screen navigation/function key row under the
+    /// terminal. See SpecialKeyRow for why it exists.
+    var showKeyRow: Bool = true
 
     let rows: Int
     let cols: Int
     let fontSize: CGFloat
 
     var body: some View {
+        // The terminal and its vertical Ctrl/Esc/Tab strip, with the horizontal
+        // key row beneath both. Two containers rather than one so the row spans
+        // the full width: on a phone it needs every point of it.
+        VStack(spacing: 0) {
+            terminalAndSideToolbar
+            if showKeyRow {
+                SpecialKeyRow { key in
+                    onSetControlify?(.off)
+                    onSpecialKey?(key)
+                }
+            }
+        }
+    }
+
+    /// Kept as its own property rather than inlined above: this file already
+    /// carries type-check-complexity comments, and a VStack wrapped around the
+    /// whole HStack is exactly the kind of nesting that pushes one expression
+    /// past the solver's budget.
+    private var terminalAndSideToolbar: some View {
         HStack(spacing: 0) {
             // Control key toolbar (vertical, left side)
             VStack(spacing: 6) {
@@ -137,6 +159,83 @@ struct TerminalWithToolbar: View {
                 onSpecialKey: onSpecialKey
             )
         }
+    }
+}
+
+/// The on-screen navigation and function key row.
+///
+/// Every key in the key map arrives through UIKey, so on an iPhone - or an iPad
+/// with no hardware keyboard - not one of them could be pressed. `todo.txt`
+/// called that the largest parity gap in this port, and build 51 widened it by
+/// adding the twelve function keys to a map nothing on a phone could reach.
+///
+/// The grouping and the order are KeyRowLayout's, in KeyMap.swift, so that the
+/// guarantee that matters - every key in the map is on some page - is checked
+/// by Tests/KeyMapTests.swift rather than by looking at a screen.
+///
+/// Pressing a key here sends the same bytes the hardware key would: it goes
+/// through the same onSpecialKey callback and the same KeyMap, so a WordStar
+/// map means the same thing pressed with a thumb as pressed with a keyboard.
+struct SpecialKeyRow: View {
+    let onKey: (SpecialKey) -> Void
+
+    @State private var pageIndex = 0
+
+    private var page: KeyRowLayout.Page {
+        let pages = KeyRowLayout.pages
+        return pages[min(max(pageIndex, 0), pages.count - 1)]
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Picker("", selection: $pageIndex) {
+                ForEach(Array(KeyRowLayout.pages.enumerated()), id: \.offset) { index, page in
+                    Text(page.title).tag(index)
+                }
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+            .labelsHidden()
+
+            // Scrollable rather than compressed: twelve function keys do not
+            // fit across a phone at a legible size, and a key too small to hit
+            // is no more use than no key at all.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(page.keys) { key in
+                        SpecialKeyButton(key: key) { onKey(key) }
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Color(UIColor.systemGray5))
+    }
+}
+
+/// One key on the row. Its own type so the row's body stays a small expression.
+struct SpecialKeyButton: View {
+    let key: SpecialKey
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(key.shortLabel)
+                .font(.system(size: 14, weight: .medium))
+                .frame(minWidth: 34)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 7)
+                .background(Color(UIColor.systemGray4))
+                .foregroundColor(.primary)
+                .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        // The full name for VoiceOver and for a Catalyst tooltip: the button
+        // says an arrow, and "Up Arrow" is what it is.
+        .accessibilityLabel(Text(key.label))
+        .help(key.label)
     }
 }
 

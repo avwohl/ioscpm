@@ -106,11 +106,27 @@ The trigger is broader than a download, and the user does not have to do anythin
 
 **Narrowed in build 56, and only for build 56 and later.** `deleteCatalogDisks(named:)` now deletes only the `.img` files the *new* catalog lists, which is the test for whether deleting one is recoverable: a disk the catalog does not name — one imported through Files, one `createNewDisk` made — cannot be fetched back from anywhere, and is kept. The alert says how many of each. Before that, `deleteAllDownloadedDisks()` took every `.img` in `Documents/Disks` regardless.
 
-**The builds in service still have the old loop.** The App Store serves 1.4.9 (builds 36/37); those also fetch the catalog from `releases/latest/download/` rather than from the pinned tag, so for them a *normal* release fires the old wipe immediately. That is why the release order in `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` still governs, and why `--prerelease` on an asset carrier is load-bearing rather than cosmetic. See the `[RELEASE]` item in `todo.txt`.
+**The builds in service still have the old loop.** The App Store serves 1.4.9 (builds 36/37); those also fetch the catalog from `releases/latest/download/` rather than from the pinned tag, so for them a *normal* release fires the old wipe immediately. That is why the release order in `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` still governs, and why `--prerelease` on an asset carrier is load-bearing rather than cosmetic. The rules that came out of doing it are in `docs/DISK_W8FIX_RUNBOOK.md`, in the SUPERSEDED block at the top. The "1.4.9" in this paragraph is a measurement with a date on it, not a constant: re-derive it with `tools/check-store-version.sh` before relying on it.
 
 **Still open, and not foreclosed by the narrowing:**
 - Copy-on-write: create a local copy when the user first modifies a downloaded disk. This is the only one that helps a user who kept data *in* a catalog disk, which is what the paragraph at the top of this entry is about.
 - Confirm before the wipe, rather than reporting it afterwards.
+
+## Releasing
+
+### This machine can archive but cannot upload
+
+Not a bug and not a task — a standing fact about the toolchain, re-checked at
+build 58. `xcodebuild archive` succeeds for `generic/platform=iOS`, but it signs
+with the **`Apple Development`** identity, which cannot be exported for the App
+Store. An upload needs three things that are not on this machine: a distribution
+certificate, an App Store provisioning profile, and an App Store Connect API key.
+
+So a clean archive is evidence that the code builds and evidence of nothing
+else. Do not report a build as submitted, shipped or released on the strength of
+one, and do not infer from a submission that anything reached a user — run
+`tools/check-store-version.sh`, which measures what the Store actually serves.
+See "Never write down a shipped state you have not measured" in `CLAUDE.md`.
 
 ## Keyboard
 

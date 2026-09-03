@@ -73,6 +73,40 @@ enum SpecialKey: String, CaseIterable, Identifiable {
     /// The function keys, in order, for UI that wants them as a group.
     static let functionKeys: [SpecialKey] = [.f1, .f2, .f3, .f4, .f5, .f6,
                                              .f7, .f8, .f9, .f10, .f11, .f12]
+
+    /// The arrows, and the four Ctrl-modified arrows, as groups.
+    static let arrowKeys: [SpecialKey] = [.up, .down, .left, .right]
+    static let controlArrowKeys: [SpecialKey] = [.ctrlUp, .ctrlDown, .ctrlLeft, .ctrlRight]
+
+    /// The editing and paging keys - everything that is neither an arrow nor a
+    /// function key.
+    static let editingKeys: [SpecialKey] = [.home, .end, .pageUp, .pageDown, .insert, .delete]
+
+    /// What a key is called on a button an inch wide.
+    ///
+    /// `label` is for a settings row and says "Page Up" and "Forward Delete";
+    /// neither fits on an on-screen key. This is the same key said in the space
+    /// a key has, and the arrows become the glyphs a keyboard prints on them.
+    var shortLabel: String {
+        switch self {
+        case .up: return "\u{2191}"
+        case .down: return "\u{2193}"
+        case .left: return "\u{2190}"
+        case .right: return "\u{2192}"
+        case .ctrlUp: return "^\u{2191}"
+        case .ctrlDown: return "^\u{2193}"
+        case .ctrlLeft: return "^\u{2190}"
+        case .ctrlRight: return "^\u{2192}"
+        case .home: return "Home"
+        case .end: return "End"
+        case .pageUp: return "PgUp"
+        case .pageDown: return "PgDn"
+        case .insert: return "Ins"
+        case .delete: return "Del"
+        default: return label   // F1..F12 are already short
+        }
+    }
+
     var label: String {
         switch self {
         case .up: return "Up Arrow"
@@ -236,5 +270,54 @@ struct KeyMap {
             }
         }
         return out
+    }
+}
+
+
+// MARK: - On-screen key row
+
+/// Which of the mapped keys appear on the on-screen key row, and in what order.
+///
+/// The row exists because on an iPhone, or an iPad with no hardware keyboard,
+/// there was no way to press ANY of these: every one of them arrives through
+/// UIKey, so the whole key map was unreachable on the devices most of this
+/// app's users have. `todo.txt` called it the largest parity gap in the port,
+/// and build 51 widened it by adding the twelve function keys.
+///
+/// This type is the part of the row that can be checked without a screen - the
+/// grouping, the order, and the guarantee that nothing was left off - which is
+/// why it lives here in KeyMap.swift with the rest of the UIKit-free half.
+/// Tests/KeyMapTests.swift drives it.
+struct KeyRowLayout {
+
+    struct Page: Identifiable, Equatable {
+        /// Short enough for a segmented control on a phone.
+        let title: String
+        let keys: [SpecialKey]
+        var id: String { title }
+    }
+
+    /// The pages, in the order the picker offers them.
+    ///
+    /// Three, not one scrolling row of 26: a row that wide needs a swipe to
+    /// reach its far end, and the keys a program wants at once are the ones on
+    /// a page together. Nav first because it is what an editor needs.
+    ///
+    /// The Ctrl+arrows are worth a page of their own rather than being dropped
+    /// as obscure: on Mac Catalyst they are the ONLY way to send them at all.
+    /// WindowServer claims Ctrl+arrow for Mission Control before the app sees
+    /// the press, so the hardware binding exists there and never fires.
+    static let pages: [Page] = [
+        Page(title: "Nav", keys: SpecialKey.arrowKeys + SpecialKey.editingKeys),
+        Page(title: "Fn", keys: SpecialKey.functionKeys),
+        Page(title: "Ctrl", keys: SpecialKey.controlArrowKeys),
+    ]
+
+    /// Every key that appears anywhere on the row.
+    static var allKeys: [SpecialKey] { pages.flatMap { $0.keys } }
+
+    /// The page a key is on, or nil if it is on none. Only a test asks.
+    static func page(containing key: SpecialKey) -> Page? {
+        pages.first { $0.keys.contains(key) }
     }
 }

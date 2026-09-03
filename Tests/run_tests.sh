@@ -146,6 +146,43 @@ run_suite TerminalRenditionTests \
     "$ROOT/iOSCPM/Views/TerminalRendition.swift" \
     "$ROOT/Tests/TerminalRenditionTests.swift"
 
+# The whole terminal: the grid, the cursor, the scrolling region, the scrollback
+# and the escape parser. This is the suite that "the CSI parser has no unit
+# tests" asked for; it can exist because TerminalScreen was pulled out of
+# EmulatorViewModel and imports nothing but Foundation.
+run_suite TerminalScreenTests \
+    "$ROOT/iOSCPM/Views/CGAColor.swift" \
+    "$ROOT/iOSCPM/Views/TerminalRendition.swift" \
+    "$ROOT/iOSCPM/Views/TerminalDialect.swift" \
+    "$ROOT/iOSCPM/Views/TerminalScreen.swift" \
+    "$ROOT/Tests/TerminalScreenTests.swift"
+
+# The sizes the "New Disk" picker offers, against the rule emu_check_disk_size()
+# applies. This suite reads the three geometry constants back out of
+# iOSCPM/Core/emu_init.h, so an upstream change to them fails here rather than
+# at a user's file picker.
+run_suite DiskSizeTests \
+    "$ROOT/iOSCPM/Views/DiskSize.swift" \
+    "$ROOT/Tests/DiskSizeTests.swift"
+
+# What a remembered Mac Catalyst window frame is allowed to be restored to. The
+# UIKit calls that read and move the window are in CatalystWindow.swift and need
+# a Catalyst build; every decision they make is here and does not.
+run_suite WindowFrameTests \
+    "$ROOT/iOSCPM/Views/WindowFrame.swift" \
+    "$ROOT/Tests/WindowFrameTests.swift"
+
+# Named machine configurations: what a profile carries, and what it does when
+# one comes back from an older version or a hand-edited defaults plist.
+run_suite EmulatorProfileTests \
+    "$ROOT/iOSCPM/Views/CGAColor.swift" \
+    "$ROOT/iOSCPM/Views/TerminalRendition.swift" \
+    "$ROOT/iOSCPM/Views/TerminalDialect.swift" \
+    "$ROOT/iOSCPM/Views/TerminalScreen.swift" \
+    "$ROOT/iOSCPM/Views/DiskSize.swift" \
+    "$ROOT/iOSCPM/Views/EmulatorProfile.swift" \
+    "$ROOT/Tests/EmulatorProfileTests.swift"
+
 run_core_suite CoreKeyboardTests \
     "$ROOT/Tests/CoreKeyboardTests.cc"
 

@@ -56,6 +56,7 @@ struct ContentView: View {
                     isControlifyActive: viewModel.isControlifyActive,
                     captureKeyboard: !modalHasKeyboard,
                     showCursor: !viewModel.isScrolledBack && viewModel.cursorVisible,
+                    showKeyRow: viewModel.showKeyRow,
                     rows: viewModel.terminalRows,
                     cols: viewModel.terminalCols,
                     fontSize: CGFloat(fontSize)
@@ -292,9 +293,18 @@ struct ContentView: View {
             ) { result in
                 viewModel.handleOpenDiskResult(result)
             }
+            // EmptyDiskDocument(sizeBytes:), not EmptyDiskDocument(). This
+            // document is what actually writes the file the picker creates, and
+            // it ran BEFORE createNewDisk: with the size hardcoded inside it,
+            // the exporter laid down 8 MB and only the rewrite below honoured
+            // the user's choice. Both read viewModel.newDiskSize now.
+            //
+            // The modifier is re-evaluated when newDiskSize changes - it is
+            // @Published and this body reads it - so the document handed to the
+            // picker carries the current choice.
             .fileExporter(
                 isPresented: $viewModel.showingCreateDisk,
-                document: EmptyDiskDocument(),
+                document: EmptyDiskDocument(sizeBytes: viewModel.newDiskSize.bytes),
                 contentType: .data,
                 defaultFilename: "newdisk.img"
             ) { result in
@@ -331,17 +341,69 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .showHelp)) { _ in
                 showingHelp = true
             }
+            // ...and for the Emulator menu, which travels the same way.
+            .onReceive(NotificationCenter.default.publisher(for: .emulatorCommand)) { note in
+                if let raw = note.object as? String,
+                   let command = EmulatorMenuCommand(rawValue: raw) {
+                    perform(command)
+                }
+            }
         }
         .navigationViewStyle(.stack)  // Force single column on Mac
         .onAppear {
             viewModel.loadBundledResources()
+            // One turn later: the scene exists by the time a view appears, but
+            // its window may not have been laid out yet, and a geometry request
+            // against an unlaid-out scene is refused.
+            DispatchQueue.main.async { restoreWindowState() }
         }
         .onChange(of: scenePhase) { newPhase in
             print("[ScenePhase] Changed to: \(newPhase)")
             if newPhase == .background || newPhase == .inactive {
                 viewModel.saveDisksOnBackground()
+                // Deactivating is the last moment the frame still means
+                // something. On anything but Catalyst this is a no-op.
+                saveWindowState()
             }
         }
+    }
+
+    /// Carry out a menu command.
+    ///
+    /// Every one of these is the same call the corresponding on-screen control
+    /// makes, including Reset going through the confirmation rather than round
+    /// it: a menu item that destroys more than its toolbar twin would is a trap.
+    private func perform(_ command: EmulatorMenuCommand) {
+        switch command {
+        case .startStop:
+            if viewModel.isRunning { viewModel.stop() } else { viewModel.start() }
+        case .reset:
+            showingResetConfirm = true
+        case .clearScreen:
+            viewModel.clearTerminal()
+        case .scrollToLive:
+            viewModel.scrollToLiveBottom()
+        case .saveAllDisks:
+            viewModel.saveAllDisks()
+        case .openImports:
+            viewModel.openImportsFolder()
+        case .openExports:
+            viewModel.openExportsFolder()
+        case .settings:
+            showingSettings = true
+        }
+    }
+
+    private func restoreWindowState() {
+        #if targetEnvironment(macCatalyst)
+        CatalystWindow.restore()
+        #endif
+    }
+
+    private func saveWindowState() {
+        #if targetEnvironment(macCatalyst)
+        CatalystWindow.save()
+        #endif
     }
 }
 
@@ -444,6 +506,8 @@ struct DiskImageDocument: FileDocument {
 struct SettingsView: View {
     @ObservedObject var viewModel: EmulatorViewModel
     @Environment(\.presentationMode) private var presentationMode
+    /// Name being typed into the "Save Current As" field.
+    @State private var newProfileName = ""
 
     var body: some View {
         NavigationView {
@@ -583,6 +647,15 @@ struct SettingsView: View {
                     }
                 }
 
+                // Configuration profiles.
+                //
+                // A named set of ROM, disks, boot string, terminal settings and
+                // key map - the whole machine, not just the key map, which is
+                // what KeyProfile already was. Extracted into its own small
+                // view: this Form is already large enough to be worth keeping
+                // out of one type-check.
+                ProfileSection(viewModel: viewModel, newProfileName: $newProfileName)
+
                 // Preferences Section
                 Section(header: Text("Preferences")) {
                     Toggle("Warn on Downloaded Disk Writes", isOn: Binding(
@@ -590,6 +663,35 @@ struct SettingsView: View {
                         set: { viewModel.warnManifestWrites = $0 }
                     ))
                     Text("Show warning when writing to downloaded disks (changes may be lost on app update)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Toggle("On-screen Key Row", isOn: Binding(
+                        get: { viewModel.showKeyRow },
+                        set: { viewModel.showKeyRow = $0 }
+                    ))
+                    Text("Show a row of arrow, editing and function keys under the terminal. Without a hardware keyboard it is the only way to press them. On a Mac it is also the only way to send Ctrl+arrow, which the system takes for itself.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("New Disk Size", selection: Binding(
+                        get: { viewModel.newDiskSize },
+                        set: { viewModel.newDiskSize = $0 }
+                    )) {
+                        ForEach(DiskSize.offered) { size in
+                            Text(size.label).tag(size)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    Text("Size of a disk made with \"Create New...\". Anything larger than the 8 MB single slice is laid out as hd512 slices, each of which comes up as its own CP/M drive letter. A created disk is blank - no system, no boot track.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Toggle("Terminal Bell", isOn: Binding(
+                        get: { viewModel.bellEnabled },
+                        set: { viewModel.bellEnabled = $0 }
+                    ))
+                    Text("Make a sound when a program sends BEL (Ctrl-G). Turn off to silence a program that rings it in a loop. The setting is yours: resetting the machine does not turn it back on.")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
@@ -743,17 +845,29 @@ struct SettingsView: View {
     }
 }
 
-// Empty disk document for creating new disk files
+// Empty disk document for creating new disk files.
+//
+// The size is a stored property rather than a literal because this document is
+// half of the write: the exporter runs it to create the file, and
+// createNewDisk() then rewrites the same path. Those two used to disagree - one
+// hardcoded 8 MB, the other took a size nothing passed - so a picker that fed
+// only one of them would have looked like it worked and produced an 8 MB image.
 struct EmptyDiskDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.data] }
 
-    init() {}
+    let sizeBytes: Int
 
-    init(configuration: ReadConfiguration) throws {}
+    init(sizeBytes: Int = DiskSize.default.bytes) {
+        self.sizeBytes = min(max(sizeBytes, 0), EmulatorViewModel.maxDiskSize)
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        self.sizeBytes = DiskSize.default.bytes
+    }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        // Create 8MB empty disk filled with 0xE5 (CP/M format)
-        let data = Data(repeating: 0xE5, count: 8 * 1024 * 1024)
+        // 0xE5 is CP/M's empty-directory marker, so this comes up as a blank drive.
+        let data = Data(repeating: 0xE5, count: sizeBytes)
         return FileWrapper(regularFileWithContents: data)
     }
 }
@@ -965,5 +1079,97 @@ extension View {
             ) { result in
                 viewModel.handleImportToInbox(result)
             }
+    }
+}
+
+
+// MARK: - Configuration Profiles
+
+/// The profile list, and the field that makes a new one.
+///
+/// `todo.txt` had "no configuration profiles - named sets of ROM, disks, boot
+/// string, terminal and key map. KeyProfile is only the key-map half." This is
+/// the UI for the other half; the values and the store are in
+/// EmulatorProfile.swift, where they can be tested.
+struct ProfileSection: View {
+    @ObservedObject var viewModel: EmulatorViewModel
+    @Binding var newProfileName: String
+
+    private var trimmedName: String {
+        newProfileName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        Section(header: Text("Configuration Profiles")) {
+            if viewModel.profileStore.profiles.isEmpty {
+                Text("No saved profiles. Set the machine up the way you want it, then name it below and save.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(viewModel.profileStore.profiles) { profile in
+                    ProfileRow(profile: profile,
+                               isCurrent: viewModel.profileStore.lastUsedName == profile.name) {
+                        viewModel.applyProfile(profile)
+                    }
+                }
+                .onDelete { offsets in
+                    for index in offsets {
+                        let profiles = viewModel.profileStore.profiles
+                        if index < profiles.count {
+                            viewModel.deleteProfile(named: profiles[index].name)
+                        }
+                    }
+                }
+                Text("Tap a profile to load it. A disk it names that is no longer in the catalog is left alone rather than cleared, and the status line says how many could not be resolved.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            HStack {
+                TextField("New profile name", text: $newProfileName)
+                    .autocorrectionDisabled(true)
+                    .textInputAutocapitalization(.words)
+                Button("Save Current") {
+                    viewModel.saveCurrentProfile(named: trimmedName)
+                    newProfileName = ""
+                }
+                .disabled(trimmedName.isEmpty)
+            }
+
+            if let current = viewModel.profileStore.lastUsedName {
+                Button("Update \"\(current)\" from Current Settings") {
+                    viewModel.updateProfile(named: current)
+                }
+                .font(.caption)
+            }
+        }
+    }
+}
+
+/// One row in the profile list. Its own type so the list body stays small.
+struct ProfileRow: View {
+    let profile: EmulatorProfile
+    let isCurrent: Bool
+    let apply: () -> Void
+
+    var body: some View {
+        Button(action: apply) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(profile.name)
+                        .foregroundColor(.primary)
+                    Text(profile.summary)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                if isCurrent {
+                    Image(systemName: "checkmark")
+                        .foregroundColor(.accentColor)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

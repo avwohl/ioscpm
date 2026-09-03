@@ -17,8 +17,10 @@
 //
 //  Both are pure byte arithmetic, which is why CGAColor is a type of its own
 //  and why this file can run with no display, no emulator and no UIKit. The
-//  parser proper still owns the cursor and the cell grid, and is still
-//  untested - see the [MAC] CSI-parser item in todo.txt.
+//  parser proper - the cursor, the cell grid and the erase that filled them -
+//  moved into TerminalScreen and is covered end to end by
+//  Tests/TerminalScreenTests.swift, which drives this very sequence through the
+//  public write path and asserts on the cells it leaves behind.
 //
 //  Run with Tests/run_tests.sh.
 //

@@ -27,6 +27,53 @@ Several CHANGELOG headings therefore share one version with different build
 numbers — `## Version 1.5.1 (Build 51)` and `## Version 1.5.1 (Build 52)` — and
 that is correct, not a mistake to tidy up.
 
+## Never write down a shipped state you have not measured
+
+The tree is always ahead of the App Store, and that gap is normal.  What is not
+normal is recording the tree's build number in anything that describes what
+*users* have.  A submission that is queued is not released: it can sit in
+review, be rejected, or be held.
+
+**Measure before you write it down.**  `tools/check-store-version.sh` curls the
+iTunes lookup, maps the shipped version to a build through `CHANGELOG.md`, and
+compares that with `CURRENT_PROJECT_VERSION`.  Exit 0 means nothing recorded in
+this tree or its siblings claims a build the Store does not serve; exit 2 means
+it could not check, which is not a pass.
+
+```bash
+sh tools/check-store-version.sh
+```
+
+Three rules follow from it, and each has been broken here at least once:
+
+- **Do not move a "shipped" field on the strength of a submission.**
+  `z80cpmw/FEATURE_PARITY.md` carries an ioscpm `shipped:<build>` in its
+  `sibling-readings` block, and `z80cpmw/tools/check-sibling-drift.sh` fails the
+  whole ioscpm column until that number and the tree agree.  **It is right to
+  keep failing.**  Setting it to the tree's build certifies every tick in the
+  column against software nobody can install.  That field is hand-maintained
+  precisely because no tree knows what a store is serving.
+- **Bumping a pin is not shipping it.**  Editing `releaseTag` in
+  `EmulatorViewModel.swift` reaches users only through a build that carries the
+  edit *and* that Apple has actually released.  `tools/check-disk-pins.sh`
+  inspects the built artifact as well as the tree for exactly this reason.
+- **Archiving is not uploading.**  Do not report a build as submitted, shipped
+  or released on the strength of a clean archive.  See "Releasing" in
+  `KNOWN_PROBLEMS.md` for what this machine cannot do.
+
+## Releasing disk images: read the runbook first
+
+Anything that publishes, re-uploads or re-pins a disk image goes through
+`docs/DISK_W8FIX_RUNBOOK.md`, and specifically its **SUPERSEDED** block at the
+top, which is the corrected recipe.  Its rules are absolute and each is one
+command away from being broken: new tag always; `--prerelease` always; never
+`--clobber` and never upload to `v1.4.5`; never move the `<disks version>`
+attribute; never republish `hd1k_combo_ioscpm_w8fixed.img`.  That list is an
+index, not a substitute — the runbook says why each one is fatal and what to
+run instead.  Do not reconstruct these from memory or from an older revision of
+that file: the revision that was superseded told you to do two of the forbidden
+things.
+
 ## Fixing "Simulator Busy" Errors
 
 When the iOS Simulator reports busy/failed preflight, run ALL these steps in a SINGLE command:

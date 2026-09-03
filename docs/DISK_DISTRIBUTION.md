@@ -75,7 +75,10 @@ the user is told after the fact. So do not think of this attribute as metadata.
 Bumping it clears the catalog half of everyone's disk library, unprompted, on
 their next launch — and for the builds actually in service (1.4.9, builds 36/37,
 which predate both the narrowing and the catalog pin) it still clears **all** of
-it. See `todo.txt`.
+it. What that means for the order a release has to go out in is in
+`docs/DISK_W8FIX_RUNBOOK.md`; what is still open about it — copy-on-write, and
+confirming before the wipe rather than after — is under "User Data Persistence"
+in `KNOWN_PROBLEMS.md`.
 
 ## GitHub Releases Distribution
 

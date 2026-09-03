@@ -18,6 +18,11 @@
 		A1000009 /* ExportPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000009 /* ExportPath.swift */; };
 		A1000090 /* CGAColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000090 /* CGAColor.swift */; };
 		A1000091 /* TerminalRendition.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000091 /* TerminalRendition.swift */; };
+		A1000092 /* TerminalScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000092 /* TerminalScreen.swift */; };
+		A1000093 /* DiskSize.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000093 /* DiskSize.swift */; };
+		A1000094 /* WindowFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000094 /* WindowFrame.swift */; };
+		A1000095 /* CatalystWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000095 /* CatalystWindow.swift */; };
+		A1000096 /* EmulatorProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000096 /* EmulatorProfile.swift */; };
 		A1000010 /* RomWBWEmulator.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000010 /* RomWBWEmulator.mm */; };
 		A1000011 /* emu_io_ios.mm in Sources */ = {isa = PBXBuildFile; fileRef = B1000012 /* emu_io_ios.mm */; };
 		A1000020 /* qkz80.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000020 /* qkz80.cc */; };
@@ -53,6 +58,11 @@
 		B1000009 /* ExportPath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportPath.swift; sourceTree = "<group>"; };
 		B1000090 /* CGAColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGAColor.swift; sourceTree = "<group>"; };
 		B1000091 /* TerminalRendition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRendition.swift; sourceTree = "<group>"; };
+		B1000092 /* TerminalScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScreen.swift; sourceTree = "<group>"; };
+		B1000093 /* DiskSize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskSize.swift; sourceTree = "<group>"; };
+		B1000094 /* WindowFrame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowFrame.swift; sourceTree = "<group>"; };
+		B1000095 /* CatalystWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalystWindow.swift; sourceTree = "<group>"; };
+		B1000096 /* EmulatorProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmulatorProfile.swift; sourceTree = "<group>"; };
 		B1000010 /* RomWBWEmulator.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = RomWBWEmulator.mm; sourceTree = "<group>"; };
 		B1000011 /* RomWBWEmulator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RomWBWEmulator.h; sourceTree = "<group>"; };
 		B1000012 /* emu_io_ios.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = emu_io_ios.mm; sourceTree = "<group>"; };
@@ -150,6 +160,11 @@
 				B1000009 /* ExportPath.swift */,
 				B1000090 /* CGAColor.swift */,
 				B1000091 /* TerminalRendition.swift */,
+				B1000092 /* TerminalScreen.swift */,
+				B1000093 /* DiskSize.swift */,
+				B1000094 /* WindowFrame.swift */,
+				B1000095 /* CatalystWindow.swift */,
+				B1000096 /* EmulatorProfile.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -299,6 +314,11 @@
 				A1000009 /* ExportPath.swift in Sources */,
 				A1000090 /* CGAColor.swift in Sources */,
 				A1000091 /* TerminalRendition.swift in Sources */,
+				A1000092 /* TerminalScreen.swift in Sources */,
+				A1000093 /* DiskSize.swift in Sources */,
+				A1000094 /* WindowFrame.swift in Sources */,
+				A1000095 /* CatalystWindow.swift in Sources */,
+				A1000096 /* EmulatorProfile.swift in Sources */,
 				A1000010 /* RomWBWEmulator.mm in Sources */,
 				A1000011 /* emu_io_ios.mm in Sources */,
 				A1000020 /* qkz80.cc in Sources */,

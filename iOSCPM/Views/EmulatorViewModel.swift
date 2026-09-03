@@ -115,10 +115,19 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private var isRestoringSelections = false  // Flag to prevent didSet during restore
     @Published var selectedDisks: [DiskOption?] = Array(repeating: nil, count: 4) {
         didSet {
-            // Save selected disk filenames to UserDefaults
-            let filenames = selectedDisks.map { $0?.filename ?? "" }
-            UserDefaults.standard.set(filenames, forKey: "selectedDisks")
+            // isRestoringSelections is what the flag above was declared for and
+            // was never actually consulted by: restore and profile-apply set
+            // the four slots one at a time, so each of them rewrote this key
+            // three times over with a half-applied selection. Both bracket
+            // themselves and persist once at the end instead.
+            guard !isRestoringSelections else { return }
+            persistSelectedDisks()
         }
+    }
+
+    private func persistSelectedDisks() {
+        let filenames = selectedDisks.map { $0?.filename ?? "" }
+        UserDefaults.standard.set(filenames, forKey: "selectedDisks")
     }
 
     @Published var availableDisks: [DiskOption] = [
@@ -276,12 +285,171 @@ class EmulatorViewModel: NSObject, ObservableObject {
         keyProfile = prof
     }
 
+    /// Whether the on-screen navigation/function key row is drawn under the
+    /// terminal.
+    ///
+    /// Default on, and on for every device: it is not only a phone feature. On
+    /// Mac Catalyst the row is the ONLY way to send Ctrl+arrow at all, because
+    /// WindowServer takes those four for Mission Control before the app is
+    /// offered the press - so the four bindings exist there and can never fire
+    /// from the keyboard.
+    static let showKeyRowKey = "showKeyRow"
+    @Published var showKeyRow: Bool =
+        UserDefaults.standard.object(forKey: EmulatorViewModel.showKeyRowKey) as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showKeyRow, forKey: Self.showKeyRowKey) }
+    }
+
     /// Send a remapped navigation key's byte sequence to the guest.
     func sendSpecialKey(_ key: SpecialKey) {
         scrollToLiveBottom()
         for b in keyMap.bytes(for: key) {
             emulator?.sendCharacter(unichar(b))
         }
+    }
+
+    // MARK: - Configuration Profiles
+
+    /// Every saved profile, and which one was last applied.
+    ///
+    /// The whole store is one JSON value under one key. Profiles are small and
+    /// there are a handful of them, everything else this app remembers is in
+    /// UserDefaults, and a file in Documents would appear in Files alongside
+    /// the user's disk images, which is the last place a settings blob belongs.
+    static let profileStoreKey = "emulatorProfiles"
+
+    @Published private(set) var profileStore: ProfileStore =
+        ProfileStore.decoded(from: UserDefaults.standard.data(forKey: EmulatorViewModel.profileStoreKey))
+
+    private func persistProfiles() {
+        if let data = profileStore.encoded() {
+            UserDefaults.standard.set(data, forKey: Self.profileStoreKey)
+        }
+    }
+
+    /// The machine as it stands right now, under `name`.
+    ///
+    /// A slot bound to a local file is recorded as empty. A security-scoped
+    /// bookmark is a token issued to this installation, not a name, so a
+    /// profile cannot honestly carry one; see EmulatorProfile for the argument.
+    func currentProfile(named name: String) -> EmulatorProfile {
+        var bindings: [String: String] = [:]
+        for (key, value) in currentKeyBindings { bindings[key.rawValue] = value }
+        return EmulatorProfile(
+            name: name,
+            romFilename: selectedROM?.filename ?? "",
+            diskFilenames: selectedDisks.map { $0?.filename ?? "" },
+            bootString: bootString,
+            keyProfileName: keyProfile.rawValue,
+            keyBindings: bindings,
+            scrollbackCapacity: scrollbackCapacity,
+            bellEnabled: bellEnabled,
+            warnManifestWrites: warnManifestWrites,
+            showKeyRow: showKeyRow,
+            newDiskSizeBytes: newDiskSize.bytes)
+    }
+
+    /// Save the machine as it stands, under a name not already taken.
+    @discardableResult
+    func saveCurrentProfile(named name: String) -> String {
+        let unique = profileStore.uniqueName(basedOn: name)
+        profileStore.save(currentProfile(named: unique))
+        profileStore.markUsed(unique)
+        persistProfiles()
+        return unique
+    }
+
+    /// Overwrite an existing profile with the machine as it stands.
+    func updateProfile(named name: String) {
+        guard profileStore.profile(named: name) != nil else { return }
+        profileStore.save(currentProfile(named: name))
+        profileStore.markUsed(name)
+        persistProfiles()
+    }
+
+    func deleteProfile(named name: String) {
+        profileStore.delete(named: name)
+        persistProfiles()
+    }
+
+    @discardableResult
+    func renameProfile(_ old: String, to proposed: String) -> String? {
+        let result = profileStore.rename(old, to: proposed)
+        persistProfiles()
+        return result
+    }
+
+    /// Put the machine into the state a profile describes.
+    ///
+    /// Best-effort per item, and it says so: a disk the catalog no longer
+    /// carries, or a ROM that is not in the bundle, leaves that one slot alone
+    /// rather than failing the whole apply. What is reported back is what
+    /// actually could not be honoured.
+    ///
+    /// The four disk slots are set inside the isRestoringSelections bracket for
+    /// the reason the restore path uses it: each assignment persists, so
+    /// without it the defaults key is rewritten three times with a half-applied
+    /// selection - and if the app were killed in between, a machine that is
+    /// neither the old profile nor the new one is what comes back.
+    @discardableResult
+    func applyProfile(_ profile: EmulatorProfile) -> [String] {
+        var unresolved: [String] = []
+
+        if !profile.romFilename.isEmpty {
+            if let rom = availableROMs.first(where: { $0.filename == profile.romFilename }) {
+                selectedROM = rom
+            } else {
+                unresolved.append("ROM \(profile.romFilename)")
+            }
+        }
+
+        isRestoringSelections = true
+        for (index, filename) in profile.diskFilenames.enumerated() where index < 4 {
+            if filename.isEmpty {
+                selectedDisks[index] = nil
+            } else if let disk = availableDisks.first(where: { $0.filename == filename }) {
+                selectedDisks[index] = disk
+                // A catalog disk replaces whatever local file was bound here;
+                // leaving the bookmark would have the slot claim two sources.
+                localDiskURLs[index] = nil
+            } else {
+                unresolved.append("disk \(index): \(filename)")
+            }
+        }
+        isRestoringSelections = false
+        persistSelectedDisks()
+        saveLocalDiskBindings()
+
+        bootString = profile.bootString
+
+        // The key map: the profile first, then the custom bindings, because
+        // setting the profile to a preset replaces the bindings with that
+        // preset's and would otherwise undo them.
+        if let prof = KeyProfile(rawValue: profile.keyProfileName) {
+            keyProfile = prof
+        }
+        if profile.keyProfileName == KeyProfile.custom.rawValue {
+            var restored: [SpecialKey: String] = [:]
+            for (key, value) in profile.keyBindings {
+                if let sk = SpecialKey(rawValue: key) { restored[sk] = value }
+            }
+            currentKeyBindings = restored
+            persistKeyBindings()
+            objectWillChange.send()
+        }
+
+        scrollbackCapacity = profile.scrollbackCapacity
+        bellEnabled = profile.bellEnabled
+        warnManifestWrites = profile.warnManifestWrites
+        showKeyRow = profile.showKeyRow
+        newDiskSize = DiskSize.offered(bytes: profile.newDiskSizeBytes)
+
+        profileStore.markUsed(profile.name)
+        persistProfiles()
+
+        statusText = unresolved.isEmpty
+            ? "Applied profile: \(profile.name)"
+            : "Applied \(profile.name) - could not resolve \(unresolved.count) item(s)"
+        return unresolved
     }
 
     /// Clear autoboot setting (NVRAM and persisted value)
@@ -321,13 +489,89 @@ class EmulatorViewModel: NSObject, ObservableObject {
     static let maxDiskSize = 64 * 1024 * 1024  // 64MB max
     static let defaultDiskSize = 8 * 1024 * 1024  // 8MB default for new disks
 
-    // VDA terminal state (25x80 character cells)
-    @Published var terminalCells: [[TerminalCell]] = []
-    @Published var cursorRow: Int = 0
-    @Published var cursorCol: Int = 0
+    /// The size the next created disk will be.
+    ///
+    /// A created disk used to be 8 MB always, and the number was written out
+    /// twice: createNewDisk(at:size:) took a size its one call site never
+    /// passed, and the .fileExporter that runs FIRST handed the picker an
+    /// EmptyDiskDocument that wrote its own 8 MB with no reference to either.
+    /// Both read this now, so the exporter and the rewrite cannot disagree.
+    ///
+    /// What may be offered is not a free choice: the core rejects an image that
+    /// is not one of four shapes, so a round 16 or 32 MB would produce a file it
+    /// refuses to load. DiskSize.offered is the list that satisfies it, and
+    /// Tests/DiskSizeTests.swift is what keeps it satisfying it.
+    static let newDiskSizeKey = "newDiskSizeBytes"
+    @Published var newDiskSize: DiskSize = DiskSize.offered(
+        bytes: UserDefaults.standard.object(forKey: EmulatorViewModel.newDiskSizeKey) as? Int
+            ?? DiskSize.default.bytes) {
+        didSet {
+            UserDefaults.standard.set(newDiskSize.bytes, forKey: Self.newDiskSizeKey)
+        }
+    }
 
-    // Scrollback: full lines that have scrolled off the top of the live viewport.
-    private var scrollbackLines: [[TerminalCell]] = []
+    // MARK: - Terminal screen
+    //
+    // The cell grid, the cursor, the scrolling region, the scrollback and the
+    // whole VT100/ANSI/VT52 escape parser live in TerminalScreen.swift, which
+    // imports nothing but Foundation. That is the only reason
+    // Tests/TerminalScreenTests.swift can drive them on a machine with no
+    // simulator and no display - the same move, and the same reason, as
+    // TerminalDialect, ControlKey, ExportPath, CGAColor and TerminalRendition
+    // before it.
+    //
+    // What is left on this side is the half that genuinely needs a host: the
+    // UserDefaults the capacity is persisted in, the audio engine the bell
+    // reaches, and the wire back to the emulator that a device report is
+    // answered on. The parser cannot make either of those calls itself, which
+    // is exactly what makes it testable; it queues them and
+    // `drainTerminalEffects()` carries them out.
+    //
+    // `screen` is @Published, so a mutation through any of the forwarding
+    // members below republishes exactly as the individual @Published
+    // properties used to.
+    @Published var screen = TerminalScreen(
+        scrollbackCapacity: EmulatorViewModel.loadScrollbackCapacity(),
+        bellEnabled: EmulatorViewModel.loadBellEnabled())
+
+    // Terminal dimensions
+    var terminalRows: Int { screen.rows }
+    var terminalCols: Int { screen.cols }
+
+    /// The live grid. The view draws `displayCells`, which is this or a window
+    /// into history; this is what the banner paints into and what a test reads.
+    var terminalCells: [[TerminalCell]] { screen.cells }
+
+    var cursorRow: Int {
+        get { screen.cursorRow }
+        set { screen.cursorRow = newValue }
+    }
+    var cursorCol: Int {
+        get { screen.cursorCol }
+        set { screen.cursorCol = newValue }
+    }
+
+    /// DECTCEM. Read by the view to decide whether to draw the caret at all.
+    var cursorVisible: Bool { screen.cursorVisible }
+
+    /// The `terminalRows` rows currently visible: the live grid when at the
+    /// bottom, or a window into (scrollback + live) when scrolled up.
+    var displayCells: [[TerminalCell]] { screen.displayCells }
+
+    var scrollbackOffset: Int { screen.scrollbackOffset }
+    var isScrolledBack: Bool { screen.isScrolledBack }
+    var scrollbackAvailable: Int { screen.scrollbackAvailable }
+
+    /// Scroll the viewport by `lines` (positive = back into history, negative =
+    /// toward the live bottom). Clamped to the available scrollback.
+    func adjustScrollback(byLines lines: Int) { screen.adjustScrollback(byLines: lines) }
+
+    /// Snap back to the live bottom of the terminal.
+    func scrollToLiveBottom() { screen.scrollToLiveBottom() }
+
+    /// Drop the transcript of the session that just ended.
+    private func resetScrollback() { screen.resetScrollback() }
+
     // Scrollback capacity in lines. User-configurable (Settings); 0 disables
     // capture. Persisted under `scrollbackLines` and clamped 0...100000, matching
     // the z80cpmw `display.scrollbackLines` schema (default 1000).
@@ -335,72 +579,45 @@ class EmulatorViewModel: NSObject, ObservableObject {
     static let scrollbackCapacityDefault = 1000
     static func loadScrollbackCapacity() -> Int {
         let v = UserDefaults.standard.object(forKey: scrollbackCapacityKey) as? Int ?? scrollbackCapacityDefault
-        return min(max(0, v), 100000)
+        return min(max(0, v), TerminalScreen.maxScrollbackCapacity)
     }
     @Published var scrollbackCapacity: Int = EmulatorViewModel.loadScrollbackCapacity() {
         didSet {
-            let clamped = min(max(0, scrollbackCapacity), 100000)
+            let clamped = min(max(0, scrollbackCapacity), TerminalScreen.maxScrollbackCapacity)
             if clamped != scrollbackCapacity { scrollbackCapacity = clamped; return }
             UserDefaults.standard.set(clamped, forKey: Self.scrollbackCapacityKey)
-            applyScrollbackCapacity()
+            // The screen applies it to the buffer it already holds: 0 clears the
+            // history, a smaller cap trims the oldest lines.
+            screen.scrollbackCapacity = clamped
         }
     }
-    // How many lines the user has scrolled up from the live bottom (0 = live).
-    @Published var scrollbackOffset: Int = 0
 
-    var isScrolledBack: Bool { scrollbackOffset > 0 }
-    var scrollbackAvailable: Int { scrollbackLines.count }
+    // MARK: - Bell
 
-    /// The `terminalRows` rows currently visible: the live grid when at the
-    /// bottom, or a window into (scrollback + live) when scrolled up.
-    var displayCells: [[TerminalCell]] {
-        guard scrollbackOffset > 0 else { return terminalCells }
-        let total = scrollbackLines + terminalCells
-        let bottomExclusive = max(0, total.count - scrollbackOffset)
-        let start = max(0, bottomExclusive - terminalRows)
-        var slice = Array(total[start..<bottomExclusive])
-        if slice.count > terminalRows { slice = Array(slice.suffix(terminalRows)) }
-        while slice.count < terminalRows {
-            slice.append(Array(repeating: TerminalCell(), count: terminalCols))
-        }
-        return slice
-    }
-
-    /// Scroll the viewport by `lines` (positive = back into history, negative =
-    /// toward the live bottom). Clamped to the available scrollback.
-    func adjustScrollback(byLines lines: Int) {
-        let clamped = min(max(0, scrollbackOffset + lines), scrollbackLines.count)
-        if clamped != scrollbackOffset { scrollbackOffset = clamped }
-    }
-
-    /// Snap back to the live bottom of the terminal.
-    func scrollToLiveBottom() {
-        if scrollbackOffset != 0 { scrollbackOffset = 0 }
-    }
-
-    /// Drop the transcript of the session that just ended.
+    /// Whether BEL (0x07) makes a noise.
     ///
-    /// Called from both places a fresh session begins, rather than written out
-    /// at each, because only one of them used to do it: reset() cleared the
-    /// history and startEmulator() did not, so Stop then Play left the dead
-    /// machine's output above the new banner and could open already parked in
-    /// history. z80cpmw calls resetScrollback() from both of its own, and this
-    /// carries the name for that reason.
-    private func resetScrollback() {
-        if !scrollbackLines.isEmpty { scrollbackLines.removeAll() }
-        if scrollbackOffset != 0 { scrollbackOffset = 0 }
+    /// A guest that BELs in a loop could not be shut up: the parser's 0x07 arm
+    /// called playBeep() with nothing to consult. cpmdroid made this a setting
+    /// first and z80cpmw followed in 480edcb (setBellEnabled / isBellEnabled);
+    /// this port was the last one without it.
+    ///
+    /// It lives on TerminalScreen, next to the counter it gates, so the
+    /// suppression is testable without an audio engine - z80cpmw put it in the
+    /// same place for the same reason. This property is the persistence and the
+    /// Settings binding for it, nothing more.
+    ///
+    /// The setting is the USER'S, not the guest's: no machine reset and no
+    /// escape sequence may switch it back on for someone who turned it off.
+    /// TerminalScreen.resetToPowerOn() deliberately leaves it alone, and
+    /// z80cpmw's clear() does the same.
+    static let bellEnabledKey = "bellEnabled"
+    static func loadBellEnabled() -> Bool {
+        UserDefaults.standard.object(forKey: bellEnabledKey) as? Bool ?? true
     }
-
-    /// Apply a changed capacity to the existing buffer: 0 clears history, a
-    /// smaller cap trims the oldest lines. New captures honour the cap in scrollUp.
-    private func applyScrollbackCapacity() {
-        let cap = scrollbackCapacity
-        if cap == 0 {
-            if !scrollbackLines.isEmpty { scrollbackLines.removeAll() }
-            if scrollbackOffset != 0 { scrollbackOffset = 0 }
-        } else if scrollbackLines.count > cap {
-            scrollbackLines.removeFirst(scrollbackLines.count - cap)
-            if scrollbackOffset > cap { scrollbackOffset = cap }
+    @Published var bellEnabled: Bool = EmulatorViewModel.loadBellEnabled() {
+        didSet {
+            UserDefaults.standard.set(bellEnabled, forKey: Self.bellEnabledKey)
+            screen.bellEnabled = bellEnabled
         }
     }
 
@@ -413,102 +630,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // Periodic disk auto-save timer
     private var diskSaveTimer: Timer?
 
-    // Terminal dimensions
-    let terminalRows = 25
-    let terminalCols = 80
-
-    // VT100/ANSI escape sequence parser state
-    private enum EscapeState {
-        case normal
-        case escape          // Received ESC
-        case csi             // Received ESC [
-        case csiParam        // Collecting CSI parameters
-        case vt52Row         // Received ESC Y, expecting the row byte (value + 0x20)
-        case vt52Col         // Received ESC Y <row>, expecting the col byte (value + 0x20)
-        case escConsumeOne   // Swallow one byte (charset/line-size designation)
-    }
-    private var escapeState: EscapeState = .normal
-    private var escapeParams: [Int] = []
-    private var escapeCurrentParam: String = ""
-    /// True once a private-parameter marker - '?', '<', '=' or '>' - has been
-    /// seen in the current CSI sequence.
-    private var escapePrivateMode: Bool = false
-    private var savedCursorRow: Int = 0
-    private var savedCursorCol: Int = 0
-    /// The current graphic rendition: the CGA attribute byte, the three
-    /// per-cell face flags, and the reverse-video toggle. The whole of SGR
-    /// lives in TerminalRendition.swift, which has no screen behind it and is
-    /// therefore the one part of this parser the test suite can reach.
-    private var rendition = TerminalRendition()
-
-    /// DECAWM (ESC[?7h / l). On - the default, and what a VT100 powers up as -
-    /// writing the last column arms `pendingWrap`. Off, the cursor stays put and
-    /// each further character overwrites the last cell.
-    private var autoWrap = true
-
-    /// DECTCEM (ESC[?25h / l). Full-screen programs hide the cursor while they
-    /// redraw so it does not strobe around the screen. Kept separate from the
-    /// blink phase and from `isScrolledBack`, which suppress drawing for their
-    /// own reasons.
-    @Published var cursorVisible = true
-
-    /// The current attribute as it should actually be drawn.
-    private var displayAttr: UInt8 {
-        rendition.displayAttr
-    }
-
-    /// The cell every erase leaves behind: a space in the CURRENT rendition,
-    /// not a default one. This is background-colour-erase, what a real VT and
-    /// xterm do, and it is why a program can set a colour, clear, and get a
-    /// screen of that colour.
-    ///
-    /// The nibbles are unpacked exactly as the glyph-write path unpacks them
-    /// (see emulatorVDAWriteChar), so an erased cell and a character written
-    /// into it afterwards always agree - which is the whole point. Filling with
-    /// a hardcoded fg 7 / bg 0 was only survivable while the erase also reset
-    /// the rendition to that same default, and this file's erases never did.
-    ///
-    /// z80cpmw's TerminalView::blankCell() is the same function; cpmdroid's
-    /// ED/EL already fill from the current rendition, and the web frontend gets
-    /// it from xterm.js. This port was the last one filling with a default.
-    ///
-    /// The machine-level paths (reset(), startEmulator()) must put the
-    /// rendition back to 0x07 BEFORE they clear, or a fresh boot inherits the
-    /// colour the dead session ended on.
-    /// The flags are deliberately NOT carried. Underline and blink are visible
-    /// on a space, so an erase that kept them would draw a rule under all 2000
-    /// cells after ESC[4m ESC[2J - z80cpmw zeroes them at the same site and for
-    /// the same reason. The colours are carried, which is the whole point of
-    /// this being background-colour-erase.
-    private var blankCell: TerminalCell {
-        let attr = displayAttr
-        return TerminalCell(character: " ",
-                            foreground: attr & 0x0F,
-                            background: (attr >> 4) & 0x07,
-                            flags: 0)
-    }
-    private var scrollTop: Int = 0         // Top of scrolling region (0-based)
-    private var scrollBottom: Int = 24     // Bottom of scrolling region (0-based, inclusive)
-
-    // Deferred autowrap (VT100 "last column" behavior): after a glyph is written
-    // to the rightmost column the cursor stays put and we only wrap when the next
-    // printable character arrives. Without this, writing to the bottom-right corner
-    // scrolls the screen and corrupts any full-screen layout (WordStar, Zork, the
-    // TERMDEF border test, etc.).
-    private var pendingWrap: Bool = false
-    // Which terminal we are pretending to be. Default is ANSI/VT100; see
-    // TerminalDialect for how a stream switches it and why that is delicate.
-    // Only ESC D / E / H and the ESC Z reply differ by dialect, so ANSI
-    // behavior is unchanged while this stays .ansi.
-    private var dialect = TerminalDialect()
-    private var vt52CursorRow: Int = 0     // Row latched while parsing ESC Y <row> <col>
 
     override init() {
         super.init()
 
-        // Initialize terminal cells
-        terminalCells = Array(repeating: Array(repeating: TerminalCell(), count: terminalCols), count: terminalRows)
-
+        // No grid to build: TerminalScreen sizes its own at construction.
         // Show startup message in terminal
         showStartupMessage()
 
@@ -536,25 +662,18 @@ class EmulatorViewModel: NSObject, ObservableObject {
             formatter.dateFormat = "yyyy-MM-dd HH:mm"
             buildDate = formatter.string(from: modDate)
         }
+        // place(), not write(): this paints a screen nobody is typing at yet,
+        // so it must not move the cursor or disturb the parser.
         let versionStr = "Z80CPM v\(version).\(build) \(buildDate)"
-        for (i, char) in versionStr.enumerated() where i < terminalCols {
-            terminalCells[0][i].character = char
-        }
+        screen.place(versionStr, row: 0, col: 0)
 
         // Show "Press Play" message centered
         let message = "Press Play to start, then"
-        let startCol = (terminalCols - message.count) / 2
         let startRow = terminalRows / 2
-
-        for (i, char) in message.enumerated() {
-            terminalCells[startRow][startCol + i].character = char
-        }
+        screen.place(message, row: startRow, col: (terminalCols - message.count) / 2)
 
         let hint = "C<ret> start CP/M   2<ret> boot slice 0"
-        let hintCol = (terminalCols - hint.count) / 2
-        for (i, char) in hint.enumerated() {
-            terminalCells[startRow + 1][hintCol + i].character = char
-        }
+        screen.place(hint, row: startRow + 1, col: (terminalCols - hint.count) / 2)
     }
 
     // MARK: - Audio Setup
@@ -594,7 +713,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// Restore saved disk selections from UserDefaults, or set defaults
     private func restoreDiskSelections() {
         isRestoringSelections = true
-        defer { isRestoringSelections = false }
+        defer {
+            isRestoringSelections = false
+            // Once, at the end, with the whole selection settled. The first-run
+            // path picks defaults out of the catalog and those do have to be
+            // written; it is only the three intermediate states that did not.
+            persistSelectedDisks()
+        }
 
         // Check if user has saved selections
         let hasSavedSelections = UserDefaults.standard.stringArray(forKey: "selectedDisks") != nil
@@ -789,15 +914,25 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
     }
 
-    func createNewDisk(at url: URL, size: Int = defaultDiskSize) {
+    /// Write a blank image at `url` and bind it to the unit the create flow was
+    /// started for.
+    ///
+    /// `size` defaults to nil rather than to a constant so that the ordinary
+    /// call takes the user's choice; passing one explicitly is for a caller
+    /// that has its own reason, and the tests.
+    func createNewDisk(at url: URL, size: Int? = nil) {
         guard url.startAccessingSecurityScopedResource() else {
             showError("Cannot access location")
             return
         }
         defer { url.stopAccessingSecurityScopedResource() }
 
-        // Create empty disk image (filled with 0xE5 like formatted CP/M disk)
-        let data = Data(repeating: 0xE5, count: min(size, Self.maxDiskSize))
+        // Create empty disk image (filled with 0xE5 like formatted CP/M disk).
+        // 0xE5 is CP/M's empty-directory-entry marker, so this comes up as a
+        // blank drive - but there is no boot track and no system on it. See
+        // KNOWN_PROBLEMS.md for building a bootable image with cpmtools.
+        let chosen = size ?? newDiskSize.bytes
+        let data = Data(repeating: 0xE5, count: min(chosen, Self.maxDiskSize))
 
         do {
             try data.write(to: url)
@@ -1230,24 +1365,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // Apply boot setting - empty means no autoboot
         emulator?.setNvramSetting(bootString)
 
-        // Cold boot returns the terminal to its ANSI/VT100 default. This block
-        // runs BEFORE the screen is cleared, not after: an erase now paints the
-        // current SGR background, so clearing first and resetting the rendition
-        // second would leave the screen in the dying session's colour.
-        // clearTerminal() resets the rendition itself for the same reason -
-        // startEmulator() has no such block in front of it - and this covers
-        // the rest of the power-on state.
-        dialect.reset()
-        escapeState = .normal
-        // Both DEC modes back to power-on: a guest that hid the cursor and then
-        // died must not leave it hidden for the next session, and DECAWM off is
-        // just as sticky.
-        autoWrap = true
-        cursorVisible = true
-
-        clearTerminal()
-        // A cold boot starts a fresh session — drop the old scrollback history.
-        resetScrollback()
+        // Cold boot returns the terminal to its ANSI/VT100 default: the
+        // dialect, the parser state, both sticky DEC modes, the rendition, the
+        // screen and the scrollback. The order inside matters and belongs with
+        // the state, so it lives in TerminalScreen.resetToPowerOn() rather than
+        // being written out here.
+        //
+        // What it deliberately does NOT touch is `bellEnabled`. That is the
+        // user's setting, not the machine's, and no reset may switch it back on
+        // for someone who turned it off.
+        screen.resetToPowerOn()
         isRunning = false
         statusText = "Reset - disk changes saved"
     }
@@ -1277,65 +1404,24 @@ class EmulatorViewModel: NSObject, ObservableObject {
     }
 
     // MARK: - Terminal Operations
+    //
+    // Both of these are TerminalScreen's, and the argument for why they are two
+    // different jobs - ED is not DECSTBM - is written out there. They are kept
+    // as members here because the views and the machine paths call them by
+    // these names.
 
     /// Erase the whole screen and home the cursor. Nothing else: not the
     /// rendition, not the parser state, not the scrolling region.
-    ///
-    /// This is what ESC[2J, VT52 ESC E and the HBIOS VDA clear mean.
-    /// Erase-in-display says what to do with the cells and says nothing about
-    /// the terminal's modes, so a program that sets a colour, sets a scrolling
-    /// region and then clears its screen must come back to both still in force.
-    /// The scrolling-region reset that used to live here was a bug of exactly
-    /// that kind - ED is not DECSTBM - and it now belongs to clearTerminal()
-    /// alone. z80cpmw split the same two jobs apart for the same reason; see
-    /// its TerminalView::eraseScreen().
-    ///
-    /// Homing the cursor IS the one thing here a strict VT100 would not do, and
-    /// it stays: both sibling ports home it, and CP/M software written against
-    /// ANSI.SYS expects ESC[2J to home.
-    func eraseScreen() {
-        for row in 0..<terminalRows {
-            for col in 0..<terminalCols {
-                terminalCells[row][col] = blankCell
-            }
-        }
-        cursorRow = 0
-        cursorCol = 0
-        pendingWrap = false
-    }
+    func eraseScreen() { screen.eraseScreen() }
 
     /// Erase the screen AND put the terminal back to power-on state. This is
     /// the machine-level clear - Start and Reset - and no guest sequence
     /// reaches it.
-    ///
-    /// The rendition goes back to the default FIRST, because eraseScreen()
-    /// paints the current one: reset it afterwards and a fresh boot would be
-    /// filled with whatever colour the last session happened to end on.
-    func clearTerminal() {
-        rendition.reset()
-        eraseScreen()
-        scrollTop = 0
-        scrollBottom = terminalRows - 1
-    }
+    func clearTerminal() { screen.clearTerminal() }
 
-    /// Write a string to the terminal at the current cursor position
-    private func writeToTerminal(_ text: String) {
-        for char in text {
-            if char == "\n" {
-                cursorRow += 1
-                cursorCol = 0
-                if cursorRow >= terminalRows {
-                    cursorRow = terminalRows - 1
-                }
-            } else {
-                if cursorCol < terminalCols {
-                    terminalCells[cursorRow][cursorCol].character = char
-                    terminalCells[cursorRow][cursorCol].foreground = 7  // White
-                    cursorCol += 1
-                }
-            }
-        }
-    }
+    /// Write a host string to the terminal at the current cursor position. Not
+    /// the guest's data path: this does not run the escape parser.
+    private func writeToTerminal(_ text: String) { screen.write(text) }
 
     /// Output version and build info to terminal
     func printVersionInfo() {
@@ -1517,13 +1603,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// about to be in force. An image dropped from the catalog in the same bump
     /// is therefore spared, which is right: nothing can re-fetch it either.
     ///
-    /// This is the least destructive of the four options `todo.txt` listed and
-    /// forecloses none of the others — a confirmation step or copy-on-write can
-    /// still be added in front of it. What it cannot do is help the builds
-    /// already in service: the App Store serves 1.4.9 (builds 36/37), those
-    /// fetch the catalog from `releases/latest/download/` rather than from a
-    /// pinned tag, and they carry the old loop. That is why the release order
-    /// still matters and why `--prerelease` is load-bearing; see `todo.txt`.
+    /// This is the least destructive of the options considered and forecloses
+    /// none of the others — a confirmation step or copy-on-write can still be
+    /// added in front of it; both are open under "User Data Persistence" in
+    /// KNOWN_PROBLEMS.md. What it cannot do is help the builds already in
+    /// service: the App Store serves 1.4.9 (builds 36/37), those fetch the
+    /// catalog from `releases/latest/download/` rather than from a pinned tag,
+    /// and they carry the old loop. That is why the release order still matters
+    /// and why `--prerelease` is load-bearing; see docs/DISK_W8FIX_RUNBOOK.md,
+    /// and re-measure what the Store serves with tools/check-store-version.sh
+    /// rather than trusting the number in this comment.
     /// Returns the status-line text for what it did, for the caller to apply
     /// after restoreDiskSelections - which ends by overwriting statusText.
     @discardableResult
@@ -1996,22 +2085,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
     }
 }
 
-// MARK: - Terminal Cell
-
-struct TerminalCell: Equatable {
-    var character: Character = " "
-    var foreground: UInt8 = 7  // White
-    var background: UInt8 = 0  // Black
-
-    /// CellFlags.bold / .underline / .blink - the per-cell face, which the
-    /// packed CGA byte above has no room for. See TerminalRendition.swift for
-    /// the bit values, which are z80cpmw's and cpmdroid's byte for byte.
-    ///
-    /// Reverse video is deliberately absent: it is resolved into the two
-    /// colours at the write, which is what makes SGR 7 and 27 exact inverses.
-    var flags: UInt8 = 0
-}
-
 // MARK: - RomWBWEmulatorDelegate
 
 extension EmulatorViewModel: RomWBWEmulatorDelegate {
@@ -2035,19 +2108,18 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
     // MARK: - VDA (Video Display Adapter)
 
     func emulatorVDAClear() {
-        // eraseScreen(), not clearTerminal(): this is the guest asking HBIOS to
-        // clear the display, which fills with the attribute the guest last set
-        // through emulatorVDASetAttr. It is not a machine reset, so it must not
-        // take the rendition or the scrolling region with it.
+        // vdaClear() erases, and is deliberately not the machine-level clear:
+        // this is the guest asking HBIOS to clear the display, which fills with
+        // the attribute the guest last set through emulatorVDASetAttr. It must
+        // not take the rendition or the scrolling region with it.
         DispatchQueue.main.async {
-            self.eraseScreen()
+            self.screen.vdaClear()
         }
     }
 
     func emulatorVDASetCursorRow(_ row: Int32, col: Int32) {
         DispatchQueue.main.async {
-            self.cursorRow = min(max(Int(row), 0), self.terminalRows - 1)
-            self.cursorCol = min(max(Int(col), 0), self.terminalCols - 1)
+            self.screen.vdaSetCursor(row: Int(row), col: Int(col))
         }
     }
 
@@ -2146,701 +2218,43 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         }
     }
 
-    /// Process a character through the VT100/ANSI escape sequence parser
+    /// Feed one byte of guest output to the terminal, then carry out whatever
+    /// the terminal owes the world for it.
     private func processCharacter(_ ch: unichar) {
-        switch escapeState {
-        case .normal:
-            processNormalChar(ch)
-
-        case .escape:
-            processEscapeChar(ch)
-
-        case .csi, .csiParam:
-            processCSIChar(ch)
-
-        case .vt52Row:
-            // VT52 direct cursor address: row is the byte value biased by 0x20
-            vt52CursorRow = min(max(Int(ch) - 0x20, 0), terminalRows - 1)
-            escapeState = .vt52Col
-
-        case .vt52Col:
-            // VT52 direct cursor address: col is the byte value biased by 0x20
-            cursorRow = vt52CursorRow
-            cursorCol = min(max(Int(ch) - 0x20, 0), terminalCols - 1)
-            pendingWrap = false
-            escapeState = .normal
-
-        case .escConsumeOne:
-            // Swallow the single parameter byte of a charset/line-size designation.
-            escapeState = .normal
-        }
+        screen.receive(ch)
+        drainTerminalEffects()
     }
 
-    /// Process character in normal (non-escape) state
-    private func processNormalChar(_ ch: unichar) {
-        switch ch {
-        case 0x07: // Bell
+    /// Carry out the side effects the parser queued instead of performing.
+    ///
+    /// TerminalScreen has no emulator to answer a device report on and no audio
+    /// engine to beep with - that is precisely what lets it be compiled and
+    /// driven with no simulator - so it queues both and this drains them.
+    ///
+    /// The bells are drained whether or not any noise comes out, so a spell
+    /// with the bell switched off cannot bank up and then all sound at once.
+    /// The gate itself is inside the screen, next to the counter; see
+    /// `bellEnabled`.
+    private func drainTerminalEffects() {
+        for reply in screen.takeResponses() {
+            emulator?.send(reply)
+        }
+        if screen.takeBells() > 0 {
             playBeep(durationMs: 100)
-
-        case 0x08: // Backspace
-            pendingWrap = false
-            if cursorCol > 0 {
-                cursorCol -= 1
-            }
-
-        case 0x09: // Tab
-            pendingWrap = false
-            cursorCol = min((cursorCol + 8) & ~7, terminalCols - 1)
-
-        case 0x0A: // Line feed (with implicit CR for compatibility)
-            pendingWrap = false
-            cursorCol = 0  // Reset column for Unix-style LF-only files
-            if cursorRow < scrollTop {
-                // Above scrolling region - just move down
-                cursorRow += 1
-            } else if cursorRow < scrollBottom {
-                // Within scrolling region but not at bottom - move down
-                cursorRow += 1
-            } else if cursorRow == scrollBottom {
-                // At bottom of scrolling region - scroll the region
-                scrollRegion(scrollTop, scrollBottom, 1)
-                // cursorRow stays at scrollBottom
-            }
-            // If cursorRow > scrollBottom (below region), do nothing
-
-        case 0x0D: // Carriage return
-            pendingWrap = false
-            cursorCol = 0
-
-        case 0x1B: // ESC - start escape sequence
-            escapeState = .escape
-            escapeParams = []
-            escapeCurrentParam = ""
-            escapePrivateMode = false
-
-        default:
-            // Printable character
-            if ch >= 0x20 && ch <= 0x7E {
-                // Resolve a deferred wrap left armed by the previous last-column write.
-                if pendingWrap {
-                    cursorCol = 0
-                    cursorRow += 1
-                    if cursorRow >= terminalRows {
-                        scrollUp(1)
-                        cursorRow = terminalRows - 1
-                    }
-                    pendingWrap = false
-                }
-                let char = Character(UnicodeScalar(ch) ?? UnicodeScalar(32))
-                terminalCells[cursorRow][cursorCol].character = char
-                let attr = displayAttr
-                terminalCells[cursorRow][cursorCol].foreground = attr & 0x0F
-                terminalCells[cursorRow][cursorCol].background = (attr >> 4) & 0x07
-                terminalCells[cursorRow][cursorCol].flags = rendition.flags
-                if cursorCol >= terminalCols - 1 {
-                    // At the rightmost column: arm a deferred wrap instead of
-                    // moving now, so writing the corner cell does not scroll the
-                    // screen. With DECAWM off there is no wrap to arm and the
-                    // cursor simply stays on the last column, overwriting it.
-                    if autoWrap { pendingWrap = true }
-                } else {
-                    cursorCol += 1
-                }
-            }
-        }
-    }
-
-    /// Process character after ESC received
-    private func processEscapeChar(_ ch: unichar) {
-        // Settle the dialect first, so the cases below read a current answer.
-        // This subsumes the per-case assignments the VT52 branches used to
-        // make; TerminalDialect owns which bytes are taken as proof.
-        dialect.noteEscapeByte(ch)
-
-        // Any escape sequence that follows resolves/cancels a pending autowrap.
-        switch ch {
-        case 0x5B: // '[' - CSI (Control Sequence Introducer)
-            escapeState = .csi
-            return  // CSI handler runs; keep collecting, do not fall through
-
-        case 0x37: // '7' - DECSC (Save Cursor)
-            savedCursorRow = cursorRow
-            savedCursorCol = cursorCol
-
-        case 0x38: // '8' - DECRC (Restore Cursor)
-            pendingWrap = false
-            cursorRow = savedCursorRow
-            cursorCol = savedCursorCol
-
-        case 0x44: // 'D'
-            pendingWrap = false
-            if dialect.isVT52 {
-                // VT52 cursor left
-                if cursorCol > 0 { cursorCol -= 1 }
-            } else {
-                // VT100 Index (move cursor down, scroll if needed)
-                cursorRow += 1
-                if cursorRow >= terminalRows {
-                    scrollUp(1)
-                    cursorRow = terminalRows - 1
-                }
-            }
-
-        case 0x4D: // 'M' - Reverse Index (move cursor up, scroll if needed)
-            pendingWrap = false
-            if cursorRow > 0 {
-                cursorRow -= 1
-            }
-
-        case 0x45: // 'E'
-            pendingWrap = false
-            if dialect.isVT52 {
-                // Heath/Zenith VT52: clear screen and home
-                eraseScreen()
-            } else {
-                // VT100 Next Line
-                cursorCol = 0
-                cursorRow += 1
-                if cursorRow >= terminalRows {
-                    scrollUp(1)
-                    cursorRow = terminalRows - 1
-                }
-            }
-
-        // ---- VT52 escape sequences ----
-        case 0x41: // 'A' - VT52 cursor up
-            pendingWrap = false
-            if cursorRow > 0 { cursorRow -= 1 }
-
-        case 0x42: // 'B' - VT52 cursor down
-            pendingWrap = false
-            cursorRow = min(cursorRow + 1, terminalRows - 1)
-
-        case 0x43: // 'C' - VT52 cursor right
-            pendingWrap = false
-            cursorCol = min(cursorCol + 1, terminalCols - 1)
-
-        case 0x48: // 'H' - VT52 cursor home (no VT100 effect; HTS unsupported)
-            if dialect.isVT52 {
-                pendingWrap = false
-                cursorRow = 0
-                cursorCol = 0
-            }
-
-        case 0x49: // 'I' - VT52 reverse line feed
-            pendingWrap = false
-            if cursorRow > 0 {
-                cursorRow -= 1
-            }
-            // At the top row we have no downward-scroll helper; clamp rather than
-            // scrolling the wrong way.
-
-        case 0x4A: // 'J' - VT52 erase to end of screen
-            clearFromCursor()
-
-        case 0x4B: // 'K' - VT52 erase to end of line
-            for col in cursorCol..<terminalCols {
-                terminalCells[cursorRow][col] = blankCell
-            }
-
-        case 0x59: // 'Y' - VT52 direct cursor address (two bytes follow)
-            escapeState = .vt52Row
-            return  // stay in escape parsing for the row/col bytes
-
-        case 0x46, 0x47: // 'F'/'G' - VT52 enter/exit graphics mode (no glyph remap here)
-            break
-
-        case 0x5A: // 'Z' - identify
-            emulator?.send(dialect.identifyReply)
-
-        case 0x3C: // '<' - exit VT52, enter ANSI mode (handled above)
-            break
-
-        case 0x3D, 0x3E: // '='/'>' - keypad application/numeric mode (ignored)
-            break
-
-        case 0x28, 0x29, 0x2A, 0x2B, 0x23, 0x20:
-            // '(' ')' '*' '+' designate a character set; '#' a line size; ' ' the
-            // 7/8-bit control set. Each takes one trailing byte we don't act on but
-            // must consume so it is not printed as a stray glyph.
-            escapeState = .escConsumeOne
-            return
-
-        default:
-            // Only process control characters, discard unknown printable chars
-            if ch < 0x20 {
-                escapeState = .normal
-                processNormalChar(ch)
-                return
-            }
-        }
-        escapeState = .normal
-    }
-
-    /// A guest can emit an unbounded CSI parameter run. Bound both the digit
-    /// count and the parameter count, and clamp the parsed value, so a runaway
-    /// or hostile stream cannot grow the parser's state without limit or hand a
-    /// wild row/column count to a handler. Same limits as z80cpmw.
-    private static let maxCSIParamDigits = 6
-    private static let maxCSIParams = 16
-
-    /// Parse the accumulated parameter digits, clamped.
-    private func takeCSIParam() -> Int {
-        let value = Int(escapeCurrentParam) ?? 0
-        return min(value, 9999)
-    }
-
-    /// Process character in CSI sequence
-    private func processCSIChar(_ ch: unichar) {
-        // Control characters abort the sequence and are processed normally
-        if ch < 0x20 {
-            escapeState = .normal
-            processNormalChar(ch)
-            return
-        }
-
-        // Private-parameter markers. '?' introduces the DEC private modes;
-        // '<', '=' and '>' introduce the secondary and tertiary device-attribute
-        // forms and xterm's modifyOtherKeys. None of them is a FINAL byte, and
-        // treating the last three as one is what made ESC[>c end at the '>' and
-        // print its own tail as glyphs - the same shape of bug '?' had in
-        // z80cpmw before it learned the whole set.
-        if ch >= 0x3C && ch <= 0x3F { // '<' '=' '>' '?'
-            escapePrivateMode = true
-            escapeState = .csiParam
-            return
-        }
-
-        // Intermediate bytes, space through '/'. They belong to the sequence
-        // and are not acted on here, but they must not end it either: ESC[!p
-        // (DECSTR) and ESC[<n> q (DECSCUSR, which is what a program sends to
-        // pick a cursor shape) both carry one, and both used to terminate at it
-        // and leave the final byte to print as a glyph.
-        if ch >= 0x20 && ch <= 0x2F {
-            escapeState = .csiParam
-            return
-        }
-
-        // Check if it's a parameter digit or separator
-        if ch >= 0x30 && ch <= 0x39 { // '0'-'9'
-            // Leading zeros are padding, not magnitude - dropping them keeps a
-            // zero-padded parameter from spending the digit budget and being
-            // truncated to a small number. Past the cap the value saturates at
-            // the clamp takeCSIParam applies, rather than losing its high digits.
-            if escapeCurrentParam.isEmpty && ch == 0x30 {
-                escapeState = .csiParam
-                return
-            }
-            if escapeCurrentParam.count < Self.maxCSIParamDigits {
-                escapeCurrentParam.append(Character(UnicodeScalar(ch)!))
-            }
-            escapeState = .csiParam
-            return
-        }
-
-        if ch == 0x3B { // ';' - parameter separator
-            if escapeParams.count < Self.maxCSIParams {
-                escapeParams.append(takeCSIParam())
-            }
-            escapeCurrentParam = ""
-            escapeState = .csiParam
-            return
-        }
-
-        // Final character - execute the sequence
-        if !escapeCurrentParam.isEmpty, escapeParams.count < Self.maxCSIParams {
-            escapeParams.append(takeCSIParam())
-        }
-
-        executeCSI(ch)
-        escapeState = .normal
-    }
-
-    /// Execute a CSI sequence
-    private func executeCSI(_ finalChar: unichar) {
-        let p1 = escapeParams.count > 0 ? escapeParams[0] : 0
-        let p2 = escapeParams.count > 1 ? escapeParams[1] : 0
-
-        switch finalChar {
-        case 0x41: // 'A' - Cursor Up
-            pendingWrap = false
-            let n = max(p1, 1)
-            cursorRow = max(cursorRow - n, 0)
-
-        case 0x42: // 'B' - Cursor Down
-            pendingWrap = false
-            let n = max(p1, 1)
-            cursorRow = min(cursorRow + n, terminalRows - 1)
-
-        case 0x43: // 'C' - Cursor Forward
-            pendingWrap = false
-            let n = max(p1, 1)
-            cursorCol = min(cursorCol + n, terminalCols - 1)
-
-        case 0x44: // 'D' - Cursor Back
-            pendingWrap = false
-            let n = max(p1, 1)
-            cursorCol = max(cursorCol - n, 0)
-
-        case 0x47, 0x60: // 'G' or '`' - Cursor Horizontal Absolute (column)
-            pendingWrap = false
-            let col = max(p1, 1) - 1
-            cursorCol = min(max(col, 0), terminalCols - 1)
-
-        case 0x64: // 'd' - Vertical Position Absolute (row)
-            pendingWrap = false
-            let row = max(p1, 1) - 1
-            cursorRow = min(max(row, 0), terminalRows - 1)
-
-        case 0x48, 0x66: // 'H' or 'f' - Cursor Position
-            pendingWrap = false
-            let row = max(p1, 1) - 1  // 1-based to 0-based
-            let col = max(p2, 1) - 1
-            cursorRow = min(max(row, 0), terminalRows - 1)
-            cursorCol = min(max(col, 0), terminalCols - 1)
-
-        case 0x4A: // 'J' - Erase in Display
-            switch p1 {
-            case 0: // Clear from cursor to end of screen
-                clearFromCursor()
-            case 1: // Clear from beginning to cursor
-                clearToCursor()
-            case 2: // Clear entire screen
-                // eraseScreen(), not clearTerminal(): ED 2 erases cells and
-                // says nothing about the rendition or the scrolling region.
-                eraseScreen()
-            default:
-                break
-            }
-
-        case 0x4B: // 'K' - Erase in Line
-            switch p1 {
-            case 0: // Clear from cursor to end of line
-                for col in cursorCol..<terminalCols {
-                    terminalCells[cursorRow][col] = blankCell
-                }
-            case 1: // Clear from beginning to cursor
-                for col in 0...cursorCol {
-                    terminalCells[cursorRow][col] = blankCell
-                }
-            case 2: // Clear entire line
-                for col in 0..<terminalCols {
-                    terminalCells[cursorRow][col] = blankCell
-                }
-            default:
-                break
-            }
-
-        case 0x4D: // 'M' - DL (Delete Line) - delete lines at cursor, scroll up
-            // Delete n lines starting at cursor row, scroll remaining lines up
-            let startRow = cursorRow
-            let endRow = scrollBottom  // Use scrolling region bottom, or terminalRows-1 if no region
-            if startRow <= endRow {
-                // Clamp to the region: deleting more lines than there are just
-                // clears it. Unclamped, endRow - n + 1 falls below startRow and
-                // the Range below traps - a live crash for an editor that asks
-                // to delete to the bottom from near it.
-                let n = min(max(p1, 1), endRow - startRow + 1)
-                for row in startRow..<(endRow - n + 1) {
-                    if row + n <= endRow {
-                        terminalCells[row] = terminalCells[row + n]
-                    }
-                }
-                // Clear the bottom n lines
-                for row in max(endRow - n + 1, startRow)...endRow {
-                    terminalCells[row] = Array(repeating: blankCell, count: terminalCols)
-                }
-            }
-
-        case 0x4C: // 'L' - IL (Insert Line) - insert lines at cursor, scroll down
-            // Insert n blank lines at cursor row, scroll remaining lines down
-            let startRow = cursorRow
-            let endRow = scrollBottom
-            if startRow <= endRow {
-                // Clamped for the same reason as DL above; the loops here happen
-                // to survive an over-large n, but not by design.
-                let n = min(max(p1, 1), endRow - startRow + 1)
-                for row in stride(from: endRow, through: startRow + n, by: -1) {
-                    if row - n >= startRow {
-                        terminalCells[row] = terminalCells[row - n]
-                    }
-                }
-                // Clear the top n lines (at cursor position)
-                for row in startRow..<min(startRow + n, endRow + 1) {
-                    terminalCells[row] = Array(repeating: blankCell, count: terminalCols)
-                }
-            }
-
-        // The five editing finals below blank cells with `blankCell`, i.e. the
-        // current SGR background, matching clearFromCursor/clearToCursor and the
-        // rest of the erase family in this file. That decision was taken for the
-        // whole family at once rather than introduced in half of it; see
-        // blankCell for what it means and why.
-        case 0x40: // '@' - ICH (Insert Character)
-            // Shift the rest of the line right by n, blanking what opens up.
-            // Characters pushed past the last column are lost, not wrapped:
-            // ICH is defined within the line.
-            if cursorRow < terminalRows, cursorCol < terminalCols {
-                let n = min(max(p1, 1), terminalCols - cursorCol)
-                var row = terminalCells[cursorRow]
-                if terminalCols - cursorCol - n > 0 {
-                    for col in stride(from: terminalCols - 1, through: cursorCol + n, by: -1) {
-                        row[col] = row[col - n]
-                    }
-                }
-                for col in cursorCol..<(cursorCol + n) {
-                    row[col] = blankCell
-                }
-                terminalCells[cursorRow] = row
-            }
-
-        case 0x50: // 'P' - DCH (Delete Character)
-            // Shift the rest of the line left by n; the tail becomes blanks.
-            if cursorRow < terminalRows, cursorCol < terminalCols {
-                let n = min(max(p1, 1), terminalCols - cursorCol)
-                var row = terminalCells[cursorRow]
-                for col in cursorCol..<(terminalCols - n) {
-                    row[col] = row[col + n]
-                }
-                for col in max(terminalCols - n, cursorCol)..<terminalCols {
-                    row[col] = blankCell
-                }
-                terminalCells[cursorRow] = row
-            }
-
-        case 0x58: // 'X' - ECH (Erase Character)
-            // Blank n cells from the cursor without moving anything: unlike DCH
-            // the rest of the line stays where it is, and unlike EL the erase
-            // stops after n.
-            if cursorRow < terminalRows, cursorCol < terminalCols {
-                let n = min(max(p1, 1), terminalCols - cursorCol)
-                for col in cursorCol..<(cursorCol + n) {
-                    terminalCells[cursorRow][col] = blankCell
-                }
-            }
-
-        case 0x53: // 'S' - SU (Scroll Up)
-            // Scroll the region up n lines. Content leaving the top of a full
-            // screen goes to scrollback; content leaving a partial region does
-            // not, matching what LF does - lines pushed out of a status-line
-            // window were never history.
-            // Whole screen goes through scrollUp() so the top line reaches
-            // scrollback; a partial region goes through scrollRegion(), which
-            // deliberately does not - lines pushed out of a status-line window
-            // were never history.
-            let lines = max(p1, 1)
-            if scrollTop == 0 && scrollBottom == terminalRows - 1 {
-                scrollUp(lines)
-            } else {
-                scrollRegion(scrollTop, scrollBottom, min(lines, scrollBottom - scrollTop + 1))
-            }
-
-        case 0x54: // 'T' - SD (Scroll Down)
-            // The reverse: blank lines enter at the top of the region and the
-            // bottom line falls off. Never touches scrollback in either
-            // direction - nothing is leaving the top.
-            for _ in 0..<max(p1, 1) {
-                let top = scrollTop, bottom = scrollBottom
-                if top <= bottom {
-                    for row in stride(from: bottom, through: top + 1, by: -1) {
-                        terminalCells[row] = terminalCells[row - 1]
-                    }
-                    terminalCells[top] = Array(repeating: blankCell, count: terminalCols)
-                }
-            }
-
-        case 0x6D: // 'm' - SGR (Select Graphic Rendition)
-            // A private marker makes this something else entirely. ESC[>4;2m
-            // and ESC[>4m are xterm's modifyOtherKeys and say nothing about
-            // colour; without this guard the bare one reached SGR as ESC[m and
-            // reset the whole rendition. z80cpmw guards the same final for the
-            // same reason.
-            if !escapePrivateMode {
-                // An empty list is ESC[m, which is ESC[0m; applySGR handles it.
-                rendition.applySGR(escapeParams)
-            }
-
-        case 0x73: // 's' - Save cursor position (SCO)
-            savedCursorRow = cursorRow
-            savedCursorCol = cursorCol
-
-        case 0x75: // 'u' - Restore cursor position (SCO)
-            pendingWrap = false
-            cursorRow = savedCursorRow
-            cursorCol = savedCursorCol
-
-        case 0x72: // 'r' - Set scrolling region (DECSTBM)
-            // ESC[top;bottomr - set scrolling region (1-based)
-            // ESC[r - reset to full screen
-            pendingWrap = false
-            let top = (escapeParams.count > 0 && escapeParams[0] > 0) ? escapeParams[0] - 1 : 0
-            let bottom = (escapeParams.count > 1 && escapeParams[1] > 0) ? escapeParams[1] - 1 : terminalRows - 1
-            if top < bottom && bottom < terminalRows {
-                scrollTop = top
-                scrollBottom = bottom
-                // Cursor moves to home position after setting region
-                cursorRow = 0
-                cursorCol = 0
-            }
-
-        case 0x6E: // 'n' - Device Status Report (answerback)
-            if !escapePrivateMode {
-                if p1 == 6 {
-                    // CPR: report cursor position, 1-based
-                    emulator?.send("\u{1B}[\(cursorRow + 1);\(cursorCol + 1)R")
-                } else if p1 == 5 {
-                    // DSR: terminal OK
-                    emulator?.send("\u{1B}[0n")
-                }
-            }
-
-        case 0x63: // 'c' - Device Attributes (answerback)
-            if !escapePrivateMode && p1 == 0 {
-                // Identify as a VT100 with no options
-                emulator?.send("\u{1B}[?1;0c")
-            }
-
-        case 0x68: // 'h' - Set Mode
-            if escapePrivateMode {
-                if escapeParams.contains(2) {
-                    // DECANM set: select ANSI (VT100) mode
-                    dialect.noteDECANM(selectsANSI: true)
-                }
-                if escapeParams.contains(7) {
-                    autoWrap = true     // DECAWM
-                }
-                if escapeParams.contains(25) {
-                    cursorVisible = true  // DECTCEM
-                }
-            }
-            // Other DEC private modes are acknowledged but not acted upon.
-
-        case 0x6C: // 'l' - Reset Mode
-            if escapePrivateMode {
-                if escapeParams.contains(2) {
-                    // DECANM reset: select VT52 mode
-                    dialect.noteDECANM(selectsANSI: false)
-                }
-                if escapeParams.contains(7) {
-                    // DECAWM off: writing the last column overwrites it instead
-                    // of wrapping. Clear any wrap already armed, or a pending
-                    // one from before the mode change would still fire.
-                    autoWrap = false
-                    pendingWrap = false
-                }
-                if escapeParams.contains(25) {
-                    cursorVisible = false  // DECTCEM
-                }
-            }
-            // Other DEC private modes are acknowledged but not acted upon.
-
-        default:
-            // Unknown CSI sequence, ignore
-            break
-        }
-    }
-
-    /// Clear from cursor to end of screen
-    private func clearFromCursor() {
-        // Clear rest of current line
-        for col in cursorCol..<terminalCols {
-            terminalCells[cursorRow][col] = blankCell
-        }
-        // Clear remaining lines
-        for row in (cursorRow + 1)..<terminalRows {
-            for col in 0..<terminalCols {
-                terminalCells[row][col] = blankCell
-            }
-        }
-    }
-
-    /// Clear from beginning to cursor
-    private func clearToCursor() {
-        // Clear lines before current
-        for row in 0..<cursorRow {
-            for col in 0..<terminalCols {
-                terminalCells[row][col] = blankCell
-            }
-        }
-        // Clear current line up to cursor
-        for col in 0...cursorCol {
-            terminalCells[cursorRow][col] = blankCell
         }
     }
 
     func emulatorVDAScrollUp(_ lines: Int32) {
         DispatchQueue.main.async {
-            self.scrollUp(Int(lines))
+            self.screen.vdaScrollUp(Int(lines))
         }
     }
 
     func emulatorVDASetAttr(_ attr: UInt8) {
-        // Attr is CGA-style: bits 0-3 = foreground, bits 4-6 = background, bit 7 = blink
         DispatchQueue.main.async {
-            // This replaces the whole byte, so any SGR 7 swap is gone with
-            // it - and so are the face flags, which the byte cannot express.
-            self.rendition.attr = attr
-            self.rendition.flags = 0
-            self.rendition.reverse = false
+            self.screen.vdaSetAttr(attr)
         }
     }
-
-    private func scrollUp(_ lines: Int) {
-        guard lines > 0 else { return }
-
-        // Preserve the rows scrolling off the top into the scrollback buffer.
-        // Capacity 0 disables capture entirely (z80cpmw parity).
-        let cap = scrollbackCapacity
-        if cap > 0 {
-            let captured = min(lines, terminalRows)
-            for row in 0..<captured {
-                scrollbackLines.append(terminalCells[row])
-            }
-            if scrollbackLines.count > cap {
-                scrollbackLines.removeFirst(scrollbackLines.count - cap)
-            }
-            // Keep the visible window anchored to the same content while the user
-            // is reading history (up to the buffer cap).
-            if scrollbackOffset > 0 {
-                scrollbackOffset = min(scrollbackOffset + captured, scrollbackLines.count)
-            }
-        }
-
-        let keep = max(0, terminalRows - lines)
-        for row in 0..<keep {
-            terminalCells[row] = terminalCells[row + lines]
-        }
-        for row in keep..<terminalRows {
-            terminalCells[row] = Array(repeating: blankCell, count: terminalCols)
-        }
-    }
-
-    private func scrollRegion(_ top: Int, _ bottom: Int, _ lines: Int) {
-        guard lines > 0 && top >= 0 && bottom < terminalRows && top < bottom else { return }
-
-        // A region that is the whole screen IS the screen scrolling, and the
-        // lines leaving the top are history. scrollUp() is the one path that
-        // captures them. Routing that case here rather than at each call site
-        // is the point: the LF handler called scrollRegion() directly, so every
-        // ordinary newline-driven scroll - which is nearly all of them - threw
-        // its top line away, and the scrollback buffer stayed empty for the
-        // whole life of the feature. The SU handler had this test inline and so
-        // was the only path that ever captured anything.
-        if top == 0 && bottom == terminalRows - 1 {
-            scrollUp(lines)
-            return
-        }
-
-        // Scroll lines within the region [top, bottom]
-        for row in top..<(bottom - lines + 1) {
-            terminalCells[row] = terminalCells[row + lines]
-        }
-        // Clear the bottom lines of the region
-        for row in (bottom - lines + 1)...bottom {
-            terminalCells[row] = Array(repeating: blankCell, count: terminalCols)
-        }
-    }
-
     // MARK: - Disk Flush
 
     func emulatorShouldFlushDisks() {

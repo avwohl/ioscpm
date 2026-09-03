@@ -220,6 +220,64 @@ func runAllTests() {
         }
     }
     check(presetsAre7Bit, "but no preset profile ever sends one")
+
+    // -------------------------------------------------------------------------
+    section("The on-screen key row can reach every key in the map")
+    // -------------------------------------------------------------------------
+    //
+    // This is the assertion the whole row exists for. On an iPhone, or an iPad
+    // with no hardware keyboard, every one of these keys arrives only through
+    // UIKey, so before the row NONE of them could be pressed at all. A key that
+    // is in SpecialKey, is bound by a profile, is editable in Settings - and is
+    // on no page - is exactly the gap coming back.
+    let onRow = Set(KeyRowLayout.allKeys)
+    for key in SpecialKey.allCases {
+        check(onRow.contains(key), "\(key.label) is reachable from the on-screen row")
+    }
+    check(onRow.count == SpecialKey.allCases.count,
+          "and the row offers nothing that is not a real key")
+    check(KeyRowLayout.allKeys.count == onRow.count, "no key appears on two pages")
+
+    check(!KeyRowLayout.pages.isEmpty, "there is at least one page")
+    for page in KeyRowLayout.pages {
+        check(!page.keys.isEmpty, "the \(page.title) page has keys on it")
+        check(page.title.count <= 5, "and a title short enough for a phone: \(page.title)")
+    }
+    check(Set(KeyRowLayout.pages.map { $0.title }).count == KeyRowLayout.pages.count,
+          "no two pages are called the same thing")
+    check(KeyRowLayout.pages.first?.title == "Nav",
+          "the arrows come first - they are what an editor needs")
+    check(KeyRowLayout.page(containing: .f7)?.title == "Fn", "F7 is on the function-key page")
+    check(KeyRowLayout.page(containing: .up)?.title == "Nav", "the arrows are on the nav page")
+    check(KeyRowLayout.page(containing: .ctrlLeft)?.title == "Ctrl",
+          "and Ctrl+Left has a page of its own - on Catalyst the row is the only way to send it")
+
+    // -------------------------------------------------------------------------
+    section("Every key has a label that fits on a key")
+    // -------------------------------------------------------------------------
+    for key in SpecialKey.allCases {
+        check(!key.shortLabel.isEmpty, "\(key.label) has a short label")
+        check(key.shortLabel.count <= 4,
+              "\(key.label) -> \"\(key.shortLabel)\" fits on a button")
+    }
+    check(SpecialKey.up.shortLabel == "\u{2191}", "the arrows are drawn as arrows")
+    check(SpecialKey.ctrlLeft.shortLabel == "^\u{2190}", "and a Ctrl+arrow says which")
+    check(SpecialKey.pageDown.shortLabel == "PgDn", "Page Down is abbreviated, not truncated")
+    check(SpecialKey.f12.shortLabel == "F12", "a function key is already short enough")
+    check(Set(SpecialKey.allCases.map { $0.shortLabel }).count == SpecialKey.allCases.count,
+          "and no two keys read the same on the row")
+
+    // -------------------------------------------------------------------------
+    section("The groups the row is built out of")
+    // -------------------------------------------------------------------------
+    check(SpecialKey.arrowKeys == [.up, .down, .left, .right], "the arrows are the four arrows")
+    check(SpecialKey.controlArrowKeys.allSatisfy { $0.unmodifiedBase != nil },
+          "every Ctrl+arrow has a plain arrow to fall back to")
+    check(SpecialKey.functionKeys.count == 12, "there are twelve function keys")
+    check(Set(SpecialKey.arrowKeys + SpecialKey.controlArrowKeys
+              + SpecialKey.editingKeys + SpecialKey.functionKeys)
+            == Set(SpecialKey.allCases),
+          "and the four groups together are the whole map, with nothing left over")
 }
 
 @main

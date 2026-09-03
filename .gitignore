@@ -16,3 +16,6 @@ Pods/
 # Temporary files
 *.tmp
 *.bak
+
+# WIP scratch from an in-progress session - not part of the project
+.wip/
