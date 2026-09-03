@@ -52,9 +52,11 @@ no MBR; the agent's needs a hand-written 512-byte MBR.
    the shipped combo images; more code, and the MBR must be exactly right.
 
 Either way this belongs in `MANUAL_CHECKS.md` before the todo item is called
-closed.
+closed, and it is there now: **check 12**, which asks for a 2-slice disk to show
+two drive letters.  If it does not, the question is answered the other way and
+`DiskSize.swift` needs the hd1k shape with a hand-written MBR.
 
-## STILL TO DO
+## STILL TO DO — one item
 
 1. **The last todo item: `emu_host_file_get_read_name()` / R8's `Reading:` line.**
    Not started. Traced fully, and the fix is settled — **make this port's open
@@ -145,11 +147,6 @@ closed.
      catalog's v1.4.5 image has no such R8), `R8 ESC.TXT` for a file stored as
      `esc.txt` must print `Reading: /.../Documents/Imports/esc.txt`, lowercase.
 
-
-2. **`MANUAL_CHECKS.md`** needs entries for what cannot be verified here: the
-   key row on a phone, the Emulator menu and window restore under Catalyst,
-   applying a profile, creating a multi-slice disk and seeing the extra drive
-   letters, and the bell toggle.
 
 ## Verification available on this machine
 

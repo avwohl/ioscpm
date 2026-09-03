@@ -14,7 +14,9 @@ Swift layer against a real sandbox - `xcrun simctl get_app_container booted
 com.awohl.cpm data` gives you the `Documents` folder to inspect - and
 `SUPPORTS_MACCATALYST = YES`, so the Catalyst pass is a `xcodebuild
 -destination 'platform=macOS,variant=Mac Catalyst'` away.  Say so if a check
-really does need hardware; only the Ctrl+arrow one does.
+really does need hardware: check 3 needs an iPad with a hardware keyboard, check
+4 a real device, and check 8 a phone or a keyboard-less iPad - the point of that
+one is the case where there is no hardware keyboard to fall back on.
 
 ---
 
@@ -136,3 +138,150 @@ could not cover:
       `hd1k_combo.img`. The match is deliberately case-insensitive so it behaves
       the same on both kinds of volume, which means such a file *is* treated as
       the catalog's. Confirm that is what you want.
+
+---
+
+## 7. Build 59 has never been compiled — this gates 8 through 13
+
+Everything below arrived in `8e7587f` and has had exactly one kind of
+verification: `Tests/run_tests.sh`, 11 suites, 869 checks.  Every piece of it
+that touches SwiftUI or UIKit — `ContentView.swift`, `TerminalView.swift`,
+`EmulatorViewModel.swift`, `iOSCPMApp.swift`, `CatalystWindow.swift` — has never
+been through a compiler, because no machine that has touched this work had
+Xcode.  `xcrun --sdk macosx swiftc -parse` is a syntax check and was the most
+that could be run.
+
+- [ ] It builds at all.  `xcodebuild` for the Simulator **and** for
+      `-destination 'platform=macOS,variant=Mac Catalyst'`.  Do this before
+      anything else here; a type error in the UI layer would fail every check
+      below for one reason, and finding that out five checks in wastes the pass.
+- [ ] It launches, boots CP/M and takes keyboard input the way build 58 did.
+      The sweep moved the whole screen model and escape parser out of
+      `EmulatorViewModel` into `TerminalScreen`; the suite says the parser is
+      right, and nothing says the wiring to the view is.
+- [ ] Scrollback still works — build 57 fixed it and build 58 cleared it on
+      start.  Both go through code the extraction moved.
+
+If it does not build and the fix is not small, `git revert 8e7587f` backs the
+whole sweep out; it went in as a fast-forward and comes out cleanly.
+
+## 8. The on-screen key row, on a phone
+
+The largest parity gap in the port: every key in the map arrived through
+`UIKey`, so on a phone or a keyboard-less iPad **none of the 26 could be
+pressed at all**.  `KeyRowLayout.pages` is three pages — Nav (4 arrows + Home,
+End, PgUp, PgDn, Ins, Del), Fn (F1-F12), Ctrl (the four Ctrl+arrows).  A test
+asserts every `SpecialKey` case is on one of them; nothing has pressed one.
+
+- [ ] On a **phone**, the row appears under the terminal and every key on all
+      three pages sends what the current profile says it should.  Under VT100,
+      the Nav arrows send `\E[A`..`\E[D` and F1-F4 send `\EOP`..`\EOS`.
+- [ ] The page picker switches pages and the row does not resize the terminal
+      as it does.
+- [ ] `showKeyRow` off hides it and the terminal takes the space back.
+- [ ] The row respects the key profile: switch VT100 -> VT52 and the same Nav
+      arrow now sends `\EA`..`\ED`.
+- [ ] It does not overlap the home indicator or the keyboard when a hardware
+      keyboard is absent and the software one is up.
+
+## 9. The Ctrl page under Mac Catalyst
+
+This is the page's whole reason to exist.  macOS claims Ctrl+arrow for Mission
+Control at the WindowServer level before Catalyst is offered the press, so the
+hardware binding checked in section 3 can never fire there — the row is the
+only way to send those four.
+
+- [ ] Under Catalyst, with the VT100 profile, the Ctrl page's four keys send
+      `\E[1;5A` / `B` / `C` / `D`.
+- [ ] The same four pressed on the **hardware** keyboard still do nothing under
+      Catalyst.  That is expected, not a regression, and confirming it is what
+      justifies the page.
+
+## 10. The Emulator menu and window restore, under Catalyst
+
+`iOSCPMApp.swift` replaced only `CommandGroup(.help)` before this.  The new
+`CommandMenu("Emulator")` reaches `ContentView` over the same `NotificationCenter`
+hop the Help item already used, so each item is a separate wire that can be
+mis-spelled silently.  **Press every one.**
+
+- [ ] Start / Stop (Cmd-R), Reset... (Shift-Cmd-R), Clear Screen (Cmd-K), Jump
+      to Live (Cmd-L), Save All Disks (Cmd-S), Open Imports Folder, Open Exports
+      Folder, Settings... (Cmd-,).  Each does what its label says.
+- [ ] Reset... and Settings... raise the same dialogs the in-app controls do,
+      and Escape dismisses them (section 2 covers the escape path).
+- [ ] Cmd-S does not collide with anything AppKit wants, and the two folder
+      items open Finder at the real `Documents/Imports` and `Documents/Exports`.
+
+Window state is split so the decision is testable and the UIKit call is not:
+`WindowFrame` has 34 checks, `CatalystWindow` has none.  Minimum size is
+640x480; a restored frame must leave at least 60x60 on screen.
+
+- [ ] Resize and move the window, quit, relaunch: it comes back where it was.
+- [ ] Restore with the saved frame mostly off-screen — unplug a second display,
+      or edit `catalystWindowFrame` in the app container's preferences.  The
+      window must land somewhere reachable rather than off the edge.
+- [ ] Below iOS 16 there is no supported way to place a window and the code says
+      so rather than reaching for a private API; confirm it degrades to the
+      system default instead of failing.
+
+## 11. Applying a profile
+
+`EmulatorProfile` is the machine where `KeyProfile` was only the key-map half:
+ROM, disks, boot string, key profile and bindings, scrollback capacity, bell,
+manifest warning, key-row visibility, new-disk size.
+
+It **deliberately does not carry the security-scoped bookmarks.**  A bookmark is
+a token issued to one installation, not a name — a profile carrying one would
+either fail to resolve or, worse, look like it had restored a disk it had not.
+That is the thing to check hardest.
+
+- [ ] Save a profile, change every setting it covers, apply it back.  All of it
+      returns, and the summary line matches what is actually in force.
+- [ ] Apply a profile naming a disk that is **not** present.  The slot must end
+      up empty and say so — not silently point at nothing, and not appear to
+      have restored a disk it has not.
+- [ ] Two profiles saved under the same name collapse to one, and it is the
+      first of them (the suite asserts this; confirm the UI agrees).
+- [ ] Delete the profile that is marked last-used; the pointer is dropped rather
+      than left dangling.
+- [ ] A profile saved on one device and carried to another restores everything
+      except the disks, and is honest about the disks.
+
+## 12. A multi-slice disk, and the size picker
+
+`DiskSize.offered` is 8 MB hd1k, then 2 / 4 / 7 hd512 slices (N x 8,519,680).
+The round numbers are deliberately absent: `emu_check_disk_size()` **refuses** a
+16, 32 or 64 MB image, which is the trap a naive picker falls into.  Before this
+the exporter wrote its own hardcoded 8 MB regardless of the choice.
+
+**This is also how `WIP.md`'s one open question gets settled** — whether
+multi-slice hd512 is right, or whether it should be 1 MB + N x 8 MB hd1k with a
+hand-written type-0x2E MBR.  The reasoning says hd512 needs no MBR and lands its
+slices exactly on the file.  Nothing has confirmed it on a real machine.
+
+- [ ] Create a disk at each offered size.  The file on disk is exactly the byte
+      count the picker promised — check both the `.fileExporter` path and the
+      rewrite, because it was the exporter that ignored the choice.
+- [ ] The 2-slice disk mounts and **two drive letters appear**.  4 and 7 give
+      four and seven.  If they do not, the open question is answered the other
+      way and `DiskSize.swift` needs the hd1k shape with an MBR.
+- [ ] Write files to the second slice, eject, remount: the data is there.  A
+      slice that runs off the end of the file would show up here.
+- [ ] The app still accepts an imported disk up to 64 MB.  Import is unchanged
+      and must stay that way.
+
+## 13. The bell toggle
+
+`processNormalChar`'s BEL arm used to call `playBeep` with nothing to consult, so
+a guest that BELs in a loop could not be silenced.  It is gated inside
+`TerminalScreen` next to the counter now, which is what made it testable with no
+audio engine near it; the Settings toggle is "Terminal Bell".
+
+- [ ] BEL rings with the toggle on and is silent with it off.  `^G` at the `A>`
+      prompt, or `TYPE` a file with a `0x07` in it.
+- [ ] A guest BELing in a loop can be silenced **while it runs**, not only
+      before it starts.
+- [ ] Reset the machine with the bell off.  It stays off — `resetToPowerOn()`
+      deliberately does not touch it, because the setting is the user's and not
+      the guest's, and a test says so.
+- [ ] The setting survives a relaunch, and travels in a profile (section 11).
