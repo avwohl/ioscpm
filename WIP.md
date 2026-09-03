@@ -1,27 +1,23 @@
-# WIP — emptying todo.txt (session of 2026-09-03)
+# WIP — what is left after the todo sweep
 
-**Status: work in progress, committed to the branch `todo-sweep-2026-09-03`.**
-`./Tests/run_tests.sh` is green: 11 suites, 869 checks, 0 failures. It has NOT
-been built as an iOS app — see the last section for why that matters.
+The sweep itself is **done and on `main`**: commit `8e7587f`, numbered build 59,
+six of `todo.txt`'s seven items implemented and described in `CHANGELOG.md`, and
+those six now deleted from `todo.txt` as its header requires. What is left there
+is the one item below. This file is no longer a branch hand-off; it carries only
+what is still open, and the detailed spec `todo.txt` points at.
 
-Task, in the user's words: *"Tackle this project's todo.txt, make it be empty.
-Fix what needs fixing. Implement what needs implementing. Stop declaring victory
-with a bigger todo.txt than when you started."*
+## Build 59 has never been compiled — read this first
 
-There is **no Xcode on this machine**, only Command Line Tools — `xcodebuild`
-does not run and there is no simulator. `xcrun --sdk macosx swiftc` does work,
-which is why every piece of new logic below was deliberately put in a
-UIKit-free type with a command-line suite behind it. Nothing here has been
-compiled as an iOS app.
+`Tests/run_tests.sh` is green at 11 suites and 869 checks, and that is the *only*
+verification any of it has had. There has been no Xcode on any machine that has
+touched this work, only Command Line Tools, so `xcodebuild` does not run and
+there is no simulator. The SwiftUI and UIKit half — `ContentView.swift`,
+`TerminalView.swift`, `EmulatorViewModel.swift`, `iOSCPMApp.swift`,
+`CatalystWindow.swift` — has never been through a compiler.
 
-## Resume by reading
-
-- This file. Seven implementation specs were produced by a research workflow;
-  their conclusions are folded in below, so **nothing outside this repo is
-  needed to resume**. (The raw specs are in a gitignored `.wip/` on the machine
-  that ran them and are not worth carrying — they are reproducible.)
-- The open question below, and item 1 under STILL TO DO, are the only things
-  between here and an empty `todo.txt`.
+Every earlier CHANGELOG entry could claim a clean Catalyst build that was
+launched and driven. Build 59 cannot. **Build it before submitting it.** If it
+does not build, `git revert 8e7587f` backs the whole sweep out cleanly.
 
 ## THE ONE OPEN QUESTION — disk sizes larger than 8 MB
 
@@ -57,121 +53,6 @@ no MBR; the agent's needs a hand-written 512-byte MBR.
 
 Either way this belongs in `MANUAL_CHECKS.md` before the todo item is called
 closed.
-
-## Done — closed todo items
-
-### 1. "[MAC] the CSI parser still has no unit tests OUTSIDE SGR" — CLOSED
-- **NEW `iOSCPM/Views/TerminalScreen.swift`** (~1100 lines). The whole screen
-  model and escape parser extracted out of `EmulatorViewModel`: the cell grid,
-  cursor, saved cursor, scrolling region, autowrap, scrollback, the VT100/ANSI/
-  VT52 state machine, `TerminalCell`. Imports Foundation and nothing else.
-  - Side effects became drained queues instead of direct calls, which is what
-    made it testable: `pendingResponses` / `takeResponses()` for device reports
-    (CPR, DSR, DA, ESC Z), `pendingBells` / `takeBells()` for BEL.
-  - `EmulatorViewModel` keeps `@Published var screen` and forwards
-    `terminalCells`, `cursorRow/Col`, `cursorVisible`, `displayCells`,
-    `scrollback*`, `eraseScreen()`, `clearTerminal()`. `drainTerminalEffects()`
-    is the one place the queues are emptied.
-  - `reset()`'s power-on block became `screen.resetToPowerOn()`.
-- **NEW `Tests/TerminalScreenTests.swift` — 261 checks**, all through the public
-  `receive(_:)` byte path: cursor motion and clamping, ED/EL/ECH, ICH/DCH,
-  IL/DL (including the clamp that used to trap), DECSTBM, SU/SD, deferred
-  autowrap, save/restore cursor, answerbacks, private markers and intermediate
-  bytes, VT52, background-colour erase, scrollback capture/cap/anchoring, and
-  the three different clears.
-
-### 2. "[MAC] new disks are always 8 MB and the size is hardcoded twice" — CLOSED (see open question)
-- **NEW `iOSCPM/Views/DiskSize.swift`** + **`Tests/DiskSizeTests.swift` (63
-  checks)**, which re-read `HD1K_SINGLE_SIZE` / `HD1K_PREFIX_SIZE` /
-  `HD512_SINGLE_SIZE` out of `iOSCPM/Core/emu_init.h` so an upstream change
-  fails a test rather than a user's file picker.
-  - Gotcha found and worked around: the shared core is CRLF, and Swift folds
-    `\r\n` into one grapheme, so `split(separator: "\n")` returns the whole file
-    as one line. Use `split(whereSeparator: \.isNewline)`.
-- `EmptyDiskDocument(sizeBytes:)` and `createNewDisk(at:size:)` both read
-  `viewModel.newDiskSize` now — that was the actual bug: the exporter wrote the
-  file first with its own hardcoded 8 MB.
-- Settings gained a "New Disk Size" picker.
-
-### 3. "[MAC] parity gap: no on-screen navigation/function key row" — CLOSED
-- `KeyRowLayout` and `SpecialKey.shortLabel` added to `KeyMap.swift`
-  (UIKit-free); `SpecialKeyRow` / `SpecialKeyButton` added to `TerminalView.swift`,
-  drawn under the terminal in `TerminalWithToolbar`.
-- Three pages: Nav / Fn / Ctrl. The Ctrl page matters on Catalyst, where
-  WindowServer eats Ctrl+arrow before the app sees it.
-- `showKeyRow` setting (default on) + Settings toggle.
-- `Tests/KeyMapTests.swift` grew to 143 checks; the load-bearing one asserts
-  **every** `SpecialKey` case is reachable from some page.
-
-### 4. "[MAC] parity gap: the bell is not a setting" — CLOSED
-- `bellEnabled` lives on `TerminalScreen` next to the counter it gates (where
-  z80cpmw 480edcb put it, for the same reason), persisted by the view model,
-  Settings toggle. `resetToPowerOn()` deliberately does not touch it — the
-  setting is the user's, not the guest's — and a test asserts that.
-
-### 5. "[MAC] parity gap: no Catalyst window-state persistence and no Emulator menu" — CLOSED
-- **NEW `iOSCPM/Views/WindowFrame.swift`** (pure, CoreGraphics only) +
-  **`Tests/WindowFrameTests.swift` (34 checks)**: what a remembered frame is
-  refused for — too small, larger than the display, off every display.
-- **NEW `iOSCPM/Views/CatalystWindow.swift`**, `#if targetEnvironment(macCatalyst)`
-  only: `sizeRestrictions.minimumSize` always, and
-  `requestGeometryUpdate(.Mac(systemFrame:))` behind `#available(iOS 16)`. Below
-  iOS 16 there is no supported way to place the window and the file says so
-  rather than reaching for a private API.
-- `iOSCPMApp.swift` gained a real **Emulator menu** (`EmulatorMenuCommand`)
-  reaching `ContentView` by the same NotificationCenter hop the Help item
-  already used: Start/Stop ⌘R, Reset ⌘⇧R, Clear Screen ⌘K, Jump to Live ⌘L,
-  Save All Disks ⌘S, Open Imports/Exports, Settings ⌘,.
-  - A spec agent argues for hoisting the view model to `@StateObject` in the App
-    instead of the notification hop, and for size-only restore with a
-    `min == max` pulse. Both are worth reading in `.wip/spec-journal.jsonl`
-    before this is called finished.
-
-### 6. "[MAC] parity gap: no configuration profiles" — CLOSED
-- **NEW `iOSCPM/Views/EmulatorProfile.swift`**: `EmulatorProfile` (ROM, four
-  disk slots, boot string, key profile + custom bindings, scrollback, bell,
-  manifest warning, key row, new-disk size) and `ProfileStore`
-  (save/rename/delete/apply/last-used/unique-name), all pure values.
-- `EmulatorViewModel` gained `currentProfile(named:)`, `saveCurrentProfile`,
-  `updateProfile`, `deleteProfile`, `renameProfile`, `applyProfile` (which
-  reports what it could not resolve rather than failing whole).
-- `ProfileSection` / `ProfileRow` in `ContentView.swift`.
-- **`Tests/EmulatorProfileTests.swift` — 62 checks**, mostly about profiles
-  arriving from an older version or a hand-edited plist.
-- Bug fixed on the way: `isRestoringSelections` was declared "to prevent didSet
-  during restore" and **was never consulted**, so the restore loop rewrote the
-  `selectedDisks` defaults key three times with half-applied state. The `didSet`
-  now honours it and both restore and profile-apply persist once at the end.
-
-### 7. Both `[RELEASE]` items and the "Needs a person at the app" pointer — CLOSED
-A research agent triaged these sentence by sentence. Almost all of it was
-already carried in `KNOWN_PROBLEMS.md`, `docs/DISK_W8FIX_RUNBOOK.md`,
-`docs/DISK_CATALOG_PINNING.md` or `CHANGELOG.md`, or was narration of finished
-work. Two findings mattered:
-
-- **"do not bump releaseTag (still v1.4.5)" is factually false.** Commit
-  `0010591` already set `releaseTag = "v1.4.12"`. Carrying it forward as a rule
-  would have invited an agent to revert an R8 data-loss fix. Deleted, not moved.
-- **"archiving works, distribution signing is missing" was carried nowhere.**
-  That is the load-bearing sentence in the whole item and is now a standing fact
-  in `KNOWN_PROBLEMS.md`.
-
-Applied:
-- **NEW `tools/check-store-version.sh`** (companion to `check-disk-pins.sh`).
-  Measures what the Store serves, brackets it to a build through `CHANGELOG.md`,
-  compares with `CURRENT_PROJECT_VERSION`, and checks z80cpmw's
-  `FEATURE_PARITY.md` `shipped:` field. **Run and verified today: exit 0** —
-  Store serves 1.4.9 (2026-03-19, 168 days ago), tree is 1.5.1 build 58,
-  `shipped:37` agrees. Being ahead of the Store is not a failure.
-- `CLAUDE.md`: two new sections — "Never write down a shipped state you have not
-  measured" and "Releasing disk images: read the runbook first".
-- `KNOWN_PROBLEMS.md`: new "Releasing" section (archive ≠ upload), and its
-  dangling `See the [RELEASE] item in todo.txt` reference repaired.
-- Dangling `todo.txt` pointers repaired in `docs/DISK_DISTRIBUTION.md`,
-  `docs/DISK_CATALOG_PINNING.md`, `EmulatorViewModel.swift` and
-  `Tests/CGAColorTests.swift`.
-- The "Needs a person at the app" pointer carried nothing `MANUAL_CHECKS.md`
-  does not already say in more detail — delete it, move nothing.
 
 ## STILL TO DO
 
@@ -265,32 +146,10 @@ Applied:
      `esc.txt` must print `Reading: /.../Documents/Imports/esc.txt`, lowercase.
 
 
-2. **Empty `todo.txt`.** Not done yet — deliberately, because item 1 above is
-   still open and the file must not be emptied while something is genuinely
-   open. When it is: keep the header (it explains what the file is for and
-   `MANUAL_CHECKS.md` points at it) and leave no items under it.
-
-3. **`MANUAL_CHECKS.md`** needs entries for what cannot be verified here: the
+2. **`MANUAL_CHECKS.md`** needs entries for what cannot be verified here: the
    key row on a phone, the Emulator menu and window restore under Catalyst,
    applying a profile, creating a multi-slice disk and seeing the extra drive
    letters, and the bell toggle.
-
-4. **`CHANGELOG.md`** entry, and **bump `CURRENT_PROJECT_VERSION` 58 → 59** in
-   both places in the pbxproj. **Do not touch `MARKETING_VERSION`** (CLAUDE.md).
-
-5. **This is on a branch, not `main`.** The repo normally commits to `main`
-   directly, but none of the SwiftUI/UIKit half has ever been compiled, so it
-   goes on `todo-sweep-2026-09-03` until a machine with Xcode has built it.
-   Merge it to `main` only after `xcodebuild` succeeds.
-
-## New files (all registered in project.pbxproj and Tests/run_tests.sh)
-
-    iOSCPM/Views/TerminalScreen.swift      Tests/TerminalScreenTests.swift    261
-    iOSCPM/Views/DiskSize.swift            Tests/DiskSizeTests.swift           63
-    iOSCPM/Views/WindowFrame.swift         Tests/WindowFrameTests.swift        34
-    iOSCPM/Views/CatalystWindow.swift      (Catalyst-only, cannot be tested here)
-    iOSCPM/Views/EmulatorProfile.swift     Tests/EmulatorProfileTests.swift    62
-    tools/check-store-version.sh           (standalone, needs the network)
 
 ## Verification available on this machine
 

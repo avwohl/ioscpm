@@ -11,129 +11,8 @@ build.  Tag each item with what it needs, so a session on another machine can
 see at a glance what that machine can take.
 
 
-Release
--------
-
-- [RELEASE] build 58 is queued for release and the Store still serves 1.4.9.
-  Re-measured 2026-09-03 with the command below: version 1.4.9, released
-  2026-03-19, which is builds 36/37.  Queued is not released - it can sit in
-  review, be rejected, or be held - so nothing that records what ships may move
-  until the lookup says otherwise:
-
-    curl 'https://itunes.apple.com/lookup?bundleId=com.awohl.cpm'
-
-  z80cpmw's FEATURE_PARITY.md carries the number as `shipped:37` in its
-  sibling-readings block, and check-sibling-drift.sh fails that column until the
-  tree and the Store agree.  It is right to keep failing.  Setting it to 58 on
-  the strength of a submission would be the same move as certifying a column
-  against a tree nobody has, which is the failure that block exists to catch.
-
-  What 58 carries that no user has: terminal scrollback that actually retains
-  anything.  It had never captured a line from build 42 to build 56 - the
-  line-feed path called scrollRegion, which shifts rows without keeping them,
-  where only scrollUp appends - so the feature was in every release note and in
-  no shipped build.  Also the wheel, which truncated each notch to zero lines
-  and discarded the remainder; pointer-drag selection, which did not exist at
-  all; and resetScrollback, so starting the machine clears the history as
-  resetting it always did.
-
-  It also unblocks the item below.  That one says the gap, not the pin, is the
-  blocker for moving releaseTag, and 58 releasing is what closes the gap: a
-  build carrying the build 52 sanitiser would finally be one users have.  Do not
-  move the pin on the strength of the submission.  Measure first.
-
-  Archiving works and distribution signing is the missing piece.  build 58
-  archives clean for generic/platform=iOS, but with the `Apple Development`
-  identity, which cannot be exported for the Store; the upload needs a
-  distribution certificate, an App Store profile, and an App Store Connect API
-  key, none of which are on the machine that built it.
-
-- [RELEASE] do not bump releaseTag (grep releaseTag in EmulatorViewModel.swift,
-  still v1.4.5).  This is step 5 of romwbw_emu docs/RELEASE_ORDER_2026-08-25.md
-  and it is the only step left; step 4 finished on 2026-09-01, publishing the
-  refreshed images as this repo's v1.4.12 - a PRERELEASE, 29 assets, catalog
-  version attribute deliberately left at 13, releases/latest still v1.4.11 and
-  v1.4.5 untouched.  Moving the pin is what puts a path-capable W8 in front of
-  users, so it waits on a build carrying the build 52 sanitiser being one users
-  actually HAVE.
-
-  The premise that made that wait look shorter than it is was corrected upstream
-  on the same day, and it is the thing to read before planning any release:
-
-    the App Store serves 1.4.9, released 2026-03-19, which is builds 36/37.
-    MEASURED - curl 'https://itunes.apple.com/lookup?bundleId=com.awohl.cpm'.
-
-  The catalog pin landed in build 42.  Builds 36/37 predate it and fetch the
-  catalog and the images from releases/latest/download/, not from any tag.  So
-  for every device actually in service, a NORMAL release becomes Latest and is
-  fetched immediately, and those builds contain checkCatalogVersionAndInvalidate.
-  What protected users at step 4 was --prerelease, which keeps a tag from
-  becoming Latest.  Treat that flag as load-bearing.  Build 58 is twenty-one builds
-  and six months past what the Store serves; the gap, not the pin, is the
-  blocker, and the item above is the one that closes it.
-
-  Two hazards that came out of step 4 and are now written into
-  docs/DISK_W8FIX_RUNBOOK.md rather than left here: --clobber against v1.4.5 is
-  forbidden absolutely, and hd1k_combo_ioscpm_w8fixed.img must never be
-  republished - it is byte-identical to the UNFIXED combo despite its name.
-
-  The second data-loss path on this step - the catalog version attribute wiping
-  the disk library - is NARROWED as of build 56, not closed.  deleteCatalogDisks
-  takes only the images the new catalog names, so an imported or created disk
-  survives.  That does nothing for builds 36/37, which have the old loop and
-  fetch from releases/latest, so the ordering constraint above is unchanged.
-  Copy-on-write - the only option that helps a user who kept data INSIDE a
-  catalog disk - is still open and is in KNOWN_PROBLEMS.md.
-
 Needs a Mac
 -----------
-
-- [MAC] new disks are always 8 MB and the size is hardcoded twice.
-  createNewDisk(at:size:) takes a size: its single ContentView call site does
-  not pass, and the .fileExporter that runs first hands it EmptyDiskDocument,
-  whose fileWrapper writes its own Data(repeating: 0xE5, count: 8 * 1024 * 1024)
-  without consulting defaultDiskSize.  A size picker has to feed both or the
-  exporter lays down 8 MB and only the rewrite honours the choice.  Imported
-  disks are already accepted up to maxDiskSize (64 MB).  A created disk is 0xE5
-  fill and no filesystem, which is what the cpmtools recipe in KNOWN_PROBLEMS.md
-  works around.
-
-- [MAC] the CSI parser still has no unit tests OUTSIDE SGR.  Build 55 split the
-  rendition out - TerminalRendition.swift, 95 checks in
-  Tests/TerminalRenditionTests.swift - so the whole of `CSI ... m` is now driven
-  by a test.  Nothing else is.  executeCSI and processCSIChar are still inside
-  EmulatorViewModel with a screen behind them, so the cursor, the scrolling
-  region, the erase family, deferred autowrap and the answerbacks are verified
-  by reading and by watching a simulator.  Build 55's own private-marker and
-  intermediate-byte fixes are in that untested half and were checked with a
-  screenshot.  The screen model - terminalCells, the cursor, scrollTop and
-  scrollBottom, scrollback - is the next and biggest extraction, and it is the
-  same move TerminalDialect, ControlKey, ExportPath, CGAColor and now
-  TerminalRendition were each made for.  Copy z80cpmw's tests/: bytes in through
-  the public write path, screen out through the public accessor, cursor through
-  ESC [ 6 n.  Its tests/test_vt52.cpp is at 516 checks and already asserts the
-  erase cases.
-
-- [MAC] parity gaps, in rough order of how much they are missed.  Each is a
-  feature, not a sync gap - none blocks taking a core release.
-  - no on-screen navigation/function key row, so on an iPhone or a
-    keyboard-less iPad none of the map's 22 keys can be pressed at all.  Largest
-    gap, and build 51 widened it by adding twelve more.  The toolbar in
-    TerminalWithToolbar (TerminalView.swift) is Ctrl, Esc, Tab and a Spacer and
-    is the place to grow one; SpecialKey.functionKeys exists to feed it.  No
-    worked example in the family to copy - z80cpmw's FEATURE_PARITY.md says the
-    same.
-  - the bell is not a setting.  processNormalChar's 0x07 arm calls
-    playBeep(durationMs: 100) with nothing to consult, so a guest that BELs in a
-    loop cannot be shut up.  cpmdroid made it a setting first and z80cpmw
-    followed in 480edcb (setBellEnabled); this port is now the only one without
-    it, and it is a Settings toggle and one guard.
-  - no configuration profiles - named sets of ROM, disks, boot string, terminal
-    and key map.  KeyProfile (KeyMap.swift) is only the key-map half.
-  - no Catalyst window-state persistence and no Emulator menu; iOSCPMApp.swift
-    replaces only CommandGroup(.help).  Not N/A the way it is for mobile: a
-    Catalyst window is a resizable desktop window that opens at the system
-    default every launch.
 
 - [MAC] emu_host_file_get_read_name() answers truthfully now and R8 still cannot
   hear it, and that is a shape worth fixing rather than a wrong answer.  The
@@ -145,20 +24,23 @@ Needs a Mac
   the honest answer is "".  Watched on the simulator at build 55 against an image
   whose R8 does call 0xEA: `R8 ESC.TXT` for a file stored as `esc.txt` printed
   `Reading: ESC.TXT`.  cpmdroid has the identical shape for the identical reason.
-  Closing it means resolving the name at OPEN time instead of at data time, which
-  means the backend doing the Imports lookup that Swift does today - two copies
-  of a case-insensitive scan that can drift - or the Swift layer answering the
-  open synchronously.  Neither is obviously right, which is why this is an item
-  and not a patch.
 
+  The fix is settled and specified in WIP.md - read it before starting, because
+  an earlier idea recorded there is wrong and named as wrong.  Resolve the name
+  at OPEN time instead of at data time: make this port's open synchronous inside
+  emu_host_file_open_read(), which is what the CLI and Windows backends already
+  do.  No shared-core file changes; emu_io_ios.mm is port-local.  The duplicate
+  case-insensitive scan gets DELETED from Swift rather than added to C++, so
+  there is one resolver and not two that can drift.
 
-Needs a person at the app
--------------------------
+  A second bug falls out of the same edit.  iOS's Documents volume is
+  case-INsensitive, so Swift's fileExists fast path succeeds for a file stored
+  as esc.txt when the CCP asked for ESC.TXT, and the path handed on carries the
+  case the CCP invented rather than the case the file has - so even when the
+  race lands the right way the answer is dishonest.  realpath() does not fix
+  this; always scan and take the directory entry's own spelling.
 
-- See MANUAL_CHECKS.md: build 52's destructive W8/R8 paths, the WordStar diamond
-  and Escape under Catalyst, and Ctrl+arrow on an iPad with a hardware keyboard.
-  Build 55 adds the underline, bold and blink faces on a real device (they were
-  watched on the simulator only) and the SHA256 rejection path, which nothing has
-  exercised against a genuinely corrupt download.  Build 56 adds the narrowed
-  catalog invalidation against a real moved version attribute, and against a disk
-  that is selected or running when it is cleared.
+  Testable here: run_core_suite compiles a .cc suite against the symlinked core
+  and lets the test supply the backend, the way Tests/CoreKeyboardTests.cc
+  already stubs the whole host-file API.  WIP.md also lists six traps that have
+  each bitten this code before, and the manual check that closes the item.
