@@ -130,7 +130,26 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // disks from a different RomWBW release print an HBIOS/CBIOS mismatch warning
     // at boot. Bump this tag together with core/ROM upgrades. Help (HelpView)
     // deliberately stays on releases/latest — help floats, disks are pinned.
-    private static let releaseTag = "v1.4.5"
+    //
+    // v1.4.12 (2026-09-03) replaces v1.4.5, which served an R8 that hands an
+    // unfiltered host basename to F_DELETE: importing a host file whose name
+    // contains ? or * made an ambiguous FCB and erased every matching CP/M file
+    // first, silently. This repository published the fixed image on 2026-09-01
+    // and then went on serving its own users the broken one for two days,
+    // because publishing an asset is not the same as shipping it. tools/
+    // check-disk-pins.sh exists to make that gap fail rather than go unnoticed.
+    //
+    // Safe on both counts the release order asks about, checked rather than
+    // assumed. The invalidation wipe cannot fire: v1.4.5 and v1.4.12 both carry
+    // <disks version="13">, and checkCatalogVersionAndInvalidate only acts on a
+    // change - and since build 56 it clears only disks the catalog can give
+    // back. And the two catalogs are 7042 bytes each differing on one line, the
+    // <sha256> of hd1k_combo.img; byte-diffing the images themselves shows 5,121
+    // bytes changed out of 51,380,224, all of it R8.COM, W8.COM and their two
+    // directory entries, first difference 1.02 MB in - so the RomWBW generation
+    // this comment pins against is byte-identical and the mismatch warning
+    // cannot appear.
+    private static let releaseTag = "v1.4.12"
     private static let catalogURL = "https://github.com/avwohl/ioscpm/releases/download/\(releaseTag)/disks.xml"
     private static let releaseBaseURL = "https://github.com/avwohl/ioscpm/releases/download/\(releaseTag)"
     /// Which releaseTag the cached catalog on disk was fetched under.  The cache
