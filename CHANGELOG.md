@@ -1,5 +1,133 @@
 # Changelog
 
+## Version 1.5.1 (Build 59)
+
+`Tests/run_tests.sh`: 11 suites, 869 checks, all passing — up from 7 suites and
+350.  **Not built.**  There is no Xcode on the machine this was written on, only
+Command Line Tools, so `xcodebuild` does not run and there is no simulator.
+Every previous entry here could claim a clean Catalyst build and this one cannot:
+the SwiftUI and UIKit half has never been compiled.  It needs a real build before
+it is submitted.  That is also why every piece of new logic below was put in a
+type with no UIKit behind it — a command-line suite was the only verification
+available, so the code was shaped to be reachable from one.
+
+Six of `todo.txt`'s seven items close here.  `WIP.md` carries the full state, the
+one open question and the one item still open.
+
+### The CSI parser leaves EmulatorViewModel
+
+"the CSI parser still has no unit tests outside SGR" had been in `todo.txt` since
+build 51, and the reason was structural rather than anybody's neglect: the parser
+sat inside `EmulatorViewModel`, so reaching it meant standing up an emulator and
+an audio engine.
+
+The screen model and the whole escape parser move to `TerminalScreen.swift`,
+which imports Foundation and nothing else.  That is the same move
+`TerminalDialect`, `ControlKey`, `ExportPath`, `CGAColor` and `TerminalRendition`
+were each an earlier step of, for the same one reason.  The two side effects that
+made it untestable become drained queues instead of calls outward:
+`takeResponses()` for CPR/DSR/DA/ESC Z, `takeBells()` for BEL.
+
+261 checks now drive it through the single public byte path a guest actually has,
+covering the cursor, the erase family, insert/delete, DECSTBM, SU/SD, deferred
+autowrap, the answerbacks, the private markers, VT52, background-colour erase and
+the scrollback.
+
+### New disks: a size picker that cannot write a file the core refuses
+
+The item said the size was hardcoded twice and that a picker had to feed both.
+It does now, and the trap was worse than the item knew.  `emu_check_disk_size()`
+accepts exactly 8,388,608; a 1 MB prefix plus whole 8 MB hd1k slices; or whole
+8,519,680-byte hd512 slices.  **A round 16, 32 or 64 MB image is refused** — so a
+picker offering the obvious numbers would have written images the core rejects.
+
+`DiskSize.swift` offers only sizes that pass, and `DiskSizeTests` re-reads
+`HD1K_SINGLE_SIZE`, `HD1K_PREFIX_SIZE` and `HD512_SINGLE_SIZE` out of
+`iOSCPM/Core/emu_init.h`, so an upstream change to the core fails a test here
+rather than a user's file picker.
+
+The actual bug behind the item: `EmptyDiskDocument` wrote the file first at its
+own hardcoded 8 MB.  Both it and `createNewDisk(at:size:)` read
+`viewModel.newDiskSize` now.
+
+Gotcha worth recording — the shared core is CRLF, and Swift folds `\r\n` into one
+grapheme, so `split(separator: "\n")` hands back the whole file as a single line.
+Use `split(whereSeparator: \.isNewline)`.
+
+### The on-screen key row
+
+The largest parity gap.  Every key in the map arrived through `UIKey`, so on a
+phone none of the 26 could be pressed at all — and build 51 widened the gap by
+adding twelve more.  Three pages under the terminal now, and the assertion that
+matters is that every `SpecialKey` case appears on one of them.
+
+The Ctrl page earns its place on Catalyst, where WindowServer takes Ctrl+arrow
+before the app is offered the press; there the row is the only way to send those
+four.
+
+### The bell is a setting
+
+Gated inside `TerminalScreen` next to the counter — where z80cpmw put it, in
+`480edcb`, and for the same reason: suppression is then testable with no audio
+engine anywhere near it.  `resetToPowerOn()` deliberately does not touch it, because
+the setting belongs to the user and not to the guest, and a test says so.
+
+### Catalyst: an Emulator menu, and window state that survives a quit
+
+A real Emulator menu, reaching `ContentView` by the same `NotificationCenter` hop
+the Help item already used.
+
+Window state splits along the line that decides what can be tested:
+`WindowFrame.swift` decides what a remembered frame may legally be restored to
+and has 34 checks; `CatalystWindow.swift` makes the UIKit calls and has none.
+Below iOS 16 there is no supported way to place a window, and the file says so
+rather than reaching for a private API.
+
+### Configuration profiles
+
+`KeyProfile` was only the key-map half; `EmulatorProfile` is the machine.
+
+It deliberately does not carry the security-scoped bookmarks.  A bookmark is a
+token issued to one installation, not a name — a profile carrying one would
+either fail to resolve on another device or, worse, look like it had restored a
+disk it had not.
+
+### Found on the way
+
+`isRestoringSelections` was declared "to prevent didSet during restore" and was
+then never actually consulted, so the restore loop rewrote the `selectedDisks`
+defaults key three times over with half-applied state.
+
+### The two [RELEASE] items, and a script instead of a number
+
+Triaged sentence by sentence.  Almost all of it was already carried in
+`KNOWN_PROBLEMS.md`, the runbook, `docs/DISK_CATALOG_PINNING.md` or this file, or
+was narration of finished work.  Two sentences were not.
+
+"do not bump releaseTag (still v1.4.5)" was **false at HEAD** — `0010591` had
+moved it to v1.4.12 two commits before the todo was last edited.  Carried
+forward as a rule, it would have invited someone to revert an R8 data-loss fix.
+Deleted rather than moved.
+
+"archiving works and distribution signing is the missing piece" was carried
+nowhere, and is the load-bearing sentence of the whole item.  It is a standing
+fact in `KNOWN_PROBLEMS.md` now.
+
+The rest was a number that goes stale, so it becomes a measurement instead:
+`tools/check-store-version.sh`, companion to `check-disk-pins.sh`.  It curls the
+iTunes lookup, maps the shipped version to a build through this file, and
+compares that with `CURRENT_PROJECT_VERSION`.  Being ahead of the Store is normal
+and it does not treat that as a failure.  `CLAUDE.md` gains the three rules that
+follow from it, because it had said nothing whatever about releases and an agent
+that never opens `docs/` had no way to learn them.
+
+Five files pointed at `todo.txt` for content that stops existing there.  All five
+point at where it actually lives now.
+
+`todo.txt` is deliberately **not** emptied: one item is genuinely still open, and
+emptying the file around it would be the exact move the file's own header warns
+against.
+
 ## Version 1.5.1 (Build 58)
 
 `Tests/run_tests.sh`: 350 checks, all passing.  Catalyst build clean, launched
