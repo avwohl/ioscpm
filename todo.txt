@@ -14,6 +14,40 @@ see at a glance what that machine can take.
 Release
 -------
 
+- [RELEASE] build 58 is queued for release and the Store still serves 1.4.9.
+  Re-measured 2026-09-03 with the command below: version 1.4.9, released
+  2026-03-19, which is builds 36/37.  Queued is not released - it can sit in
+  review, be rejected, or be held - so nothing that records what ships may move
+  until the lookup says otherwise:
+
+    curl 'https://itunes.apple.com/lookup?bundleId=com.awohl.cpm'
+
+  z80cpmw's FEATURE_PARITY.md carries the number as `shipped:37` in its
+  sibling-readings block, and check-sibling-drift.sh fails that column until the
+  tree and the Store agree.  It is right to keep failing.  Setting it to 58 on
+  the strength of a submission would be the same move as certifying a column
+  against a tree nobody has, which is the failure that block exists to catch.
+
+  What 58 carries that no user has: terminal scrollback that actually retains
+  anything.  It had never captured a line from build 42 to build 56 - the
+  line-feed path called scrollRegion, which shifts rows without keeping them,
+  where only scrollUp appends - so the feature was in every release note and in
+  no shipped build.  Also the wheel, which truncated each notch to zero lines
+  and discarded the remainder; pointer-drag selection, which did not exist at
+  all; and resetScrollback, so starting the machine clears the history as
+  resetting it always did.
+
+  It also unblocks the item below.  That one says the gap, not the pin, is the
+  blocker for moving releaseTag, and 58 releasing is what closes the gap: a
+  build carrying the build 52 sanitiser would finally be one users have.  Do not
+  move the pin on the strength of the submission.  Measure first.
+
+  Archiving works and distribution signing is the missing piece.  build 58
+  archives clean for generic/platform=iOS, but with the `Apple Development`
+  identity, which cannot be exported for the Store; the upload needs a
+  distribution certificate, an App Store profile, and an App Store Connect API
+  key, none of which are on the machine that built it.
+
 - [RELEASE] do not bump releaseTag (grep releaseTag in EmulatorViewModel.swift,
   still v1.4.5).  This is step 5 of romwbw_emu docs/RELEASE_ORDER_2026-08-25.md
   and it is the only step left; step 4 finished on 2026-09-01, publishing the
@@ -34,9 +68,9 @@ Release
   for every device actually in service, a NORMAL release becomes Latest and is
   fetched immediately, and those builds contain checkCatalogVersionAndInvalidate.
   What protected users at step 4 was --prerelease, which keeps a tag from
-  becoming Latest.  Treat that flag as load-bearing.  Build 56 is twenty builds
+  becoming Latest.  Treat that flag as load-bearing.  Build 58 is twenty-one builds
   and six months past what the Store serves; the gap, not the pin, is the
-  blocker.
+  blocker, and the item above is the one that closes it.
 
   Two hazards that came out of step 4 and are now written into
   docs/DISK_W8FIX_RUNBOOK.md rather than left here: --clobber against v1.4.5 is
