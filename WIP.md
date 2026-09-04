@@ -1,14 +1,16 @@
 # WIP — what is left after the todo sweep
 
-`todo.txt` is down to one open item and one open question, and neither is a
-half-finished change: the item is "build 60 is built and not submitted", which
-needs credentials this machine does not have, and the question is a design choice
-nothing here can settle. This file carries the detail behind both.
+`todo.txt` is down to three open items and one open question, and none is a
+half-finished change. The items are "build 61 is built and not submitted", which
+needs credentials this machine does not have; the rewritten help asset, which
+needs an upload; and section 17's device checks, which need a finger. The
+question is a design choice nothing here can settle. This file carries the
+detail behind all four.
 
 The second sweep, on 2026-09-04, closed four of the five items that were left —
 the synchronous host-file open, both documentation items, and the prerelease
 decision — and added the disk-freshness refresh, which was the unwritten half of
-the [RELEASE] item. `CHANGELOG.md` under build 60 has the whole account.
+the [RELEASE] item. `CHANGELOG.md` under build 61 has the whole account.
 
 ## This machine has Xcode — read this first
 
@@ -25,15 +27,25 @@ here. No `sudo` is needed to use it — set the variable per command:
 
     DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild …
 
-**Build 60 is built.** Clean for the iOS Simulator and for
+**Build 61 is built.** Clean for the iOS Simulator and for
 `-destination 'platform=macOS,variant=Mac Catalyst'`, no warnings on either;
-launched on the iPhone 17 Pro simulator, where it comes up as `v1.5.1.60` with
+launched on the iPhone 17 Pro simulator, where it comes up as `v1.5.1.61` with
 the key row and the scrollback counter painting. The disk refresh was driven end
-to end against a real sandbox. What has **not** happened: nothing submitted,
-nothing run on hardware, CP/M not booted, the Catalyst build compiled but not
-driven. `MANUAL_CHECKS.md` carries the rest.
+to end against a real sandbox.
 
-`Tests/run_tests.sh` is green at **13 suites and 980 checks**. Two things also
+**CP/M now boots here, and the Catalyst build has been run.** Verifying the
+press-and-drag selection fix needed a live machine, so it got one: CP/M 2.2
+boots on the simulator and takes software-keyboard input (`c`⏎, then `dir`),
+scrollback moves `sb 0/12` -> `sb 12/12` on a swipe, and the Catalyst app
+launches and returns real text from a pointer drag plus Cmd+C. That closed
+`MANUAL_CHECKS.md` section 7, which is now a hole in the numbering on purpose.
+
+What has **still** not happened: nothing submitted and nothing run on hardware —
+every measurement above is a simulator or this Mac. `MANUAL_CHECKS.md` carries
+the rest, and its new section 17 is the half of the selection gesture that needs
+a finger.
+
+`Tests/run_tests.sh` is green at **14 suites and 1051 checks**. Two things also
 became checkable that this file said were not, and both are wired into it:
 
 - **`emu_io_ios.mm` compiles.** It is Foundation-only Objective-C++, so
@@ -142,7 +154,7 @@ to leave a zero-byte CP/M file behind.
 
 ## Verification available on this machine
 
-    ./Tests/run_tests.sh                       # 13 suites, 980 checks
+    ./Tests/run_tests.sh                       # 14 suites, 1051 checks
     sh tools/check-store-version.sh            # needs the network
     sh tools/check-disk-pins.sh                # needs the network
     xcrun --sdk macosx swiftc -parse iOSCPM/Views/*.swift iOSCPM/iOSCPMApp.swift

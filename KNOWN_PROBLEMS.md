@@ -108,12 +108,12 @@ The trigger is broader than a download, and the user does not have to do anythin
 
 **The builds in service still have the old loop.** The App Store serves 1.4.9 (builds 36/37); those also fetch the catalog from `releases/latest/download/` rather than from the pinned tag, so for them a *normal* release fires the old wipe immediately. That is why the release order in `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` still governs, and why `--prerelease` on an asset carrier is load-bearing rather than cosmetic. The rules that came out of doing it are in `docs/DISK_W8FIX_RUNBOOK.md`, in the SUPERSEDED block at the top. The "1.4.9" in this paragraph is a measurement with a date on it, not a constant: re-derive it with `tools/check-store-version.sh` before relying on it.
 
-**Build 60 adds the refresh the version attribute could never safely provide, and it is deliberately narrower than a wipe.** `DiskLedger.swift` records, per filename, the catalog `<sha256>` that a *verified* download matched. "Superseded" then means *that recorded provenance differs from the catalog's current hash* — a fact about which published image the bytes came from, which local writes cannot change. That is what lets a respun image reach a device that already has the old one without the version attribute moving at all.
+**Build 61 adds the refresh the version attribute could never safely provide, and it is deliberately narrower than a wipe.** `DiskLedger.swift` records, per filename, the catalog `<sha256>` that a *verified* download matched. "Superseded" then means *that recorded provenance differs from the catalog's current hash* — a fact about which published image the bytes came from, which local writes cannot change. That is what lets a respun image reach a device that already has the old one without the version attribute moving at all.
 
 The reason it is keyed on provenance and not on the file's own hash is this entry. Comparing installed bytes against the catalog classifies **every disk the user has saved work into** as stale, because `saveDownloadedDisks()` writes the running machine's image back over the file on every warm boot and every backgrounding. An automatic refresh keyed on that comparison would be precisely this entry's hazard, automated and unprompted. So an image proven pristine — its bytes still hash to the provenance recorded for it — may be refreshed automatically, and only on an unconstrained, inexpensive network. Anything else is offered as a button that says in as many words that files saved inside the disk will be lost. An install with no ledger yet cannot prove pristineness either way, and therefore never takes the automatic path.
 
-**Still open, and not foreclosed by the narrowing or by build 60:**
-- Copy-on-write: create a local copy when the user first modifies a downloaded disk. This is the only one that helps a user who kept data *in* a catalog disk, which is what the paragraph at the top of this entry is about. Build 60 warns before replacing such a disk and never replaces one unasked; it still cannot preserve the contents.
+**Still open, and not foreclosed by the narrowing or by build 61:**
+- Copy-on-write: create a local copy when the user first modifies a downloaded disk. This is the only one that helps a user who kept data *in* a catalog disk, which is what the paragraph at the top of this entry is about. Build 61 warns before replacing such a disk and never replaces one unasked; it still cannot preserve the contents.
 - Confirm before the wipe, rather than reporting it afterwards. The version-attribute path is unchanged and still reports afterwards; only the new provenance path asks first.
 - None of it reaches the builds in service. 1.4.9 has neither the narrowing nor the ledger.
 
@@ -122,7 +122,7 @@ The reason it is keyed on provenance and not on the file's own hash is this entr
 ### This machine can archive but cannot upload
 
 Not a bug and not a task — a standing fact about the toolchain, re-checked at
-build 58 and again at build 60.
+build 58 and again at build 61.
 
 **This entry was the only one in the repository that was right about the
 toolchain.** `CHANGELOG.md`, `WIP.md` and `todo.txt` all claimed for three builds

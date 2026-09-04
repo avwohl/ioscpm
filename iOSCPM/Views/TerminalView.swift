@@ -299,18 +299,31 @@ class TerminalUIView: UIView, UIKeyInput {
     /// Lines per wheel notch, matching z80cpmw's WM_MOUSEWHEEL handler.
     private static let wheelLineMultiplier: CGFloat = 3
 
-    // Text selection. Anchor is where the drag started, focus where it is now;
-    // the span between them is linear (anchor cell to focus cell, wrapping at
-    // the row end) rather than rectangular, which is what every terminal does
-    // and what makes copying a wrapped line give you the line.
-    private var selAnchor: GridPos?
-    private var selFocus: GridPos?
-    struct GridPos: Equatable { var row: Int; var col: Int
-        var linear: Int { row * 10_000 + col }   // cols is bounded well under this
-    }
+    // Text selection. Where it is, what it covers and what text that is all
+    // live in TerminalSelection.swift, which imports no UIKit and has a suite
+    // behind it; what is left here is the gesture that drives them.
+    //
+    // `isSelecting` is true only while a gesture is live, and it earns its keep
+    // twice. It is what lets a press that has not moved yet paint the one cell
+    // under the finger - a finger, unlike a pointer, has nothing on screen to
+    // say where it is, and z80cpmw's isCellSelected draws on
+    // `m_selecting || m_hasSelection` for that same reason. And it is what
+    // stands the scroll pan down while a selection is being dragged out.
+    private var selection: TerminalSelection?
+    private var isSelecting = false
+
     var hasSelection: Bool {
-        guard let a = selAnchor, let f = selFocus else { return false }
-        return a != f
+        guard let selection = selection else { return false }
+        return !selection.isEmpty
+    }
+
+    /// What to paint. A live gesture shows its cell from the moment of the
+    /// press; a finished one shows only a selection that actually moved.
+    private var visibleSpan: GridSpan? {
+        guard let selection = selection, isSelecting || !selection.isEmpty else {
+            return nil
+        }
+        return selection.span
     }
 
     private let rows: Int
@@ -407,66 +420,61 @@ class TerminalUIView: UIView, UIKeyInput {
     /// that centres the grid. Hit-testing has to use the very same numbers, so
     /// they live in one place rather than being re-derived at each site - the
     /// pan step used to re-derive them wrongly and scrolled at the wrong rate.
-    private var gridTransform: (scale: CGFloat, offsetX: CGFloat, offsetY: CGFloat)? {
-        let terminalWidth = CGFloat(cols) * charWidth
-        let terminalHeight = CGFloat(rows) * charHeight
-        guard terminalWidth > 0, terminalHeight > 0, bounds.width > 0, bounds.height > 0 else {
-            return nil
-        }
-        let scale = min(bounds.width / terminalWidth, bounds.height / terminalHeight)
-        return (scale,
-                (bounds.width - terminalWidth * scale) / 2 + 2,
-                (bounds.height - terminalHeight * scale) / 2)
+    private var geometry: TerminalGeometry {
+        TerminalGeometry(rows: rows, cols: cols,
+                         charWidth: charWidth, charHeight: charHeight)
+    }
+
+    private var gridTransform: TerminalGeometry.Letterbox? {
+        geometry.letterbox(in: bounds.size)
     }
 
     /// The cell under a point in view coordinates, clamped to the grid so a drag
     /// that leaves the view still selects to the edge instead of stopping dead.
     private func cell(at point: CGPoint) -> GridPos? {
-        guard let t = gridTransform, charWidth > 0, charHeight > 0 else { return nil }
-        let gx = (point.x - t.offsetX) / t.scale
-        let gy = (point.y - t.offsetY) / t.scale
-        let col = min(max(0, Int(gx / charWidth)), cols - 1)
-        let row = min(max(0, Int(gy / charHeight)), rows - 1)
-        return GridPos(row: row, col: col)
-    }
-
-    /// Selection ordered start-to-end regardless of which way the drag went.
-    private var selectionSpan: (start: GridPos, end: GridPos)? {
-        guard let a = selAnchor, let f = selFocus, a != f else { return nil }
-        return a.linear <= f.linear ? (a, f) : (f, a)
+        geometry.cell(at: point, in: bounds.size)
     }
 
     private func isSelected(row: Int, col: Int) -> Bool {
-        guard let span = selectionSpan else { return false }
-        let l = GridPos(row: row, col: col).linear
-        return l >= span.start.linear && l < span.end.linear
+        visibleSpan?.contains(row: row, col: col) ?? false
     }
 
     func clearSelection() {
-        guard selAnchor != nil || selFocus != nil else { return }
-        selAnchor = nil
-        selFocus = nil
+        guard selection != nil else { return }
+        selection = nil
+        isSelecting = false
         setNeedsDisplay()
     }
 
-    @objc private func handleSelectPan(_ gesture: UIPanGestureRecognizer) {
-        let point = gesture.location(in: self)
-        switch gesture.state {
+    /// The state machine both platforms' selection gestures run.
+    ///
+    /// On the Mac the gesture is a pointer drag (`handlePan` hands it to
+    /// `handleSelectPan`); on iOS it is a press-and-drag (`handleLongPress`).
+    /// They differ only in which recognizer delivers the states, so the states
+    /// are decided once here rather than twice with a chance to diverge.
+    private func driveSelection(_ state: UIGestureRecognizer.State, at point: CGPoint) {
+        switch state {
         case .began:
-            becomeFirstResponder()
-            selAnchor = cell(at: point)
-            selFocus = selAnchor
+            guard let start = cell(at: point) else { return }
+            selection = TerminalSelection(anchor: start)
+            isSelecting = true
             setNeedsDisplay()
         case .changed:
-            let f = cell(at: point)
-            if f != selFocus { selFocus = f; setNeedsDisplay() }
-        case .ended:
-            selFocus = cell(at: point)
+            guard isSelecting, let focus = cell(at: point), selection?.focus != focus else {
+                return
+            }
+            selection?.focus = focus
             setNeedsDisplay()
-            // A drag that never left its starting cell is a click, not a
-            // selection; leaving a zero-width selection behind would make the
-            // next Cmd+C copy nothing at all.
-            if !hasSelection { clearSelection() }
+        case .ended:
+            guard isSelecting else { return }
+            if let focus = cell(at: point) { selection?.focus = focus }
+            isSelecting = false
+            // A gesture that never left its starting cell is a click, not a
+            // selection. Leaving one behind would make the next Copy quietly
+            // mean "one character" instead of "the whole screen", with nothing
+            // on screen to explain the difference.
+            if !hasSelection { selection = nil }
+            setNeedsDisplay()
         case .cancelled, .failed:
             clearSelection()
         default:
@@ -474,33 +482,28 @@ class TerminalUIView: UIView, UIKeyInput {
         }
     }
 
+    @objc private func handleSelectPan(_ gesture: UIPanGestureRecognizer) {
+        // Taking first responder at .began is safe on the Mac and is not on
+        // iOS: there, it raises the software keyboard, SwiftUI shrinks the
+        // terminal to make room, and gridTransform recomputes under a finger
+        // that has not moved. See handleLongPress for where iOS does it.
+        if gesture.state == .began { becomeFirstResponder() }
+        driveSelection(gesture.state, at: gesture.location(in: self))
+    }
+
     /// The selected text: linear from start to end, one "\n" per row boundary,
     /// trailing blanks on each row dropped. Because `cells` is whatever is on
     /// screen, this copies out of scrollback when the view is scrolled back.
     private func selectedText() -> String? {
-        guard let span = selectionSpan else { return nil }
-        var out = ""
-        for row in span.start.row...span.end.row {
-            guard row < cells.count else { break }
-            let first = (row == span.start.row) ? span.start.col : 0
-            let last = (row == span.end.row) ? span.end.col - 1 : cols - 1
-            guard first <= last else { if row != span.end.row { out += "\n" }; continue }
-            var line = ""
-            for col in first...min(last, cells[row].count - 1) {
-                line.append(cells[row][col].character)
-            }
-            out += String(line.reversed().drop(while: { $0 == " " }).reversed())
-            if row != span.end.row { out += "\n" }
-        }
-        return out
+        guard hasSelection, let selection = selection else { return nil }
+        return selection.text(from: cells)
     }
 
     /// Height of one *drawn* text row, in view points - the pitch the user
     /// actually sees, not bounds.height / rows, which overstates it whenever
     /// width is the binding dimension.
     private var drawnRowPitch: CGFloat {
-        guard let t = gridTransform else { return 0 }
-        return charHeight * t.scale
+        geometry.rowPitch(in: bounds.size)
     }
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
@@ -517,6 +520,17 @@ class TerminalUIView: UIView, UIKeyInput {
             return
         }
         #endif
+
+        // A selection drag owns the finger. gestureRecognizerShouldBegin below
+        // should already have stopped the pan from starting, and this is the
+        // belt to that pair of braces - but it must ABSORB the translation, not
+        // just return: panLastTranslation is only reset at .began and at the
+        // end states, and panResidual survives a gesture on purpose, so a bare
+        // return would bank the whole drag and spend it in one jump later.
+        if isSelecting {
+            panLastTranslation = gesture.translation(in: self).y
+            return
+        }
 
         let rowPitch = drawnRowPitch
         guard rowPitch > 0 else { return }
@@ -580,27 +594,117 @@ class TerminalUIView: UIView, UIKeyInput {
         clearSelection()
     }
 
+    /// Press and hold to start a selection, drag to extend it, lift to be
+    /// offered Copy.
+    ///
+    /// Build 57 gave the Mac a pointer drag and left iOS with nothing, on the
+    /// stated grounds that "on iOS a finger drag is the only way to scroll, so
+    /// it keeps that job". The first half of that is still true and the
+    /// conclusion was too strong: a finger drag is the only way to *scroll*, but
+    /// a finger that has held still for half a second is not scrolling. That is
+    /// the whole of the disambiguation, and it is UIKit's, not ours - a flick
+    /// reaches the pan's movement threshold long before the long press's
+    /// duration, and a hold reaches the duration without the movement.
+    ///
+    /// So no recognizer is added, none is reordered, and neither
+    /// `require(toFail:)` nor simultaneous recognition is asked for. Both would
+    /// break the scrolling this is required not to touch: requiring the long
+    /// press to fail stalls every scroll for `minimumPressDuration`, and
+    /// recognizing both at once puts `handlePan` on the same finger, where its
+    /// `clearSelection()` erases the highlight as fast as the drag draws it.
+    /// The one recognizer that was already attached simply stops throwing its
+    /// `.changed` and `.ended` states away.
     @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        #if targetEnvironment(macCatalyst)
+        // On the Mac the pointer drag already selects, so a press-and-hold here
+        // means only "show me the menu", exactly as it did before.
         guard gesture.state == .began else { return }
         becomeFirstResponder()
+        presentMenu(from: CGRect(origin: gesture.location(in: self), size: CGSize(width: 1, height: 1)))
+        #else
+        let point = gesture.location(in: self)
+        driveSelection(gesture.state, at: point)
+
+        switch gesture.state {
+        case .began:
+            // The press has taken. Say so through the one channel a finger
+            // covering the cell can still perceive - the highlight it is
+            // sitting on top of is the thing it is hiding.
+            UISelectionFeedbackGenerator().selectionChanged()
+        case .ended:
+            // First responder is taken HERE and not at .began. The view is a
+            // UIKeyInput, so becomeFirstResponder raises the software keyboard;
+            // SwiftUI's keyboard avoidance then shrinks the terminal, and
+            // gridTransform would recompute mid-drag under a finger that had
+            // not moved. The menu is the only thing that needs the status, and
+            // by .ended the drag is over.
+            becomeFirstResponder()
+            let anchor = selection.flatMap { geometry.rect(of: $0.span, in: bounds.size) }
+                ?? CGRect(origin: point, size: CGSize(width: 1, height: 1))
+            presentMenu(from: anchor)
+        default:
+            break
+        }
+        #endif
+    }
+
+    /// The edit menu, anchored to whatever the gesture was about.
+    ///
+    /// Still UIMenuController, which is deprecated as of iOS 16 and still works:
+    /// it was measured presenting on iOS 26.5, custom items and all, and it is
+    /// now a shim over the same `_UIEditMenuContainerView` that
+    /// UIEditMenuInteraction builds. Moving to UIEditMenuInteraction would
+    /// change nothing a user can see and would cost two things - its
+    /// `presentEditMenu` is documented as unsupported on Mac Catalyst while
+    /// typechecking clean there, and custom selectors do not reach its
+    /// `suggestedActions`, so Copy All would have to be rebuilt as a UIAction or
+    /// vanish. The deprecation is a reason to write that down, not to do it
+    /// inside a fix for something else.
+    private func presentMenu(from rect: CGRect) {
+        var items: [UIMenuItem] = []
+        #if targetEnvironment(macCatalyst)
+        // The Mac's Copy is this item and has been since build 57, where it was
+        // driven and works. It is NOT added on iOS, where the menu was measured
+        // rendering the system's own Copy as well - `canPerformAction` claims
+        // `copy(_:)`, which routes to the same copyText - and the two together
+        // read as "Copy | AutoFill | Copy". One selection, two identical items.
+        // The system's is the one that stays, because it is the one that
+        // localises itself; nothing about the Mac's menu is touched to get that.
+        if hasSelection {
+            items.append(UIMenuItem(title: "Copy", action: #selector(copyText)))
+        }
+        #endif
+        items.append(UIMenuItem(title: "Copy All", action: #selector(copyAllText)))
+        // Paste is here because on a phone there was no way to reach it at all:
+        // pasteText had exactly one caller, the Cmd+V key command, which needs
+        // a hardware keyboard. z80cpmw's context menu has carried Copy AND
+        // Paste since it was written, and greys Paste on an empty clipboard;
+        // `hasStrings` is the way to ask that without reading the pasteboard,
+        // which would post the "pasted from" banner every time the menu opened.
+        if UIPasteboard.general.hasStrings {
+            items.append(UIMenuItem(title: "Paste", action: #selector(pasteText)))
+        }
 
         let menuController = UIMenuController.shared
-        var items = [UIMenuItem(title: "Copy All", action: #selector(copyAllText))]
-        if hasSelection {
-            items.insert(UIMenuItem(title: "Copy", action: #selector(copyText)), at: 0)
-        }
         menuController.menuItems = items
+        menuController.showMenu(from: self, rect: rect)
+    }
 
-        let location = gesture.location(in: self)
-        let menuRect = CGRect(x: location.x, y: location.y, width: 1, height: 1)
-        menuController.showMenu(from: self, rect: menuRect)
+    /// While a selection is being dragged out, the scroll pan must not also
+    /// start. This is the hard veto - UIKit documents returning false here as
+    /// sending the recognizer straight to .failed, where
+    /// `shouldRecognizeSimultaneouslyWith` is explicitly only advisory. UIView
+    /// is asked directly because neither recognizer has a delegate.
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if isSelecting, gestureRecognizer is UIPanGestureRecognizer { return false }
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
     }
 
     override var canBecomeFirstResponder: Bool { true }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(copyText) || action == #selector(copyAllText)
-            || action == #selector(copy(_:)) {
+            || action == #selector(copy(_:)) || action == #selector(pasteText) {
             return true
         }
         return super.canPerformAction(action, withSender: sender)
@@ -802,22 +906,7 @@ class TerminalUIView: UIView, UIKeyInput {
     }
 
     @objc private func copyAllText() {
-        // Copy all terminal content to clipboard
-        var text = ""
-        for row in cells {
-            var line = ""
-            for cell in row {
-                line.append(cell.character)
-            }
-            // Trim trailing spaces
-            line = String(line.reversed().drop(while: { $0 == " " }).reversed())
-            text += line + "\n"
-        }
-        // Remove trailing empty lines
-        while text.hasSuffix("\n\n") {
-            text.removeLast()
-        }
-        UIPasteboard.general.string = text
+        UIPasteboard.general.string = TerminalSelection.allText(from: cells)
     }
 
     @objc private func pasteText() {

@@ -157,6 +157,21 @@ run_suite TerminalScreenTests \
     "$ROOT/iOSCPM/Views/TerminalScreen.swift" \
     "$ROOT/Tests/TerminalScreenTests.swift"
 
+# Where a selection is, what it covers, what text that is, and where on a
+# letterboxed screen a given cell actually sits. All of it was private state and
+# private methods on TerminalUIView until build 61 - which is why the half-open
+# span that dropped the last selected cell, and the text extractor that trapped
+# on a row shorter than the selection, both shipped. The gesture that drives
+# this needs a finger and is in MANUAL_CHECKS.md; every decision it makes is
+# here.
+run_suite TerminalSelectionTests \
+    "$ROOT/iOSCPM/Views/CGAColor.swift" \
+    "$ROOT/iOSCPM/Views/TerminalRendition.swift" \
+    "$ROOT/iOSCPM/Views/TerminalDialect.swift" \
+    "$ROOT/iOSCPM/Views/TerminalScreen.swift" \
+    "$ROOT/iOSCPM/Views/TerminalSelection.swift" \
+    "$ROOT/Tests/TerminalSelectionTests.swift"
+
 # The sizes the "New Disk" picker offers, against the rule emu_check_disk_size()
 # applies. This suite reads the three geometry constants back out of
 # iOSCPM/Core/emu_init.h, so an upstream change to them fails here rather than

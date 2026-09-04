@@ -70,7 +70,7 @@ dropped from the catalog in the same bump are all kept. The alert afterwards
 gives both counts. Before build 56, `deleteAllDownloadedDisks()` took every `.img`
 in `Documents/Disks` regardless of where it came from.
 
-**Since build 60 the attribute is no longer the only thing that can refresh an
+**Since build 61 the attribute is no longer the only thing that can refresh an
 image, and it should not be the thing you reach for.** `DiskLedger.swift` records
 which published image each installed file came from — the catalog `<sha256>` a
 verified download matched — so a respun image can be replaced on that evidence

@@ -96,7 +96,7 @@ that already holds `hd1k_combo.img` never re-fetches it, so the flip reaches
 fresh installs and first downloads and nobody else. `todo.txt` claimed "every one
 of those devices starts fetching the fixed R8 on its next catalog read"; that was
 an overstatement and this corrects it. Reaching the rest needs the client-side
-refresh added in build 60 (`DiskLedger.swift`), and therefore needs a build.
+refresh added in build 61 (`DiskLedger.swift`), and therefore needs a build.
 
 **What it cost.** Those builds have no W8 path sanitiser — that is build 52 — and
 refreshing the catalog is what puts a path-capable `W8` in front of a user, which

@@ -14,7 +14,7 @@ see at a glance what that machine can take.
 It is built.  It is not submitted.
 ------------------------------------
 
-- [RELEASE] build 60 compiles clean for the Simulator and for Mac Catalyst, runs
+- [RELEASE] build 61 compiles clean for the Simulator and for Mac Catalyst, runs
   on the iPhone 17 Pro simulator, and has never been submitted.  The App Store
   serves 1.4.9, builds 36/37, from 2026-03-19 - re-measure with
   tools/check-store-version.sh rather than trusting that.  Bump the build number
@@ -53,6 +53,23 @@ It is built.  It is not submitted.
   this repository drew the wrong conclusion from it.
 
     DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild ...
+
+
+- [RELEASE] the rewritten copy/paste section of help_quick_start.md is in this
+  tree and in no user's app.  Help is fetched at runtime from
+  releases/latest/download/ rather than bundled, so editing the file changes
+  nothing until the asset is uploaded - docs/HELP_SYSTEM.md has the flow and
+  docs/DISK_W8FIX_RUNBOOK.md governs the upload, including the rules the
+  2026-09-04 section says were traded and why.  The old text told iPhone users
+  that copy and paste were Cmd+C and Cmd+V, which on a phone is no route at all.
+
+- [DEVICE] MANUAL_CHECKS.md section 17: the press-and-drag selection gesture on
+  a real finger.  Everything a decision can settle is settled in
+  TerminalSelectionTests and was driven on the simulator with synthetic events;
+  what is left is what a synthetic mouse cannot be - a hand that does not hold
+  perfectly still against the default allowableMovement, a drag slow enough to
+  make the scroll-versus-press arbitration a close call, and the haptic, which
+  no simulator fires.
 
 
 Open questions

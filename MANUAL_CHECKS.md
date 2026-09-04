@@ -155,33 +155,17 @@ could not cover:
 
 ---
 
-## 7. Build 60 is built — what that leaves
+## 7. *(closed — build 61 was driven)*
 
-Everything below arrived in `8e7587f` and the 2026-09-04 sweep.  For three builds
-this file said there was no Xcode here and none of it could be compiled.  **That
-was wrong** — `/Applications/Xcode.app` is Xcode 26.6; bare `xcodebuild` only
-fails because `xcode-select` points at the Command Line Tools.  Use:
+All five boxes are measured and the section is gone, per the rule at the top of
+this file.  CP/M 2.2 boots on the iPhone 17 Pro simulator and takes software-
+keyboard input; scrollback moves `sb 0/12` -> `sb 12/12` on a one-finger swipe;
+the Catalyst build launches and its pointer drag and Cmd+C return real text.
+`CHANGELOG.md` under build 61 has the detail.
 
-    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild …
-
-- [x] It builds.  Clean for `-destination 'platform=iOS Simulator,name=iPhone 17
-      Pro'` **and** for `-destination 'platform=macOS,variant=Mac Catalyst'`,
-      with no warnings on either.  Done 2026-09-04 on build 60.
-- [x] It launches and paints.  Installed and launched on the iPhone 17 Pro
-      simulator: comes up as `v1.5.1.60`, prints the banner, and shows the
-      on-screen key row (section 8) and the `sb 0/0` scrollback counter.
-- [ ] It **boots CP/M** and takes keyboard input the way build 58 did.  Not done
-      — the launch check above stopped at the "Press Play to start" screen.  The
-      sweep moved the whole screen model and escape parser out of
-      `EmulatorViewModel` into `TerminalScreen`; the suite says the parser is
-      right, and nothing says the wiring to the view is.
-- [ ] Scrollback still works — build 57 fixed it and build 58 cleared it on
-      start.  Both go through code the extraction moved.
-- [ ] The **Catalyst** build has been compiled but never run.  Everything in
-      sections 2, 9 and 10 needs it launched.
-
-If it stops building and the fix is not small, `git revert 8e7587f` backs the
-first sweep out; it went in as a fast-forward and comes out cleanly.
+**The number is kept as a hole on purpose.**  `todo.txt` and `CHANGELOG.md` cite
+these sections by number ("sections 8 through 16", "sections 14 and 15"), so
+renumbering would silently retarget every one of them.
 
 ## 8. The on-screen key row, on a phone
 
@@ -306,7 +290,7 @@ audio engine near it; the Settings toggle is "Terminal Bell".
 
 ## 14. R8 now says which file it is actually reading
 
-`emu_host_file_open_read()` (`emu_io_ios.mm`) is **synchronous** as of build 60.
+`emu_host_file_open_read()` (`emu_io_ios.mm`) is **synchronous** as of build 61.
 It used to park the request on the main queue and return, so the state was still
 `WAITING_READ` when R8 asked `H_GETRNAME` (0xEA) ten Z80 instructions later, and
 `emu_host_file_get_read_name()` truthfully answered `""` — leaving R8 to print
@@ -332,7 +316,7 @@ bytes `06 ea cf` occur in it — so a freshly downloaded Combo is enough; the
 
 ## 15. R8 on a file that is not there — a deliberate behaviour change
 
-Before build 60 the open **succeeded** for a name that did not resolve: R8
+Before build 61 the open **succeeded** for a name that did not resolve: R8
 printed `Creating:`, the first read hit instant EOF, and a zero-byte CP/M file
 was left behind.  The open now fails.
 
@@ -354,7 +338,7 @@ was left behind.  The open now fails.
 
 ## 16. A superseded disk image, refreshed
 
-Build 60's `DiskLedger`.  The suite (`Tests/DiskLedgerTests.swift`, 66 checks)
+Build 61's `DiskLedger`.  The suite (`Tests/DiskLedgerTests.swift`, 66 checks)
 covers the decision; the **automatic path has now been driven end to end** on the
 iPhone 17 Pro simulator against a real sandbox, which is what the ticked box
 below records.  Everything else here is still unobserved.
@@ -439,3 +423,58 @@ with **no ledger entry**, because nothing has ever written one.
 - [ ] Settings with the Combo installed no longer stutters.  `checksumStatus`
       used to hash 49 MB inside `body`; it is a dictionary lookup now, so
       scrolling the disk list should cost nothing.
+
+## 17. Press-and-drag selection, on a real finger
+
+The gesture was driven end to end on the iPhone 17 Pro simulator with synthetic
+mouse events, and everything a *decision* can settle is settled there and in
+`Tests/TerminalSelectionTests.swift`.  What a simulator cannot supply is a
+finger.  All four boxes below are about the difference, and **needs a device**.
+
+- [ ] **The press takes, reliably, held by a human hand.**
+      `minimumPressDuration` and `allowableMovement` were both left at UIKit's
+      defaults on purpose — perturbing them perturbs the arbitration that makes
+      scrolling work — but the default `allowableMovement` is 10 points, and a
+      synthetic mouse holds *perfectly* still where a thumb does not.  If the
+      press fails on a real hand often enough to be annoying, raise
+      `allowableMovement` **and then re-run the scroll box below**, because
+      raising it is exactly what removes the long press's movement-failure path.
+- [ ] **A slow scroll drag is never stolen by the long press.**  The arbitration
+      is "a flick reaches the pan's threshold before the press reaches its
+      duration".  A deliberately slow drag is the case where that is closest to
+      a coin toss, and a synthetic drag cannot be slow the way a person is.
+      Scroll must still scroll.
+- [ ] **The haptic fires on `.began`.**  `UISelectionFeedbackGenerator` is a
+      no-op on a simulator and on Catalyst.  It is the only feedback a finger
+      covering the cell it just selected can actually perceive, so if it does
+      not fire the gesture is much harder to discover than it reads here.
+- [ ] **The selection is usable on an iPad in Split View and in Slide Over**,
+      where the terminal is narrow, the letterbox bars are wide and a drag
+      leaves the view often.  `cell(at:)` clamps to the grid so a drag that
+      leaves still selects to the edge; that is checked in the suite as
+      arithmetic and not as a gesture.
+
+Two things are known missing rather than unchecked, and neither needs a person
+to discover:
+
+- **There are no grab handles.**  A selection cannot be adjusted after the
+  finger lifts — it has to be dragged again.  Handles are not obtainable from
+  `UIEditMenuInteraction` at any price; they come only from `UITextInteraction`,
+  whose `textInput` property is typed `(any UIResponder & UITextInput)?`, so
+  buying them means 26 new `UITextInput` members plus `UITextPosition`,
+  `UITextRange` and `UITextSelectionRect` subclasses and a tokenizer — on a view
+  whose "document" is a mutable 80x25 buffer that scrollback rewrites underneath
+  any live range.  Hand-drawn handles hit-tested in the existing pan handler are
+  the cheap version if it turns out to be wanted.
+- **Guest output scrolls out from under a live selection.**  `handlePan` clears
+  the selection when *you* scroll, because the span is in screen coordinates —
+  but a line feed from CP/M moves the same content through `updateCells` and
+  nothing clears it there, so the highlight stays on its cells while different
+  text arrives under it.  This is not new and not iOS-only: the Mac has behaved
+  this way since build 57.  It is left alone rather than fixed blind, because
+  the obvious fix — clear on any cell change — would also fire on the cursor
+  blink and on every keystroke echo.
+- **Dragging past the top edge does not autoscroll.**  It clamps to row 0.  It
+  cannot simply call `onScroll` either: the anchor is a screen-space `GridPos`,
+  so a scroll silently makes it point at different text.  Autoscroll would have
+  to shift the anchor's row by the number of lines scrolled.

@@ -1,14 +1,14 @@
 # Changelog
 
-## Version 1.5.1 (Build 60)
+## Version 1.5.1 (Build 61)
 
-`Tests/run_tests.sh`: 13 suites, 980 checks, all passing — up from 7 suites and
+`Tests/run_tests.sh`: 14 suites, 1051 checks, all passing — up from 7 suites and
 350.  **Built, launched and driven** — see "This machine had Xcode all along"
 below, because for three builds this file said otherwise and that was wrong.
 
 Clean build for the iOS Simulator **and** for `-destination 'platform=macOS,
 variant=Mac Catalyst'`, no warnings on either.  Launched on the iPhone 17 Pro
-simulator: it comes up as `v1.5.1.60`, paints the banner, and shows the
+simulator: it comes up as `v1.5.1.61`, paints the banner, and shows the
 on-screen key row and the scrollback counter.  The disk-freshness refresh below
 was then driven end to end against a real sandbox — a superseded image was
 staged, and the app measured it, judged it, fetched the replacement, verified the
@@ -17,8 +17,19 @@ the next launch.
 
 **Not submitted, and not run on hardware.**  A clean archive is evidence that the
 code builds and evidence of nothing else; see "Releasing" in
-`KNOWN_PROBLEMS.md`.  CP/M itself has not been booted here and the Catalyst build
-has been compiled but not driven.  `MANUAL_CHECKS.md` carries what is left.
+`KNOWN_PROBLEMS.md`.  `MANUAL_CHECKS.md` carries what is left.
+
+**Two things this entry used to say were left undone are now done, and section 7
+of `MANUAL_CHECKS.md` has gone with them.**  Driving the selection fix needed a
+running machine, so it got one.  CP/M 2.2 was **booted on the iPhone 17 Pro
+simulator** — `c`⏎ at the boot loader, then `dir` four times typed on the
+*software* keyboard, reaching `A>` and `NO FILE` — which is the first time the
+screen model and escape parser have been exercised through the view since they
+left `EmulatorViewModel`.  Scrollback was driven with it: a one-finger swipe took
+the counter from `sb 0/12` to `sb 12/12` and raised the **Live** button.  And the
+**Catalyst build was launched** rather than merely compiled, and a pointer drag
+plus Cmd+C returned real text from it.  What is still untouched is hardware:
+every measurement above is a simulator or this Mac.
 
 Every piece of new logic below is still in a type with no UIKit behind it.  That
 was originally forced by the mistaken belief that a command-line suite was the
@@ -30,14 +41,34 @@ items; the second, on 2026-09-04, closed four of the five that were left and
 added the disk-freshness refresh that the `[RELEASE]` item had described and
 nobody had written.
 
-**It was numbered 59 while it was being written and goes out as 60.**  59 was
-carried in the tree for two sittings and never became a binary anybody could
-install — the entry said so in as many words, on the mistaken grounds that this
-machine could not compile it.  The number moved once, deliberately, for the
-submission this build is actually for.  `MARKETING_VERSION` does not move.
+**It was numbered 59, then 60, and goes out as 61.**  59 was carried in the tree
+for two sittings and never became a binary anybody could install — the entry said
+so in as many words, on the mistaken grounds that this machine could not compile
+it.  60 was carried for one more, for the same reason and honestly: it was built
+and it was never submitted.  61 is the number this work is actually being cut
+under, and the whole entry was renumbered rather than split, because that is what
+the 59 → 60 move established — a build number names the binary that carries the
+change, and a number no user could install names nothing.
 
-`todo.txt` is down to one item — submitting it — and one open question.
-`WIP.md` carries both.
+`MARKETING_VERSION` does not move.  It is 1.5.1 and was not touched.
+
+A renumber quietly relabels evidence, so here is exactly which is which.
+
+**Re-measured on the 61 binary:** `CFBundleVersion` reads 61, both destinations
+build clean, the banner reads `v1.5.1.61`, CP/M 2.2 boots and takes
+software-keyboard input, a press-and-drag selects `CP/M-80` exactly, and a swipe
+moves `sb 0/12` to `sb 12/12`.
+
+**Measured on the 60 binary and not retaken:** the Copy / Copy All / Paste
+round-trip through the edit menu, and the Catalyst pointer drag whose Cmd+C
+returned `80CPM`.  61 differs from 60 by one integer in `Info.plist` and by
+nothing else — the Swift is identical and both were rebuilt clean at 61 — so
+those two are reported as what they are rather than re-run to earn a newer
+label.
+
+`todo.txt` is down to three items — submitting it, uploading the rewritten help
+asset, and section 17's device checks — and one open question.  `WIP.md` carries
+them.
 
 **One thing this file said was impossible turned out not to be.**  `emu_io_ios.mm`
 was recorded as untestable here; it is Foundation-only Objective-C++, so the
@@ -45,6 +76,117 @@ macOS SDK compiles it clean at `-Wall`, and that is now the `EmuIOBackendCompile
 suite.  It is a compile and not a run, but every delegate hop in that file is
 `respondsToSelector:`-guarded, so a mistyped selector fails **silently** at
 runtime and nothing else in the repository would have caught it.
+
+### Press and hold, then drag: iOS can select text at last
+
+**Reported from a device: "on ios scroll is ok, select isnt doing anything,
+which makes copy impossible. i tried tapping, pres hold, double tap with no
+select cursor."** All three of those were correct, and so was the conclusion.
+
+Build 57 gave the Mac a pointer drag and gave iOS nothing, and said so in as
+many words in its own entry below: *"On iOS a finger drag is the only way to
+scroll, so it keeps that job; the split is Mac-only."* That sentence is the bug.
+`handleSelectPan` is the only code in the tree that ever sets an anchor, and its
+sole call site sits inside `#if targetEnvironment(macCatalyst)` — so on an iOS
+build the function is not compiled and no gesture can reach it. `hasSelection`
+was therefore *permanently* false on iOS, which is why nothing highlighted, why
+the long-press menu offered **Copy All** alone, and why the **Copy** it did
+offer silently copied all twenty-five rows.
+
+The first half of build 57's sentence is still true: a finger drag is the only
+way to scroll, and it keeps that job. The conclusion drawn from it was too
+strong. **A finger that has held still for half a second is not scrolling**, and
+that is the whole of the disambiguation — UIKit's, not ours. A flick reaches the
+pan's movement threshold long before the long press reaches its duration; a hold
+reaches the duration without the movement.
+
+So **no recognizer was added, none was reordered**, and neither
+`require(toFail:)` nor simultaneous recognition was asked for. Both would break
+the scrolling this was required not to touch: requiring the long press to fail
+stalls *every* scroll for `minimumPressDuration`, and recognizing both at once
+puts `handlePan` on the same finger, where its `clearSelection()` erases the
+highlight as fast as the drag draws it. The long-press recognizer was already
+attached — it was throwing its `.changed` and `.ended` states away with `guard
+gesture.state == .began`. It now keeps them.
+
+Two smaller things fell out of that:
+
+- **First responder is taken at `.ended`, not `.began`.** The view is a
+  `UIKeyInput`, so `becomeFirstResponder()` raises the software keyboard;
+  SwiftUI's keyboard avoidance then shrinks the terminal and `gridTransform`
+  recomputes *mid-drag*, moving the grid under a finger that has not moved. The
+  menu is the only thing that needs the status, and by `.ended` the drag is over.
+- **`handlePan` absorbs the translation when it stands down** rather than
+  returning bare. `panLastTranslation` is reset only at `.began` and the end
+  states and `panResidual` survives a gesture on purpose, so a bare return would
+  bank the whole drag and spend it in one jump later.
+
+### The span was half-open, and the Mac was dropping a character
+
+Found while extracting the above, and it is not an iOS bug — it has been in
+every shipped Mac build since 57. Membership was `l >= start.linear && l <
+end.linear`, and the copy did `last = span.end.col - 1`. z80cpmw's
+`isCellSelected` is `idx >= lo && idx <= hi` and its copy runs `col <= ce`. So
+the cell the pointer was actually over was highlighted nowhere and copied never:
+**drag across `DIR` on the Mac and you got `DI`.**
+
+The span is inclusive now, which is the sibling's rule and the only rule that
+can give a touch any feedback — a press that has not moved yet covers exactly
+the one cell under the finger, which is the "select cursor" a finger needs and a
+pointer does not, because a pointer has an arrow.
+
+The packed `row * 10_000 + col` went with it. Its own comment conceded it held
+only because "cols is bounded well under this", and nothing checked; `GridPos`
+is `Comparable` on the pair now, with no stride to exceed.
+
+### Paste had no route on a phone at all
+
+`pasteText()` had exactly one caller — the Cmd+V key command — so on an iPhone
+with no hardware keyboard there was no way to paste, ever. z80cpmw's context
+menu has carried Copy **and** Paste since it was written. The long-press menu
+now carries Paste too, gated on `UIPasteboard.general.hasStrings`, which is the
+way to ask whether there is anything to paste without *reading* the pasteboard
+and posting the "pasted from" banner every time the menu opens.
+
+The menu also stopped saying **Copy** twice. `canPerformAction` claims
+`copy(_:)`, and on iOS the system renders its own Copy from that, next to the
+custom `UIMenuItem` — measured as `Copy | AutoFill | Copy` the first time a
+selection existed on iOS to reveal it. The system's is the one that stays,
+because it localises itself. Mac Catalyst's item set is untouched: its Copy is
+the custom item, it was driven in build 57, and it is the one the report says
+works.
+
+### The help told iOS users to press keys they do not have
+
+`release_assets/help_quick_start.md` said copy and paste were "**Cmd+C** and
+**Cmd+V** on macOS, iOS and iPadOS" — a hardware-keyboard route, offered to a
+phone — and described selecting with a mouse for Windows while never mentioning
+selecting on iOS at all. The one thing that did work on a touch-only iPhone,
+long-press for **Copy All**, was undocumented. It now describes the gesture.
+
+**That edit has not reached a single user and will not until someone uploads
+it.** Help is fetched at runtime from `releases/latest/download/`, not bundled,
+so the file in this tree is not the file the app reads — `docs/HELP_SYSTEM.md`
+has the flow and `docs/DISK_W8FIX_RUNBOOK.md` governs the upload. `todo.txt`
+carries it as the open item it is.
+
+### TerminalSelection, and 71 checks on code that had none
+
+Every decision above — where a selection is, what it covers, what text that is,
+and where on a letterboxed screen a cell actually sits — was a private method on
+a `UIView` subclass, reachable only with a screen. It is `TerminalSelection.swift`
+now, Foundation and CoreGraphics only, the same extraction `KeyMap`,
+`ControlKey` and `WindowFrame` each were. `Tests/TerminalSelectionTests.swift` is
+71 checks and the suite is at **14 suites, 1051 checks**.
+
+Two of those checks are regressions that were live in shipped code and
+unreachable only because no selection could exist on iOS:
+
+- the half-open span above, and
+- `selectedText()` built `first...min(last, cells[row].count - 1)` with no check
+  that the range ran forwards. `cols` is fixed at the view's `init` and the grid
+  it describes is not, so a row shorter than the selection's first column
+  **trapped**. Every bound is clamped against the row actually passed in now.
 
 ### This machine had Xcode all along
 
@@ -141,7 +283,7 @@ path.  One case does resolve itself: an image that already hashes to the catalog
 is current whoever downloaded it, so its provenance is adopted on sight — which
 covers nineteen of the twenty entries and stops the library being re-hashed on
 every launch.  The automatic half therefore starts working for images downloaded
-by build 60 or later, and that is the answer rather than a shortcoming to
+by build 61 or later, and that is the answer rather than a shortcoming to
 optimise away.
 
 **The check that matters is the last one, not the first.**  Everything the

@@ -78,10 +78,24 @@ Ctrl+Home / Ctrl+End scroll the terminal history on Windows, macOS, iOS and
 iPadOS; on Android you scroll by dragging the screen instead. Unmodified Page
 Up, Page Down, Home and End still reach the guest.
 
-Copy and paste are on every port, reached differently: **Cmd+C** and **Cmd+V**
-on macOS, iOS and iPadOS; the **Copy** and **Paste** buttons beside the terminal
-on Android; and on Windows, select with the mouse and right-click for **Copy**
-and **Paste** - there Ctrl+C is a CP/M keystroke, not a copy.
+Copy and paste are on every port, reached differently:
+
+- **iOS and iPadOS, by touch:** **press and hold** the terminal, then **drag**
+  without lifting to select. The text highlights as you go, and lifting your
+  finger brings up **Copy**, **Copy All** and **Paste**. Press and hold without
+  dragging for the same menu with nothing selected. A one-finger drag on its own
+  still scrolls the history, as it always has - it is the *holding still* that
+  starts a selection.
+- **macOS:** select with the pointer, then **Cmd+C**, or press and hold for the
+  menu. **Cmd+V** pastes.
+- **With a hardware keyboard** on any of the three: **Cmd+C** and **Cmd+V**.
+  Cmd+C with nothing selected copies the whole screen.
+- **Android:** the **Copy** and **Paste** buttons beside the terminal.
+- **Windows:** select with the mouse and right-click for **Copy** and **Paste** -
+  there Ctrl+C is a CP/M keystroke, not a copy.
+
+Selection reads the screen as you see it, so scrolling back into the history and
+selecting there copies what is on screen, not what the guest has printed since.
 
 ## Changing Disks
 
