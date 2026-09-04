@@ -9,6 +9,22 @@ a one-line pointer at this one.
 `CHANGELOG.md`; what it left open goes in `todo.txt`.  A check that has been run
 and left in place turns this file into the accumulating record `todo.txt` was.
 
+**Some of these need a gesture, not a person, and a gesture can be synthesised.**
+`tools/simdrive.py` drives the booted Simulator with real touch events - taps,
+presses, press-and-drag, flicks - addressed in the pixel coordinates of a
+`simctl` screenshot, so you point at what you can see.  Build 61's text
+selection was verified with it end to end.  Two limits keep it honest: it
+calibrates the device screen inside the Simulator window and **fails rather than
+guessing** when its own measurement disagrees with the device's screenshot, and
+synthetic **key** events still do not reach the app at all (check 3), so type by
+tapping the on-screen keyboard.  What it cannot be is a finger - see the note in
+section 17 - so it retires a check only where the check is about behaviour and
+not about touch itself.
+
+    tools/simdrive.py calibrate            # and it will tell you if it is lost
+    tools/simdrive.py shot /tmp/s.png      # read your coordinates off this
+    tools/simdrive.py press 238 1000 346 1000
+
 Most of this needs a Mac, not a device, and **this machine is one** — Xcode 26.6
 is at `/Applications/Xcode.app`.  If `xcodebuild` tells you it "requires Xcode",
 that only means `xcode-select` points at the Command Line Tools; prefix the
