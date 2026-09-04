@@ -124,6 +124,11 @@ The reason it is keyed on provenance and not on the file's own hash is this entr
 Not a bug and not a task — a standing fact about the toolchain, re-checked at
 build 58 and again at build 61.
 
+**Build 61 was uploaded on 2026-09-04 and that does not contradict this entry.**
+It was submitted by a person with App Store Connect credentials, not from this
+machine and not by any session. The sentence below is about what the toolchain
+*here* can do, and it is unchanged.
+
 **This entry was the only one in the repository that was right about the
 toolchain.** `CHANGELOG.md`, `WIP.md` and `todo.txt` all claimed for three builds
 that there was no Xcode here and nothing could be compiled, which contradicted

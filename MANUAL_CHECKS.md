@@ -426,6 +426,11 @@ with **no ledger entry**, because nothing has ever written one.
 
 ## 17. Press-and-drag selection, on a real finger
 
+**These became runnable on 2026-09-04**: build 61 went to App Store Connect for
+iOS and Mac, so a TestFlight build should be installable on real hardware well
+before the release itself clears review.  Being *able* to run them is not having
+run them, and none of the boxes below may be ticked from a simulator.
+
 The gesture was driven end to end on the iPhone 17 Pro simulator with synthetic
 mouse events, and everything a *decision* can settle is settled there and in
 `Tests/TerminalSelectionTests.swift`.  What a simulator cannot supply is a

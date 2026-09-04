@@ -11,21 +11,31 @@ build.  Tag each item with what it needs, so a session on another machine can
 see at a glance what that machine can take.
 
 
-It is built.  It is not submitted.
-------------------------------------
+It is submitted.  It is not released.
+-------------------------------------
 
-- [RELEASE] build 61 compiles clean for the Simulator and for Mac Catalyst, runs
-  on the iPhone 17 Pro simulator, and has never been submitted.  The App Store
-  serves 1.4.9, builds 36/37, from 2026-03-19 - re-measure with
-  tools/check-store-version.sh rather than trusting that.  Bump the build number
-  only when a submission is actually cut; MARKETING_VERSION does not move.
+- [RELEASE] 1.5.1 build 61 was submitted on 2026-09-04 for **both iOS and Mac**
+  and is IN REVIEW.  That is not a release.  A submission in review can be
+  approved, rejected, or held, and can sit there for days; until it is actually
+  serving, nothing in this tree or its siblings may record build 61 as what
+  users have.
 
-  This machine cannot upload.  `xcodebuild archive` succeeds but signs with the
-  Apple Development identity, which cannot be exported for the App Store; that
-  needs a distribution certificate, an App Store provisioning profile and an App
-  Store Connect API key, none of which are here.  KNOWN_PROBLEMS.md "Releasing"
-  is the standing entry.  So this item is a person with credentials, not a
-  session.
+  The App Store still serves 1.4.9, builds 36/37, from 2026-03-19.  Do not take
+  that from this line either - re-measure with tools/check-store-version.sh,
+  which exits 0 only while nothing recorded here claims a build the Store does
+  not serve, and exit 2 means it could not check, which is not a pass.
+
+  What may move ONLY once the script says 1.5.1 is being served:
+
+    z80cpmw/FEATURE_PARITY.md's sibling-readings block, which carries
+    `ioscpm ... shipped:37`.  z80cpmw/tools/check-sibling-drift.sh fails the
+    whole ioscpm column until that number and the tree agree, and it is RIGHT
+    to keep failing now: setting it on the strength of a submission certifies
+    every tick in the column against software nobody can install.
+
+  The upload was done by a person, not from here.  This machine still cannot do
+  it - see KNOWN_PROBLEMS.md "Releasing" - so a re-submission is a person with
+  credentials, not a session.
 
   What is waiting on that submission:
 

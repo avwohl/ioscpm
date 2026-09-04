@@ -64,10 +64,17 @@ became checkable that this file said were not, and both are wired into it:
   with no availability guard. `IPHONEOS_DEPLOYMENT_TARGET` is 15.0 and every one
   of those is iOS 13.
 
-**It builds. Submitting it is the open item**, and this machine cannot: the
-archive signs with `Apple Development`, which cannot be exported for the App
-Store. See "Releasing" in `KNOWN_PROBLEMS.md` — that entry was correct all along
-and contradicted this file for three builds.
+**It is submitted and it is not released.** 1.5.1 build 61 went to App Store
+Connect on 2026-09-04 for **both iOS and Mac** and is in review. Review is not
+release: it can be approved, rejected or held. Until `tools/check-store-version.sh`
+says 1.5.1 is actually being served, nothing here or in `z80cpmw` may record
+build 61 as what users have — `FEATURE_PARITY.md`'s `shipped:37` stays where it
+is, and its drift check is right to keep failing.
+
+The upload was done by a person. This machine still cannot do it: the archive
+signs with `Apple Development`, which cannot be exported for the App Store. See
+"Releasing" in `KNOWN_PROBLEMS.md` — that entry was correct all along and
+contradicted this file for three builds.
 
 ## THE ONE OPEN QUESTION — disk sizes larger than 8 MB
 

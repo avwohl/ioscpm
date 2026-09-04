@@ -15,8 +15,12 @@ staged, and the app measured it, judged it, fetched the replacement, verified th
 checksum, installed it and recorded its provenance, then did nothing at all on
 the next launch.
 
-**Not submitted, and not run on hardware.**  A clean archive is evidence that the
-code builds and evidence of nothing else; see "Releasing" in
+**Submitted on 2026-09-04, for both iOS and Mac.  In review, which is not
+released.**  A submission can be approved, rejected or held, so nothing in this
+tree or in `z80cpmw` records build 61 as what users have — the Store still
+serves 1.4.9, `tools/check-store-version.sh` is the way to ask, and
+`FEATURE_PARITY.md`'s `shipped:37` stays put until it answers otherwise.  The
+upload was done by a person; this machine still cannot, per "Releasing" in
 `KNOWN_PROBLEMS.md`.  `MANUAL_CHECKS.md` carries what is left.
 
 **Two things this entry used to say were left undone are now done, and section 7
