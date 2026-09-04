@@ -44,3 +44,39 @@ Needs a Mac
   and lets the test supply the backend, the way Tests/CoreKeyboardTests.cc
   already stubs the whole host-file API.  WIP.md also lists six traps that have
   each bitten this code before, and the manual check that closes the item.
+
+
+The repin has not shipped
+-------------------------
+
+- [RELEASE] releaseTag is "v1.4.12" in EmulatorViewModel.swift as of 0010591 and
+  no build a user can install carries it.  The App Store is on 1.4.9, builds
+  36/37, from 2026-03-19; build 59 is numbered in CHANGELOG.md and marked **Not
+  built** there, because the machine it was written on has Command Line Tools and
+  no Xcode.  Until a build carrying that constant is compiled and submitted,
+  every installed copy fetches the v1.4.5 catalog and gets the R8 that hands an
+  unfiltered host basename to F_DELETE - importing a host file whose name holds
+  ? or * erases every matching CP/M file first and says nothing.  Bump the build
+  number only; MARKETING_VERSION does not move.  MANUAL_CHECKS.md section 1 has
+  all six boxes unticked and wants doing on the same build.
+
+  Shipping it is necessary and not sufficient, which is the part to settle before
+  writing release notes that promise the fix.  disks.xml's version attribute is
+  13 at v1.4.5, v1.4.11 and v1.4.12 alike - left there deliberately, because
+  changing it makes deleteCatalogDisks(named:) clear the catalog half of every
+  device's library - so checkCatalogVersionAndInvalidate takes its "Version
+  unchanged" branch and invalidates nothing.  hd1k_combo.img is the only one of
+  the twenty images whose bytes moved between those tags, so a device that
+  already downloaded it keeps the old R8 after the update, indefinitely.  What
+  the user sees is checksumStatus painting the installed hash red against the
+  catalog's; there is no control that re-downloads it.  Either the new build
+  re-fetches an image whose installed hash disagrees with the catalog, or the
+  next catalog bump takes the wipe.  cpmdroid has the identical hole and
+  KNOWN_PROBLEMS.md's "User Data Persistence" holds the standing half.
+
+- [ANY] docs/DISK_DISTRIBUTION.md and docs/DISK_CATALOG_PINNING.md still teach
+  v1.4.5 as the pin - in the two URL examples, in the "Creating a Release" steps,
+  in the three-port table, and in the sentence about "all 20 entries in the
+  pinned v1.4.5 catalog".  Those two documents are what a session reads to learn
+  what the pin is, and both now contradict the code.  release_assets/disks.xml
+  itself is fine: it is byte-identical to the copy published at v1.4.12.
