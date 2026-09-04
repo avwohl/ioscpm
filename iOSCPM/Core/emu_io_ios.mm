@@ -13,6 +13,8 @@
 #include <mutex>
 #include <unistd.h>
 #include <strings.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 //=============================================================================
 // Delegate Protocol
@@ -372,9 +374,11 @@ static std::vector<uint8_t> g_host_read_buffer;
 static size_t g_host_read_pos = 0;
 static std::vector<uint8_t> g_host_write_buffer;
 static std::string g_host_write_filename;
-// Where the bytes in g_host_read_buffer actually came from, as the Swift layer
-// resolved it - not the name the guest asked for. See
-// emu_host_file_get_read_name() for why the two differ.
+// Where the bytes in g_host_read_buffer actually came from - the absolute path
+// emu_host_file_open_read() resolved, not the name the guest asked for. See
+// emu_host_file_get_read_name() for why the two differ. Written and read only on
+// the emulator thread since the open became synchronous, which also removed an
+// unsynchronised cross-thread write.
 static std::string g_host_read_filename;
 
 emu_host_file_state emu_host_file_get_state() {
@@ -400,33 +404,197 @@ static std::string exports_dir() {
   return std::string([path UTF8String]);
 }
 
+// Where R8 reads from. Same shape as exports_dir() above and for the same
+// reason: computing it from the two constants beats caching a value the Swift
+// side might not have set yet.
+static std::string imports_dir() {
+  NSArray<NSString*>* dirs =
+      NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+  if (dirs.count == 0) return std::string();
+  NSString* path = [dirs[0] stringByAppendingPathComponent:@"Imports"];
+  return std::string([path fileSystemRepresentation]);
+}
+
+// emu_host_path_basename() substitutes its fallback for a path that names no
+// file ("", "/", "..", "."), and an EMPTY fallback is itself replaced - with
+// "download.bin". So `emu_host_path_basename(x, "")` cannot be tested for ""
+// to mean "nothing was named": it comes back hunting for a file literally
+// called download.bin. Pass a sentinel no CP/M command line can produce and
+// test for that instead.
+static const char kNoLeafSentinel[] = "\x01";
+
+// Resolve `leaf` inside `dir` case-insensitively, answering with the DIRECTORY
+// ENTRY'S OWN SPELLING.
+//
+// The spelling is the whole point, and a fileExists()-style fast path cannot
+// provide it. The CCP uppercases the command line, so `R8 ESC.TXT` is what
+// arrives for a file stored as `esc.txt`; iOS's Documents volume is
+// case-INsensitive, so an existence check on Imports/ESC.TXT SUCCEEDS and hands
+// on the case the CCP invented rather than the case the file has. realpath()
+// does not fix that either - it resolves symlinks and "."/"..", not case. So
+// always scan, and take what readdir reports. z80cpmw's
+// resolveRealPathExisting() arrived at the same correction independently.
+//
+// Returns "" when nothing matches.
+static std::string resolve_in_directory(const std::string& dir,
+                                        const std::string& leaf) {
+  if (dir.empty() || leaf.empty()) return std::string();
+  DIR* d = opendir(dir.c_str());
+  if (!d) return std::string();
+  std::string found;
+  struct dirent* entry;
+  while ((entry = readdir(d)) != nullptr) {
+    const char* name = entry->d_name;
+    if (name[0] == '.' && (name[1] == '\0' || (name[1] == '.' && name[2] == '\0'))) {
+      continue;
+    }
+    if (strcasecmp(name, leaf.c_str()) == 0) {
+      // An exact match wins outright; otherwise keep the first case-insensitive
+      // hit and keep looking, so a directory holding both esc.txt and ESC.TXT
+      // on a case-sensitive volume answers with the one that was asked for.
+      if (found.empty() || strcmp(name, leaf.c_str()) == 0) found = name;
+      if (strcmp(name, leaf.c_str()) == 0) break;
+    }
+  }
+  closedir(d);
+  return found;
+}
+
+// The largest file R8 will pull in. The guest now blocks inside one HBIOS call
+// with no rewind, so an unbounded read would hang the machine on a big file;
+// the Swift Data(contentsOf:) this replaces was unbounded too, so this is new
+// protection rather than a regression fix.
+//
+// A file over the bound makes the OPEN FAIL. It is deliberately not truncated:
+// R8 derives the CP/M name from what was typed and has no way to notice a short
+// read, so a truncated copy arrives under the right name with both sides
+// reporting success - the same shape as the "substitute an unrelated file" bug
+// build 52 removed, and worse than an outright refusal.
+static const size_t kMaxHostReadBytes = 8u * 1024u * 1024u;
+
+// Open a host file for reading, SYNCHRONOUSLY, on the emulator thread.
+//
+// This used to park the request: it set HOST_FILE_WAITING_READ, dispatch_async'd
+// to the main queue and returned true, and the Swift layer did the lookup and
+// called emu_host_file_load_named() from there. That is why
+// emu_host_file_get_read_name() could not answer. R8 emits H_OPEN_R (0xE1) and
+// H_GETRNAME (0xEA) about ten Z80 instructions apart, and the main queue has
+// essentially never run in between - so at the moment R8 asked, the state was
+// still WAITING_READ and the honest answer was "". Measured on the simulator at
+// build 55: `R8 ESC.TXT` for a file stored as `esc.txt` printed
+// `Reading: ESC.TXT`, the shouted name, which is a claim about the open
+// assembled out of the request.
+//
+// Doing the work here is what the CLI and Windows backends already do, and it
+// needs no shared-core change - this file is port-local. The alternative
+// considered and rejected was to resolve the name at open, keep the data async
+// and relax the getter's gate: HBF_HOST_GETRNAME itself gates on
+// HOST_FILE_READING, so relaxing that is an emu_io.h contract change touching
+// cpmemu, romwbw_emu, z80cpmw and cpmdroid - and it would have the backend
+// answer with a name for a file it has not opened, which is the exact claim
+// this call exists to replace. It is dominated anyway: a backend that can
+// resolve the name synchronously can read the bytes synchronously too.
 bool emu_host_file_open_read(const char* filename) {
-  // Close any existing read operation
+  // Close any existing read operation.
   g_host_read_buffer.clear();
   g_host_read_pos = 0;
   g_host_read_filename.clear();
+  g_host_file_state = HOST_FILE_IDLE;
 
-  // Request file from user via delegate
-  g_host_file_state = HOST_FILE_WAITING_READ;
-
-  id<EMUIOHostFileDelegate> delegate = (id<EMUIOHostFileDelegate>)g_delegate;
-  if (delegate && [delegate respondsToSelector:@selector(emuHostFileRequestRead:)]) {
-    // R8 takes a host path and sends it verbatim, so what arrives here can be
-    // "/USERS/ME/DESKTOP/FOO.COM". Imports is a flat folder and there is no
-    // outer-OS path to honour inside the sandbox, so reduce to the leaf before
-    // the delegate ever sees it: passing the whole string on made the Swift
-    // layer look for Imports/USERS/ME/DESKTOP/FOO.COM, miss, and (before this
-    // release) substitute an unrelated file. It also kept "../SOMETHING" able
-    // to address files outside Imports.
-    std::string leaf =
-        filename ? emu_host_path_basename(filename, "") : std::string();
-    NSString* suggestedName = leaf.empty() ? @"" : [NSString stringWithUTF8String:leaf.c_str()];
-    dispatch_async(dispatch_get_main_queue(), ^{
-      [delegate emuHostFileRequestRead:suggestedName];
-    });
+  // @autoreleasepool because this now runs on _emulatorQueue rather than the
+  // main thread, and runLoop is one dispatch_async block that does not return
+  // until the emulator stops - so there is no per-iteration pool to drain into
+  // and anything autoreleased here would accumulate for the whole session.
+  std::string leaf;
+  std::string dir;
+  @autoreleasepool {
+    dir = imports_dir();
+    // Keep the containment reduction. It is the guard, not a convenience:
+    // without it `R8 ../SOMETHING` addresses files outside Imports again. R8
+    // takes a host path and sends it verbatim, so what arrives can be
+    // "/USERS/ME/DESKTOP/FOO.COM".
+    leaf = filename ? emu_host_path_basename(filename, kNoLeafSentinel)
+                    : std::string(kNoLeafSentinel);
   }
 
-  return true;  // Request initiated (will wait for emu_host_file_provide_data)
+  const bool namedNothing = (leaf == kNoLeafSentinel);
+  std::string resolved;
+  if (!namedNothing) resolved = resolve_in_directory(dir, leaf);
+
+  if (namedNothing || resolved.empty()) {
+    // Tell the Swift layer so the user gets the folder path, and so the folder
+    // is created for them to put the file in. It must NOT touch host-file
+    // state: this call has already failed and R8 is about to be told so.
+    //
+    // Deliberate behaviour change: the open now FAILS for a file that is not in
+    // Imports, so R8 prints "Cannot open host file" and creates nothing. It
+    // used to succeed, print `Creating:`, and hit instant EOF on the first
+    // read - leaving a zero-byte CP/M file behind.
+    id<EMUIOHostFileDelegate> delegate = (id<EMUIOHostFileDelegate>)g_delegate;
+    if (delegate && [delegate respondsToSelector:@selector(emuHostFileRequestRead:)]) {
+      // stringWithFileSystemRepresentation, NOT stringWithUTF8String: a CP/M
+      // command line is arbitrary 8-bit and the latter returns nil, which
+      // crosses a nonnull-annotated boundary into Swift.
+      const char* reported = namedNothing ? "" : leaf.c_str();
+      NSString* suggestedName =
+          [[NSFileManager defaultManager] stringWithFileSystemRepresentation:reported
+                                                                      length:strlen(reported)];
+      if (!suggestedName) suggestedName = @"";
+      dispatch_async(dispatch_get_main_queue(), ^{
+        @autoreleasepool {
+          [delegate emuHostFileRequestRead:suggestedName];
+        }
+      });
+    }
+    return false;
+  }
+
+  std::string path = dir + "/" + resolved;
+
+  FILE* f = fopen(path.c_str(), "rb");
+  if (!f) return false;
+
+  // fopen SUCCEEDS on a directory on Darwin - measured, not assumed - and the
+  // first fread then returns 0. Without this guard `R8 SOMEDIR` reports a
+  // successful open, prints a Reading: line and makes an empty CP/M file.
+  struct stat st;
+  if (fstat(fileno(f), &st) != 0 || !S_ISREG(st.st_mode)) {
+    fclose(f);
+    return false;
+  }
+
+  if (st.st_size < 0 || (uintmax_t)st.st_size > (uintmax_t)kMaxHostReadBytes) {
+    fclose(f);
+    return false;
+  }
+  const size_t want = (size_t)st.st_size;
+  g_host_read_buffer.resize(want);
+  const size_t got = want ? fread(g_host_read_buffer.data(), 1, want, f) : 0;
+  const bool failed = ferror(f) || got != want;
+  fclose(f);
+  if (failed) {
+    // got != want without ferror means the file shrank under us between the
+    // fstat and the read. Refuse rather than keep the prefix: R8 derives the
+    // CP/M name from what was typed and cannot tell a short file from a
+    // complete one, so a partial copy would arrive looking successful.
+    std::vector<uint8_t>().swap(g_host_read_buffer);
+    return false;
+  }
+  g_host_read_pos = 0;
+
+  // The absolute path that actually opened, carrying the directory entry's own
+  // spelling - which is what emu_host_file_get_read_name() answers with and
+  // what R8 prints. Absolute, as the CLI's realpath() answer and the Windows
+  // port's are, and as this port's own write side already was.
+  g_host_read_filename = path;
+
+  // Unconditionally, INCLUDING for a zero-byte file. Guarding this on got > 0
+  // would reopen the read side of the zero-byte hole closed in build 53
+  // (romwbw_emu v1.36, cpmdroid c06fa58): an empty file in Imports is a real
+  // file and R8 should make an empty CP/M one out of it, through the same
+  // states as any other size.
+  g_host_file_state = HOST_FILE_READING;
+  return true;
 }
 
 // iOS confines every export to the app's Exports folder: emu_host_file_open_write
@@ -473,7 +641,10 @@ bool emu_host_file_write_byte(uint8_t byte) {
 }
 
 void emu_host_file_close_read() {
-  g_host_read_buffer.clear();
+  // swap-with-empty, not clear(): clear() keeps the capacity, and after an 8 MB
+  // transfer that is 8 MB of live heap held for the rest of the session - which
+  // iOS counts against the app at every memory-pressure check.
+  std::vector<uint8_t>().swap(g_host_read_buffer);
   g_host_read_pos = 0;
   g_host_read_filename.clear();
   g_host_file_state = HOST_FILE_IDLE;
@@ -568,32 +739,32 @@ const char* emu_host_file_get_write_name() {
 // `Reading:` line echoed the shouted name, which is a claim about the open
 // assembled out of the request. cpmdroid closed the identical gap in 167acbe.
 //
-// The resolution happens in Swift, against a folder this file cannot see, so
-// the path comes back down beside the bytes through emu_host_file_load_named().
-// It is absolute, as the CLI's realpath() answer and the Windows port's are,
-// and as this port's own write side already was.
+// The resolution happens in emu_host_file_open_read() above, on the emulator
+// thread, and the absolute path it settled on is recorded there. It is absolute,
+// as the CLI's realpath() answer and the Windows port's are, and as this port's
+// own write side already was.
 //
 // Gated on HOST_FILE_READING like every other backend's. "" is still the answer
 // at any other moment, and emu_io.h says in as many words that an empty string
 // is correct: HBF_HOST_GETRNAME reports "no answer" and R8 falls back to
 // printing what was asked for.
 //
-// MEASURED, and worth knowing before reading the paragraphs above as a promise:
-// with today's R8 that fallback is what usually happens on this port. R8 prints
-// its `Reading:` line between the open and the first read, and an open here only
-// parks the request - it dispatches to the main queue and returns, and the guest
-// is rewound on HBF_HOST_READ (hbios_dispatch.cc) until the Swift layer answers.
-// So at the moment R8 asks, the state is still WAITING_READ and this says so.
-// Watched on the simulator, build 55, against a combo image whose R8 does call
-// 0xEA: `R8 ESC.TXT` for a file stored as `esc.txt` printed
-// `Reading: ESC.TXT`. cpmdroid reaches the same answer through the same
-// asynchrony (167acbe) and documents it the same way.
+// THIS PORT USED TO TAKE THAT FALLBACK ALWAYS, and the paragraph that recorded
+// it is kept here because it is why the open was made synchronous. R8 prints its
+// `Reading:` line between the open and the first read, and an open here only
+// parked the request - it dispatched to the main queue and returned, and the
+// guest was rewound on HBF_HOST_READ (hbios_dispatch.cc) until the Swift layer
+// answered. So at the moment R8 asked, the state was still WAITING_READ and this
+// said so. Watched on the simulator, build 55, against a combo image whose R8
+// does call 0xEA: `R8 ESC.TXT` for a file stored as `esc.txt` printed
+// `Reading: ESC.TXT` - the shouted name, not the file's own.
 //
-// The name is still worth keeping. It is the honest answer for any guest that
-// asks once bytes are flowing, it is what a synchronous read path here would
-// answer without further work, and the alternative - answering the request
-// during WAITING_READ - would be manufacturing exactly the claim about the open
-// that this call exists to replace.
+// The open is synchronous now, so the state is HOST_FILE_READING by the time R8
+// asks and the answer is the resolved absolute path, in the spelling readdir
+// reported. cpmdroid still has the identical shape for the identical reason
+// (167acbe). **Unverified on a device:** nothing here has been run since the
+// change - there is no Xcode on the machine that made it. MANUAL_CHECKS.md
+// carries the check that settles it.
 //
 // The gate also matters because the plain emu_host_file_load() entry point still
 // exists for a caller with no path to give, and because a read that was

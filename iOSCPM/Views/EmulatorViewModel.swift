@@ -6,6 +6,7 @@ import SwiftUI
 import Combine
 import AVFoundation
 import CryptoKit
+import Network
 
 // ROM option with name and filename
 struct ROMOption: Identifiable, Hashable {
@@ -171,6 +172,56 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var catalogLoading: Bool = false
     @Published var catalogError: String?
 
+    // MARK: Disk freshness
+    //
+    // Which published image each installed file came from, and what may be done
+    // about one the catalog has moved on from. The reasoning is all in
+    // DiskLedger.swift, including why this is decided from provenance and not by
+    // hashing the file against the catalog - that comparison would classify every
+    // disk a user has saved work into as stale and overwrite it.
+
+    /// Per-filename provenance and cached measurements. Keyed by lowercased name.
+    private var diskLedger = DiskLedger()
+    private static let diskLedgerKey = "diskLedger"
+
+    /// What the UI should offer for each catalog filename, lowercased.
+    ///
+    /// A separate dictionary rather than a new `DownloadState` case, deliberately:
+    /// `refreshAvailableDisks()` rewrites every entry of `downloadStates` on every
+    /// catalog fetch, and `waitForDownloadCompletion` treats any state it does not
+    /// recognise as "still going" and re-polls for ever - so a freshness value
+    /// parked there would both be erased and hang the Play path.
+    @Published private(set) var diskRefreshPlans: [String: DiskRefreshPlan] = [:]
+
+    /// What the path monitor last reported. Starts at `.unknown`, which fails
+    /// closed - a cold launch must not race the first callback into starting a
+    /// 49 MB download on somebody's cellular data.
+    @Published private(set) var networkCondition: NetworkCondition = .unknown
+
+    private let pathMonitor = NWPathMonitor()
+    private var pathMonitorStarted = false
+
+    /// Files whose hash could not be computed. Without this a nil from
+    /// `sha256OfFile` leaves the verdict at `.needsMeasurement` for ever and
+    /// `reassessDiskFreshness()` schedules the same 49 MB file on every pass.
+    private var measurementFailed: Set<String> = []
+
+    /// How many times each file has been hashed this session.
+    ///
+    /// The backstop on the measure/reassess cycle. A measurement is stored
+    /// against the size and modification time it was taken for, so if the file
+    /// moves underneath the pass the stored one no longer applies and the verdict
+    /// returns to `.needsMeasurement` - which schedules it again. That is the
+    /// right behaviour once and a 49 MB read in a loop if the file keeps moving,
+    /// which is exactly what `saveDownloadedDisks()` does to a mounted disk every
+    /// twenty seconds. `isMounted` already keeps those out; this catches whatever
+    /// else can churn a file, including the user writing to it through Files.
+    private var measurementAttempts: [String: Int] = [:]
+    private static let maxMeasurementAttempts = 3
+    /// True while a measurement pass is in flight, so overlapping catalog
+    /// fetches do not start a second one over the same files.
+    private var measuringDisks = false
+
     // Download state tracking
     @Published var downloadStates: [String: DownloadState] = [:]
     private var downloadTasks: [String: URLSessionDownloadTask] = [:]
@@ -180,6 +231,34 @@ class EmulatorViewModel: NSObject, ObservableObject {
         let config = URLSessionConfiguration.ephemeral
         config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         config.urlCache = nil
+        return URLSession(configuration: config)
+    }()
+
+    /// The session an UNATTENDED refresh uses, and the only one that may run
+    /// without a tap.  The two flags are the guarantee rather than the path
+    /// monitor: they are applied by the OS when the connection is established,
+    /// so a path that flips to cellular between the decision and the transfer
+    /// still cannot spend the user's data.
+    ///
+    /// `waitsForConnectivity` is deliberately left at its default of false.
+    /// Setting it looks like the polite thing and is the exact opposite: it
+    /// converts the prompt failure below into a wait bounded only by
+    /// `timeoutIntervalForResource`, which defaults to seven days, with no
+    /// callback on the completion-handler API.  A background session would be
+    /// worse again - those ignore the flag and always wait.
+    ///
+    /// With it false, a cellular-only path fails immediately and specifically:
+    /// NSURLErrorNotConnectedToInternet carrying
+    /// `NSURLErrorNetworkUnavailableReasonKey`.  `refreshDeferral` turns that
+    /// into "waiting for Wi-Fi" rather than the lie the generic handler tells
+    /// ("The Internet connection appears to be offline") on perfectly good LTE.
+    private lazy var autoRefreshSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        config.urlCache = nil
+        config.allowsExpensiveNetworkAccess = false
+        config.allowsConstrainedNetworkAccess = false
+        config.waitsForConnectivity = false
         return URLSession(configuration: config)
     }()
 
@@ -648,6 +727,19 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         // Restore the configurable keyboard mapping
         loadKeyMapping()
+
+        // Provenance for the installed disk images, and the path monitor that
+        // decides when an unattended refresh is allowed to run.
+        diskLedger = DiskLedger.deserialized(
+            UserDefaults.standard.string(forKey: Self.diskLedgerKey))
+        startWatchingNetwork()
+    }
+
+    deinit {
+        // Started once in init, so cancelling here is unconditional. NWPathMonitor
+        // holds a dispatch source; leaving it running past the object keeps the
+        // update handler's captured self alive.
+        pathMonitor.cancel()
     }
 
     private func showStartupMessage() {
@@ -1178,7 +1270,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// Download a disk image with completion callback (uses same path as settings download)
     private func downloadDiskWithCompletion(_ disk: DownloadableDisk, completion: @escaping (Bool) -> Void) {
         // Use the settings download path and poll for completion
-        downloadDiskFromSettings(disk, attemptsRemaining: 3)
+        downloadDiskFromSettings(disk, attemptsRemaining: 3, session: downloadSession,
+                                 expectedFacts: nil)
         waitForDownloadCompletion(disk.filename, completion: completion)
     }
 
@@ -1209,6 +1302,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// Actually start the emulator after all disks are ready
     private func startEmulator() {
         debugPrint("🟢 [START] startEmulator called")
+        // Before the disks are read. An unattended refresh decided its verdict
+        // when nothing was running; this is the moment that stops being true.
+        cancelRefreshesForMountedDisks()
         // Clear terminal before starting (removes "Press Play" message).
         // clearTerminal(), not eraseScreen(): starting is a machine-level clear,
         // so it must put the rendition back to the default before painting -
@@ -1376,6 +1472,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // for someone who turned it off.
         screen.resetToPowerOn()
         isRunning = false
+        // The auto-save timer has to go with the machine. It used to survive a
+        // Reset - `stop()` invalidated it and this did not - so a repeating
+        // twenty-second write of the emulator's in-memory image carried on
+        // against a machine reported as not running. Harmless-looking until
+        // something else trusted `isRunning` to mean "the emulator can still
+        // write to this file", which is exactly what the disk refresh does.
+        diskSaveTimer?.invalidate()
+        diskSaveTimer = nil
         statusText = "Reset - disk changes saved"
     }
 
@@ -1518,6 +1622,309 @@ class EmulatorViewModel: NSObject, ObservableObject {
         return hash.map { String(format: "%02x", $0) }.joined()
     }
 
+    // MARK: - Disk Freshness
+    //
+    // Whether each installed image is still the one the catalog names, and what
+    // the app may do about one that is not. DiskLedger.swift carries the whole
+    // argument; what is here is the plumbing - where the facts come from, when
+    // the question is asked, and which session answers it.
+
+    private func persistDiskLedger() {
+        UserDefaults.standard.set(diskLedger.serialized(), forKey: Self.diskLedgerKey)
+    }
+
+    /// Size and modification time for an installed image, or nil if there is no
+    /// file. These two are what decide whether a stored hash still describes the
+    /// bytes, so the whole library does not have to be re-read on every launch.
+    private func fileFacts(for filename: String) -> DiskFileFacts? {
+        let url = downloadsDirectory.appendingPathComponent(filename)
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = (attrs[.size] as? NSNumber)?.int64Value,
+              let modified = attrs[.modificationDate] as? Date else { return nil }
+        return DiskFileFacts(size: size, modified: modified.timeIntervalSinceReferenceDate)
+    }
+
+    /// True when the file is selected in a slot AND the machine is running.
+    ///
+    /// Replacing it then undoes itself: `saveDownloadedDisks()` writes the
+    /// in-memory image back over the file on the next flush, so the badge would
+    /// go green and then red again. Worse, the download lands under a machine
+    /// that has the old geometry mapped.
+    private func isMounted(_ filename: String) -> Bool {
+        let wanted = filename.lowercased()
+        for unit in 0..<selectedDisks.count {
+            guard let disk = selectedDisks[unit],
+                  disk.filename.lowercased() == wanted else { continue }
+            // Ask the emulator rather than trusting `isRunning`. `reset()` sets
+            // isRunning false and `HBIOSEmulator::reset()` does not close the
+            // disks, so the in-memory image is still there and still gets
+            // written back - which made a stopped-looking machine able to undo a
+            // refresh and leave the ledger recording the new hash for the old
+            // bytes, permanently and invisibly.
+            if emulator?.isDiskLoaded(Int32(unit)) == true { return true }
+            if isRunning { return true }
+        }
+        return false
+    }
+
+    /// The freshness verdict for one catalog entry, from the ledger and the file.
+    private func freshness(of disk: DownloadableDisk) -> DiskFreshness {
+        diskLedger.freshness(filename: disk.filename,
+                             catalogSha256: disk.sha256,
+                             facts: fileFacts(for: disk.filename))
+    }
+
+    /// What the settings row should offer for this entry.
+    func refreshPlan(for filename: String) -> DiskRefreshPlan {
+        diskRefreshPlans[filename.lowercased()] ?? .doNothing
+    }
+
+    /// Recompute every verdict, hash whatever cannot be decided without it, and
+    /// start the refreshes the network allows.
+    ///
+    /// Called after a catalog has been adopted and whenever the path changes. It
+    /// is cheap in the ordinary case: nothing is read from disk but sizes and
+    /// modification times.
+    func reassessDiskFreshness() {
+        guard !diskCatalog.isEmpty else { return }
+
+        var plans: [String: DiskRefreshPlan] = [:]
+        var toMeasure: [DownloadableDisk] = []
+
+        for disk in diskCatalog {
+            let key = disk.filename.lowercased()
+            let verdict = freshness(of: disk)
+            if verdict == .needsMeasurement {
+                // Not a mounted disk: the running machine rewrites it every
+                // twenty seconds, so the measurement would never settle and the
+                // pass would re-read it for as long as the emulator ran. Nothing
+                // is offered for one anyway.
+                let churning = isMounted(disk.filename)
+                let exhausted =
+                    (measurementAttempts[key] ?? 0) >= Self.maxMeasurementAttempts
+                if !measurementFailed.contains(key) && !churning && !exhausted {
+                    toMeasure.append(disk)
+                }
+                // Say nothing about a disk that has not been measured. An
+                // unmeasured file is not evidence of anything.
+                plans[key] = .doNothing
+                continue
+            }
+            plans[key] = DiskRefreshPolicy.plan(for: verdict,
+                                                network: networkCondition,
+                                                isMounted: isMounted(disk.filename))
+        }
+
+        diskRefreshPlans = plans
+
+        if !toMeasure.isEmpty {
+            measureDisks(toMeasure)
+            return
+        }
+        startAllowedRefreshes()
+    }
+
+    /// Hash the images whose provenance cannot be settled without it, off the
+    /// main thread, then ask again.
+    ///
+    /// This is the migration path and it runs at most once per file: every
+    /// outcome writes something into the ledger - a measurement, an adopted
+    /// provenance, or a place in `measurementFailed` - so no file can come back
+    /// round to `.needsMeasurement` unchanged. That is what stops an unbounded
+    /// re-hash of a 49 MB image.
+    private func measureDisks(_ disks: [DownloadableDisk]) {
+        guard !measuringDisks else { return }
+        measuringDisks = true
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+
+            var measured: [(String, String, DiskFileFacts, String?)] = []
+            var failed: [String] = []
+
+            for disk in disks {
+                // Re-read the facts beside the hash rather than reusing the ones
+                // the verdict was taken against: the file can be rewritten by
+                // saveDownloadedDisks() while this loop is running, and a hash
+                // stored against the older size would then claim to describe
+                // bytes it never saw.
+                guard let facts = self.fileFacts(for: disk.filename) else {
+                    failed.append(disk.filename.lowercased())
+                    continue
+                }
+                let url = self.downloadsDirectory.appendingPathComponent(disk.filename)
+                guard let hash = self.sha256OfFile(at: url) else {
+                    // Distinguish this from "absent": a transient read failure
+                    // must not be allowed to read as a reason to re-download.
+                    failed.append(disk.filename.lowercased())
+                    continue
+                }
+                measured.append((disk.filename, hash, facts, disk.sha256))
+            }
+
+            DispatchQueue.main.async {
+                for disk in disks {
+                    let key = disk.filename.lowercased()
+                    self.measurementAttempts[key] = (self.measurementAttempts[key] ?? 0) + 1
+                }
+                for (filename, hash, facts, catalogHash) in measured {
+                    self.diskLedger.recordMeasurement(filename: filename,
+                                                      sha256: hash, facts: facts)
+                    if let catalogHash = catalogHash {
+                        // An image that already hashes to the catalog is current
+                        // whoever downloaded it, so adopt its provenance instead
+                        // of leaving it unknown and re-hashing it next launch.
+                        self.diskLedger.adoptProvenanceIfCurrent(filename: filename,
+                                                                 catalogSha256: catalogHash)
+                    }
+                }
+                for key in failed {
+                    self.measurementFailed.insert(key)
+                    self.debugPrint("[Freshness] Could not measure '\(key)' - leaving it alone")
+                }
+                self.persistDiskLedger()
+                self.measuringDisks = false
+                self.reassessDiskFreshness()
+            }
+        }
+    }
+
+    /// Start every refresh the plan and the network permit.
+    private func startAllowedRefreshes() {
+        for disk in diskCatalog {
+            guard refreshPlan(for: disk.filename) == .refreshNow else { continue }
+            // One transfer per filename. downloadTasks has a single slot per
+            // name, so a second start orphans the first task - which keeps
+            // running, keeps its progress observation alive, and races the same
+            // 49 MB destination in moveItem.
+            guard downloadTasks[disk.filename] == nil else { continue }
+            if case .downloading = downloadStates[disk.filename] ?? .notDownloaded { continue }
+            debugPrint("[Freshness] Refreshing superseded image '\(disk.filename)' automatically")
+            statusText = "Updating \(disk.name)…"
+            downloadDiskFromSettings(disk, attemptsRemaining: 3, session: autoRefreshSession,
+                                     expectedFacts: fileFacts(for: disk.filename))
+        }
+    }
+
+    /// The Update control. Allowed on any network - that is what makes
+    /// restricting the automatic half safe - and refused only where the download
+    /// path would refuse it anyway.
+    func updateDisk(_ disk: DownloadableDisk) {
+        // Not while the emulator is running off it, however explicit the tap.
+        // The download would land under a machine holding the old image, and the
+        // next flush of saveDownloadedDisks() would write that old image straight
+        // back over it - leaving the file superseded again while the ledger
+        // records the new hash as its provenance, which is a lie that never
+        // corrects itself.
+        guard !isMounted(disk.filename) else {
+            showError("Stop the emulator before updating \(disk.name).\n\nIt is in a drive right now, and the machine would write its own copy back over the new one.")
+            return
+        }
+        let verdict = freshness(of: disk)
+        guard DiskRefreshPolicy.allowsUserRequestedUpdate(for: verdict) else { return }
+        guard downloadTasks[disk.filename] == nil else { return }
+        downloadDiskFromSettings(disk, attemptsRemaining: 3, session: downloadSession,
+                                 expectedFacts: nil)
+    }
+
+    /// Stop any unattended refresh of a disk that is about to be mounted.
+    ///
+    /// Called from the start path. The verdict that began a refresh was taken
+    /// when nothing was running; pressing Play afterwards is the race, and this
+    /// closes all but the milliseconds during which a transfer is already inside
+    /// `moveItem`.
+    ///
+    /// This only works because the completion handler treats `URLError.cancelled`
+    /// as terminal. Without that it takes the generic retry arm and re-enters one
+    /// second later with two attempts left - so this would *restart* the refresh
+    /// under the now-running machine rather than stopping it.
+    private func cancelRefreshesForMountedDisks() {
+        for slot in selectedDisks {
+            guard let filename = slot?.filename, !filename.isEmpty else { continue }
+            guard let task = downloadTasks[filename] else { continue }
+            debugPrint("[Freshness] Cancelling refresh of '\(filename)' - it is about to be mounted")
+            task.cancel()
+            downloadTasks.removeValue(forKey: filename)
+            downloadStates[filename] = isDiskDownloaded(filename) ? .downloaded : .notDownloaded
+        }
+    }
+
+    /// The installed file's first eight hash digits and whether they match the
+    /// catalog's, from the ledger's CACHED measurement.
+    ///
+    /// This used to be computed in `DiskDownloadRow.checksumStatus` by hashing
+    /// the whole image inside a SwiftUI computed property that `body` reads, and
+    /// SwiftUI re-evaluates `body` freely - 49 MB of reads per render for the
+    /// combo, on a phone. The measurement is taken once, off the main thread, and
+    /// stored against the size and modification time it was taken for, so a
+    /// render is now a dictionary lookup.
+    ///
+    /// nil while nothing has been measured yet, which is the honest answer: the
+    /// row shows the catalog's expected hash in grey rather than a colour it
+    /// has not earned.
+    func installedChecksumStatus(for disk: DownloadableDisk) -> (shown: String, matches: Bool)? {
+        guard let facts = fileFacts(for: disk.filename),
+              let record = diskLedger.record(for: disk.filename),
+              DiskLedger.measurementApplies(record, to: facts),
+              let measured = record.measuredSha256, measured.count >= 8 else { return nil }
+        let shown = String(measured.prefix(8))
+        guard let catalog = DiskLedger.normalizedHash(disk.sha256) else {
+            // Nothing to compare against is not a green tick. The download path
+            // refuses such an entry, so a file sitting here against one was
+            // installed before that check existed.
+            return (shown, false)
+        }
+        return (shown, measured == catalog)
+    }
+
+    /// Whether replacing this image would discard bytes the app did not download.
+    /// The confirmation text depends on it, so the UI asks rather than guessing.
+    func updateWouldDiscardLocalChanges(_ disk: DownloadableDisk) -> Bool {
+        if case .offerUpdate(let lossy) = refreshPlan(for: disk.filename) { return lossy }
+        return false
+    }
+
+    /// Whether this error is the automatic session's own restriction declining to
+    /// spend the user's data, rather than a real failure.
+    ///
+    /// Deliberately not written as an exhaustive `switch` over
+    /// `URLError.NetworkUnavailableReason`: the enum gained `.ultraConstrained`
+    /// in iOS 26.1, `@unknown default` does not silence the exhaustiveness
+    /// warning for it, and naming the case makes the file fail to compile against
+    /// every older SDK. Comparing the cases this app can act on leaves both ends
+    /// working.
+    private static func refreshDeferral(from error: Error) -> DiskRefreshDeferral? {
+        guard let urlError = error as? URLError,
+              urlError.code == .notConnectedToInternet else { return nil }
+        let reason = urlError.networkUnavailableReason
+        if reason == .expensive { return .expensive }
+        if reason == .constrained { return .constrained }
+        if reason == .cellular { return .expensive }
+        // No reason attached means an ordinary outage, which is a real failure and
+        // belongs on the retry path.
+        return nil
+    }
+
+    private func startWatchingNetwork() {
+        guard !pathMonitorStarted else { return }
+        pathMonitorStarted = true
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            let condition = NetworkCondition(isReachable: path.status == .satisfied,
+                                             isExpensive: path.isExpensive,
+                                             isConstrained: path.isConstrained)
+            DispatchQueue.main.async {
+                guard let self = self, self.networkCondition != condition else { return }
+                self.networkCondition = condition
+                self.debugPrint("[Freshness] Path: reachable=\(condition.isReachable) expensive=\(condition.isExpensive) constrained=\(condition.isConstrained)")
+                self.reassessDiskFreshness()
+            }
+        }
+        // The documented first reading is this handler firing once at start.
+        // NWPathMonitor.currentPath before start() is not documented to mean
+        // anything, which is why networkCondition begins at .unknown.
+        pathMonitor.start(queue: DispatchQueue.global(qos: .utility))
+    }
+
     // MARK: - Disk Catalog Management
 
     /// Fetch disk catalog from remote XML, falling back to cached version
@@ -1575,6 +1982,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
                         // line was the only trace of an invalidation the user
                         // could see while the alert was being eaten too.
                         if let notice = notice { self.statusText = notice }
+                        // With the new catalog in force, ask which installed
+                        // images it has moved on from. This is the arm that
+                        // reaches a device already holding a superseded image -
+                        // the version attribute cannot, and deliberately does
+                        // not move.
+                        self.reassessDiskFreshness()
                         return
                     }
                 }
@@ -1719,6 +2132,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 diskCatalog = result.disks
                 refreshAvailableDisks()
                 restoreDiskSelections()
+                // Safe here and NOT in the salvage branch above. This cache was
+                // fetched under the pin this build carries, so its <sha256>
+                // values are the ones to judge against. The salvaged one's are
+                // from a different tag, and assessing against those would report
+                // the whole library superseded and queue twenty downloads that
+                // could not verify.
+                reassessDiskFreshness()
                 return
             }
         }
@@ -1812,11 +2232,20 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// Download a disk image from the catalog (with automatic retry)
     func downloadDisk(_ disk: DownloadableDisk) {
-        downloadDiskFromSettings(disk, attemptsRemaining: 3)
+        downloadDiskFromSettings(disk, attemptsRemaining: 3, session: downloadSession,
+                                 expectedFacts: nil)
     }
 
-    /// Internal settings download with retry logic
-    private func downloadDiskFromSettings(_ disk: DownloadableDisk, attemptsRemaining: Int) {
+    /// Internal settings download with retry logic.
+    ///
+    /// `session` has NO default on purpose. The automatic refresh must run on
+    /// autoRefreshSession, which refuses an expensive or constrained path; the
+    /// four retry sites below re-enter this function, and one of them left on the
+    /// unrestricted session would silently spend a user's cellular data. With the
+    /// parameter required, a missed site fails to compile instead.
+    private func downloadDiskFromSettings(_ disk: DownloadableDisk, attemptsRemaining: Int,
+                                          session: URLSession,
+                                          expectedFacts: DiskFileFacts?) {
         let attempt = 4 - attemptsRemaining
         debugPrint("[Settings Download] '\(disk.filename)' attempt \(attempt)/3")
 
@@ -1827,7 +2256,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         downloadStates[disk.filename] = .downloading(progress: 0)
 
-        let task = downloadSession.downloadTask(with: url) { [weak self] tempURL, response, error in
+        let task = session.downloadTask(with: url) { [weak self] tempURL, response, error in
             guard let self = self else { return }
 
             // Check HTTP status code first (can check on background thread)
@@ -1839,9 +2268,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
                         if attemptsRemaining > 1 {
                             self.debugPrint("[Settings Download] Retrying in 1 second...")
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                                self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1)
+                                self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1,
+                                                              session: session,
+                                                              expectedFacts: expectedFacts)
                             }
                         } else {
+                            self.downloadTasks.removeValue(forKey: disk.filename)
                             self.downloadStates[disk.filename] = .error("HTTP error \(httpResponse.statusCode)")
                         }
                     }
@@ -1851,13 +2283,56 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
             if let error = error {
                 self.debugPrint("[Settings Download] ERROR: \(error.localizedDescription)")
+
+                // A refusal by the automatic session's own flags is not a failure
+                // and must not be treated as one. The OS reports it as
+                // NSURLErrorNotConnectedToInternet, whose localizedDescription is
+                // "The Internet connection appears to be offline" - a lie on
+                // perfectly good LTE, and one the retry loop would tell three
+                // times over before parking it as a red error the user cannot
+                // clear. Stand down instead and let the path monitor bring it
+                // back when the network changes.
+                // A cancelled transfer is a decision, not a failure, and must
+                // never be retried. The generic arm below sees only
+                // `attemptsRemaining > 1` and would re-enter one second later -
+                // so cancelRefreshesForMountedDisks(), which exists to stop a
+                // refresh landing under the running machine, would instead
+                // restart it while the disk was mounted. Same for the user's own
+                // cancel button.
+                if (error as? URLError)?.code == .cancelled {
+                    self.debugPrint("[Settings Download] Cancelled - not retrying")
+                    DispatchQueue.main.async {
+                        self.downloadTasks.removeValue(forKey: disk.filename)
+                        self.downloadStates[disk.filename] =
+                            self.isDiskDownloaded(disk.filename) ? .downloaded : .notDownloaded
+                    }
+                    return
+                }
+
+                if let deferral = Self.refreshDeferral(from: error) {
+                    self.debugPrint("[Settings Download] Standing down: \(deferral.explanation)")
+                    DispatchQueue.main.async {
+                        self.downloadTasks.removeValue(forKey: disk.filename)
+                        // Recompute from the file rather than assuming: the old
+                        // copy is still in place, and leaving `.downloading`
+                        // parked here shows a progress bar that never advances.
+                        self.downloadStates[disk.filename] =
+                            self.isDiskDownloaded(disk.filename) ? .downloaded : .notDownloaded
+                        self.diskRefreshPlans[disk.filename.lowercased()] = .deferred(deferral)
+                    }
+                    return
+                }
+
                 DispatchQueue.main.async {
                     if attemptsRemaining > 1 {
                         self.debugPrint("[Settings Download] Retrying in 1 second...")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1)
+                            self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1,
+                                                              session: session,
+                                                              expectedFacts: expectedFacts)
                         }
                     } else {
+                        self.downloadTasks.removeValue(forKey: disk.filename)
                         self.downloadStates[disk.filename] = .error(error.localizedDescription)
                     }
                 }
@@ -1870,9 +2345,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
                     if attemptsRemaining > 1 {
                         self.debugPrint("[Settings Download] Retrying in 1 second...")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1)
+                            self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1,
+                                                              session: session,
+                                                              expectedFacts: expectedFacts)
                         }
                     } else {
+                        self.downloadTasks.removeValue(forKey: disk.filename)
                         self.downloadStates[disk.filename] = .error("Download failed")
                     }
                 }
@@ -1898,6 +2376,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
                   leaf != ".", leaf != ".." else {
                 self.debugPrint("[Settings Download] REFUSED: catalog filename is not a plain name: '\(disk.filename)'")
                 DispatchQueue.main.async {
+                    self.downloadTasks.removeValue(forKey: disk.filename)
                     self.downloadStates[disk.filename] = .error("Bad filename in catalog")
                 }
                 return
@@ -1926,9 +2405,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
                         if attemptsRemaining > 1 {
                             self.debugPrint("[Settings Download] Retrying in 1 second...")
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                                self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1)
+                                self.downloadDiskFromSettings(disk, attemptsRemaining: attemptsRemaining - 1,
+                                                              session: session,
+                                                              expectedFacts: expectedFacts)
                             }
                         } else {
+                            self.downloadTasks.removeValue(forKey: disk.filename)
                             self.downloadStates[disk.filename] = .error("Checksum mismatch - not saved")
                         }
                     }
@@ -1938,33 +2420,109 @@ class EmulatorViewModel: NSObject, ObservableObject {
             } else {
                 // No hash means no guarantee, so refuse rather than install.  This
                 // is not a hypothetical branch to be lenient about: every one of the
-                // 20 entries in the pinned v1.4.5 catalog carries a <sha256>, so an
+                // 20 entries in the pinned v1.4.12 catalog carries a <sha256>, so an
                 // entry without one is a degraded or hostile catalog, not a normal
                 // one.  Accepting it silently would have made the whole check
                 // optional at the attacker's choosing.
                 self.debugPrint("[Settings Download] REFUSED: no SHA256 in catalog for '\(disk.filename)'")
                 DispatchQueue.main.async {
+                    self.downloadTasks.removeValue(forKey: disk.filename)
                     self.downloadStates[disk.filename] = .error("No checksum in catalog - not saved")
                 }
                 return
             }
 
-            self.debugPrint("[Settings Download] Moving from \(tempURL.path) to \(destURL.path)")
+            // THE LAST CHECK, and the one that matters most.
+            //
+            // Everything the decision to start this transfer rested on was
+            // sampled before it began - whether the image was pristine, and
+            // whether the machine had it mounted. 49 MB later none of that is
+            // known any more, and this is the line that destroys the old file.
+            // An unattended refresh that started while nothing was running can
+            // land after the user has booted that disk and saved work into it,
+            // and `saveDownloadedDisks()` writes the image back every twenty
+            // seconds - so the file under `destURL` may now be theirs.
+            //
+            // `expectedFacts` is what the destination looked like when the plan
+            // was made. If it no longer matches, somebody wrote to the file and
+            // this install is abandoned: the download is discarded, the disk they
+            // have is left alone, and the next sweep re-decides with the truth.
+            // Only the automatic path passes facts; an explicit tap has already
+            // been confirmed against the same hazard by `updateDisk`.
+            if let expected = expectedFacts {
+                let now = self.fileFacts(for: disk.filename)
+                if now != expected {
+                    self.debugPrint("[Settings Download] ABANDONED: '\(disk.filename)' changed under the transfer - not replacing it")
+                    DispatchQueue.main.async {
+                        self.downloadTasks.removeValue(forKey: disk.filename)
+                        self.downloadStates[disk.filename] =
+                            self.isDiskDownloaded(disk.filename) ? .downloaded : .notDownloaded
+                        self.reassessDiskFreshness()
+                    }
+                    return
+                }
+            }
+
+            self.debugPrint("[Settings Download] Installing \(tempURL.path) as \(destURL.path)")
 
             do {
-                // Remove the existing file only now, with the download verified.
-                try? fm.removeItem(at: destURL)
-                try fm.moveItem(at: tempURL, to: destURL)
-                self.debugPrint("[Settings Download] Move successful")
+                // Stage inside Disks/ first, then swap. The old shape was
+                // removeItem-then-moveItem, which has a window where the user has
+                // NO disk at all: a moveItem that throws - a full volume, a
+                // sandbox refusal - left the slot empty having already deleted
+                // the working copy. Staging makes the failure mode "nothing
+                // happened" instead.
+                let stagingURL = disksDir.appendingPathComponent(disk.filename + ".incoming")
+                try? fm.removeItem(at: stagingURL)
+                try fm.moveItem(at: tempURL, to: stagingURL)
+                do {
+                    if fm.fileExists(atPath: destURL.path) {
+                        _ = try fm.replaceItemAt(destURL, withItemAt: stagingURL)
+                    } else {
+                        try fm.moveItem(at: stagingURL, to: destURL)
+                    }
+                } catch {
+                    try? fm.removeItem(at: stagingURL)
+                    throw error
+                }
+                self.debugPrint("[Settings Download] Install successful")
 
                 DispatchQueue.main.async {
+                    self.downloadTasks.removeValue(forKey: disk.filename)
                     self.downloadStates[disk.filename] = .downloaded
                     self.refreshAvailableDisks()
+
+                    // The one point in the app where provenance is knowable: the
+                    // bytes on disk are the ones just verified against the
+                    // catalog's <sha256>, so record which published image they
+                    // are. Everything DiskLedger decides later rests on this
+                    // line, and no other code may write it - a hash computed
+                    // over the file at any later moment cannot tell a superseded
+                    // image from one the user has saved work into.
+                    if let expected = disk.sha256 {
+                        self.diskLedger.recordInstall(filename: disk.filename,
+                                                      catalogSha256: expected,
+                                                      facts: self.fileFacts(for: disk.filename))
+                        // A verified download settles both of the reasons a file
+                        // stops being measured, so clear them: the bytes and
+                        // their hash are known exactly, and any earlier failure
+                        // or churn is no longer the state of this file.
+                        self.measurementFailed.remove(disk.filename.lowercased())
+                        self.measurementAttempts.removeValue(forKey: disk.filename.lowercased())
+                        self.persistDiskLedger()
+                    }
+                    // Clear the offer here rather than waiting for the next
+                    // sweep. A sweep only runs on a catalog fetch or a path
+                    // change, neither of which happens because a download
+                    // finished - so the Update button would sit there afterwards
+                    // inviting a second 49 MB fetch of an image already current.
+                    self.diskRefreshPlans[disk.filename.lowercased()] = .doNothing
                     self.statusText = "Downloaded: \(disk.name)"
                 }
             } catch {
                 self.debugPrint("[Settings Download] ERROR moving file: \(error.localizedDescription)")
                 DispatchQueue.main.async {
+                    self.downloadTasks.removeValue(forKey: disk.filename)
                     self.downloadStates[disk.filename] = .error("Save failed: \(error.localizedDescription)")
                 }
             }
@@ -1987,7 +2545,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
     func cancelDownload(_ filename: String) {
         downloadTasks[filename]?.cancel()
         downloadTasks.removeValue(forKey: filename)
-        downloadStates[filename] = .notDownloaded
+        // Recompute rather than assert. Since disks can be REFRESHED in place,
+        // a cancelled transfer often leaves a perfectly good installed image
+        // behind - and saying .notDownloaded for one hides its hash badge, drops
+        // it back to a download arrow, and invites the user to re-fetch 49 MB of
+        // a file they already have.
+        downloadStates[filename] = isDiskDownloaded(filename) ? .downloaded : .notDownloaded
     }
 
     /// Delete a downloaded disk image
@@ -1995,6 +2558,15 @@ class EmulatorViewModel: NSObject, ObservableObject {
         let path = downloadsDirectory.appendingPathComponent(filename)
         try? FileManager.default.removeItem(at: path)
         downloadStates[filename] = .notDownloaded
+        // Everything recorded about the file goes with the file. Leaving the plan
+        // behind kept an orange "any files you saved in it are lost" note on a
+        // disk that no longer exists; leaving the ledger record behind would hand
+        // the next download a provenance it did not earn.
+        diskRefreshPlans.removeValue(forKey: filename.lowercased())
+        diskLedger.removeRecord(for: filename)
+        measurementFailed.remove(filename.lowercased())
+        measurementAttempts.removeValue(forKey: filename.lowercased())
+        persistDiskLedger()
         refreshAvailableDisks()
 
         // Clear selection if this disk was selected
@@ -2274,81 +2846,40 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
 
     // MARK: - Host File Transfer (R8/W8)
 
+    /// The backend could not open the file R8 asked for.
+    ///
+    /// This used to be the whole read path: it resolved the name against
+    /// `Imports`, read the bytes and handed them down through
+    /// `emu_host_file_load_named`. That is now done synchronously inside
+    /// `emu_host_file_open_read` (`emu_io_ios.mm`), on the emulator thread,
+    /// because R8 asks for the resolved name (`H_GETRNAME`, 0xEA) about ten Z80
+    /// instructions after the open - and a hop to the main queue has essentially
+    /// never completed by then, so the backend had nothing to answer with.
+    ///
+    /// The case-insensitive scan went with it rather than being duplicated in
+    /// C++: there is one resolver now, not two that can drift. It also had a bug
+    /// of its own that the move fixes - `fileExists(atPath:)` succeeds for
+    /// `ESC.TXT` when the file is `esc.txt`, because Documents is a
+    /// case-insensitive volume, so the path handed on carried the case the CCP
+    /// invented rather than the case the file has.
+    ///
+    /// What is left is the part that needs UIKit and a user: say where the file
+    /// should go, and make the folder so they can put it there. **It must not
+    /// touch host-file state.** The open has already failed and returned false;
+    /// R8 has been told. Calling `emu_host_file_cancel()` here would be
+    /// cancelling a transfer that no longer exists, and a later one if the guest
+    /// has moved on.
     func emulatorHostFileRequestRead(_ suggestedFilename: String) {
         DispatchQueue.main.async {
-            // R8 always reads from the Documents/Imports folder — a batch/scripted
-            // build that does many R8s never triggers a picker. Use "Import File…"
-            // (a user-initiated action) to stage an arbitrary host file into
-            // Imports beforehand.
             let fm = FileManager.default
             let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
             let importsDir = docs.appendingPathComponent("Imports", isDirectory: true)
             try? fm.createDirectory(at: importsDir, withIntermediateDirectories: true)
 
-            // The core has already reduced the guest's path to a leaf, and this
-            // reduces again rather than trusting that: the name is about to be
-            // joined to importsDir, and appendingPathComponent does not escape
-            // "..".
-            let requested = (suggestedFilename.trimmingCharacters(in: .whitespaces) as NSString)
-                .lastPathComponent
-            var fileURL: URL?
-
-            if !requested.isEmpty && requested != "." && requested != ".." {
-                let specificFile = importsDir.appendingPathComponent(requested)
-                if fm.fileExists(atPath: specificFile.path) {
-                    fileURL = specificFile
-                } else if let contents = try? fm.contentsOfDirectory(
-                            at: importsDir, includingPropertiesForKeys: nil) {
-                    // CP/M's CCP uppercases the whole command line, so the guest
-                    // asks for FOO.COM when the file is foo.com. The native
-                    // backend resolves that case-insensitively and so does this;
-                    // it matters on a case-sensitive volume, and costs one scan
-                    // of a flat folder on any other.
-                    fileURL = contents.first {
-                        $0.lastPathComponent.compare(requested,
-                                                     options: .caseInsensitive) == .orderedSame
-                    }
-                }
-            }
-
-            // Deliberately no "use the first file in the folder" fallback. That
-            // is what this used to do when the requested name did not resolve,
-            // and R8 has no way to notice: it derives the CP/M name from the
-            // path the user typed, so unrelated contents landed in CP/M under
-            // the requested name with a success message on both sides.
-            guard let url = fileURL else {
-                emu_host_file_cancel()
-                let what = requested.isEmpty ? "No filename given" : "\(requested) not found"
-                self.showError("R8: \(what) in the Imports folder.\n\nPut the file in:\n\(importsDir.path)")
-                self.statusText = "R8: \(what) in Imports"
-                return
-            }
-
-            do {
-                let data = try Data(contentsOf: url)
-                // The NAMED form. `url` is what actually opened, which is not
-                // what the guest asked for whenever the case-insensitive
-                // fallback above did the finding - the CCP shouts the command
-                // line, so R8 FOO.COM is how a file called foo.com is reached.
-                // R8 prints this (HBF_HOST_GETRNAME) instead of echoing the
-                // request back at the person who typed it.
-                //
-                // Called even when the file is empty. `baseAddress` is nil for
-                // an empty Data, so guarding on it skipped the hand-off
-                // entirely and left the backend parked in WAITING_READ - the
-                // read side of the zero-byte hole the write side closed in
-                // build 53 (romwbw_emu v1.36, cpmdroid c06fa58). An empty file
-                // in Imports is a real file and R8 should make an empty CP/M
-                // one out of it, through the same states as any other size.
-                data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
-                    let ptr = bytes.baseAddress?.assumingMemoryBound(to: UInt8.self)
-                    emu_host_file_load_named(ptr, data.count, url.path)
-                }
-                self.statusText = "R8: Loaded \(url.lastPathComponent) (\(data.count) bytes)"
-            } catch {
-                emu_host_file_cancel()
-                self.statusText = "R8: Error reading \(url.lastPathComponent)"
-            }
+            let requested = suggestedFilename.trimmingCharacters(in: .whitespaces)
+            let what = requested.isEmpty ? "No filename given" : "\(requested) not found"
+            self.showError("R8: \(what) in the Imports folder.\n\nPut the file in:\n\(importsDir.path)")
+            self.statusText = "R8: \(what) in Imports"
         }
     }
 

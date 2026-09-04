@@ -172,6 +172,15 @@ run_suite WindowFrameTests \
     "$ROOT/iOSCPM/Views/WindowFrame.swift" \
     "$ROOT/Tests/WindowFrameTests.swift"
 
+# Which published image each installed disk came from, and what may be done
+# about one the catalog has moved on from. The reason this is a suite and not a
+# hash comparison in the view model is in DiskLedger.swift: a downloaded disk is
+# a writable CP/M volume, so "its bytes differ from the catalog" is not evidence
+# that it is stale, and acting on it as though it were destroys user data.
+run_suite DiskLedgerTests \
+    "$ROOT/iOSCPM/Views/DiskLedger.swift" \
+    "$ROOT/Tests/DiskLedgerTests.swift"
+
 # Named machine configurations: what a profile carries, and what it does when
 # one comes back from an older version or a hand-edited defaults plist.
 run_suite EmulatorProfileTests \
@@ -185,6 +194,47 @@ run_suite EmulatorProfileTests \
 
 run_core_suite CoreKeyboardTests \
     "$ROOT/Tests/CoreKeyboardTests.cc"
+
+# Whether R8 can find out which file it is reading. The suite supplies two
+# backend shapes - synchronous and parking - and drives R8's real sequence
+# (0xE1 -> 0xEA -> 0xE3) through both, because the thing that was broken was a
+# property of the backend's open and not of the getter. Also covers
+# storeHostName's clamping and the PC-rewind arm.
+run_core_suite CoreHostFileTests \
+    "$ROOT/Tests/CoreHostFileTests.cc"
+
+# The port's own Objective-C++ backend, compiled.
+#
+# WIP.md recorded this file as untestable here. That was too strong: it is
+# Foundation-only Objective-C++, so the macosx SDK compiles it. It is a compile
+# and not a run - nothing here observes what the code does.
+#
+# -Wundeclared-selector is the flag that earns it. Every delegate hop in that
+# file is respondsToSelector:-guarded, so a selector that no longer exists fails
+# SILENTLY at runtime: the message is simply never sent, and a failed R8 shows
+# no alert. Plain -Wall says nothing about that, because @selector() accepts any
+# literal. With this flag a @selector() naming a method no declared protocol
+# has is an error here instead. -Werror on the two selector warnings only, so an
+# unrelated future warning does not fail the suite.
+#
+# It cannot join run_core_suite, which falls back to plain `c++` off a Mac and
+# would then try to compile Objective-C++ with no Foundation.
+printf '%s\n' "=== EmuIOBackendCompiles ==="
+if command -v xcrun >/dev/null 2>&1; then
+    if xcrun --sdk macosx clang++ -fsyntax-only -Wall \
+            -Wundeclared-selector -Werror=undeclared-selector \
+            -x objective-c++ -std=c++11 \
+            -fobjc-arc -I "$ROOT/iOSCPM/Core" "$ROOT/iOSCPM/Core/emu_io_ios.mm" 2>&1; then
+        echo "PASS: emu_io_ios.mm compiles clean against the macOS SDK"
+    else
+        echo "FAIL: emu_io_ios.mm does not compile"
+        status=1
+    fi
+else
+    echo "SKIP: no Objective-C toolchain (needs a Mac)"
+    skipped=$((skipped + 1))
+fi
+echo
 
 if [ "$status" -ne 0 ]; then
     echo "TESTS FAILED"

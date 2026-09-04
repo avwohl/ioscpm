@@ -915,32 +915,76 @@ struct DiskDownloadRow: View {
     let disk: DownloadableDisk
     @ObservedObject var viewModel: EmulatorViewModel
 
+    /// Only ever set for an update that would discard the user's own bytes.
+    /// A pristine image is replaced on the tap, with nothing to warn about.
+    @State private var confirmingUpdate = false
+
     var downloadState: DownloadState {
         viewModel.downloadStates[disk.filename] ?? .notDownloaded
     }
 
     /// The installed file's SHA256 (first 8 chars) and whether it matches the
-    /// catalog - computed together, in ONE pass over the file.
+    /// catalog.
     ///
     /// This used to be two computed properties, and `body` read both: the text
     /// from one and its colour from the other. Each hashed the whole image, so
     /// every render of every downloaded row read the file twice - 98 MB of reads
-    /// per render for the combo. SwiftUI re-evaluates `body` freely, so that was
-    /// not a one-off cost.
+    /// per render for the combo. Merging them halved it; the number that was
+    /// still wrong was one, not two. SwiftUI re-evaluates `body` freely, and a
+    /// 49 MB read has no business happening there at all.
+    ///
+    /// The hash now comes from the ledger's cached measurement, taken once off
+    /// the main thread and stored against the size and modification time it was
+    /// taken for. This is a dictionary lookup.
     var checksumStatus: (shown: String, matches: Bool)? {
         guard case .downloaded = downloadState else { return nil }
-        let url = viewModel.downloadsDirectory.appendingPathComponent(disk.filename)
-        guard let hash = viewModel.sha256OfFile(at: url), hash.count >= 8 else { return nil }
-        let shown = String(hash.prefix(8))
-        guard let expected = disk.sha256Short else {
-            // Not "assume ok", which is what this said before. As of 2026-09-01 the
-            // download path refuses an entry that carries no catalog hash, so a file
-            // sitting here with nothing to compare against was installed before that
-            // check existed or by a catalog that has since changed. Neither is a
-            // green tick.
-            return (shown, false)
+        return viewModel.installedChecksumStatus(for: disk)
+    }
+
+    /// What the app is offering to do about this image, if anything.
+    var refreshPlan: DiskRefreshPlan { viewModel.refreshPlan(for: disk.filename) }
+
+    /// The one-line note under the row when an image has been superseded.
+    ///
+    /// A superseded image is NOT an error and must not read like one: the disk
+    /// the user has still works, and in the deferred case the app is going to
+    /// fetch the new one by itself as soon as the network is right.
+    var refreshNote: (text: String, systemImage: String)? {
+        switch refreshPlan {
+        case .doNothing:
+            return nil
+        case .refreshNow:
+            return ("A newer version of this disk is being downloaded", "arrow.triangle.2.circlepath")
+        case .deferred(let reason):
+            return ("A newer version of this disk is available — \(reason.explanation)",
+                    "arrow.triangle.2.circlepath")
+        case .offerUpdate(let lossy):
+            return (lossy
+                    ? "A newer version is available. Updating replaces this disk, and any files you saved in it are lost."
+                    : "A newer version of this disk is available",
+                    lossy ? "exclamationmark.triangle" : "arrow.triangle.2.circlepath")
         }
-        return (shown, shown.lowercased() == expected.lowercased())
+    }
+
+    /// Whether to show the Update control, and whether tapping it needs the
+    /// confirmation.
+    ///
+    /// A NETWORK deferral must still offer it. Restricting the automatic half to
+    /// Wi-Fi is only defensible because an explicit tap works on any network, and
+    /// gating this on `.offerUpdate` alone left a user on cellular - or with Low
+    /// Data Mode on - looking at "a newer version is available" with no way to
+    /// get it. `.deferred(.mounted)` is the one that genuinely cannot be
+    /// overridden by a tap: the running machine would write its own copy back.
+    var updateControl: (lossy: Bool, Void)? {
+        switch refreshPlan {
+        case .offerUpdate(let lossy):
+            return (lossy, ())
+        case .deferred(let reason):
+            // Only reached from a pristine verdict, so never lossy.
+            return reason.isNetwork ? (false, ()) : nil
+        case .doNothing, .refreshNow:
+            return nil
+        }
     }
 
     var body: some View {
@@ -998,8 +1042,31 @@ struct DiskDownloadRow: View {
                     .font(.caption)
                     .foregroundColor(.red)
             }
+
+            // "A newer version is available". Orange, not red: nothing has gone
+            // wrong and the disk in hand still works.
+            if let note = refreshNote {
+                HStack(spacing: 4) {
+                    Image(systemName: note.systemImage)
+                    Text(note.text)
+                }
+                .font(.caption)
+                .foregroundColor(.orange)
+            }
         }
         .padding(.vertical, 4)
+        .alert("Update \(disk.name)?", isPresented: $confirmingUpdate) {
+            Button("Cancel", role: .cancel) {}
+            Button("Update", role: .destructive) { viewModel.updateDisk(disk) }
+        } message: {
+            Text("""
+                 This downloads the current version and replaces the copy on this \
+                 device. Any files you saved inside this disk will be lost.
+
+                 To keep them, copy them out with W8 first, or export the disk \
+                 from the Files app.
+                 """)
+        }
     }
 
     @ViewBuilder
@@ -1026,6 +1093,18 @@ struct DiskDownloadRow: View {
 
         case .downloaded:
             Menu {
+                // The control todo.txt said did not exist: "there is no control
+                // that re-downloads it". Offered whenever the catalog has moved
+                // on from the installed copy, on ANY network - restricting the
+                // automatic half is only defensible because this is always here.
+                if let control = updateControl {
+                    Button {
+                        if control.lossy { confirmingUpdate = true } else { viewModel.updateDisk(disk) }
+                    } label: {
+                        Label("Update to Latest Version",
+                              systemImage: "arrow.triangle.2.circlepath")
+                    }
+                }
                 Button {
                     viewModel.deleteDownloadedDisk(disk.filename)
                 } label: {
@@ -1033,9 +1112,12 @@ struct DiskDownloadRow: View {
                         .foregroundColor(.red)
                 }
             } label: {
-                Image(systemName: "checkmark.circle.fill")
+                // Orange while an update is outstanding, so the state is visible
+                // without opening the menu.
+                Image(systemName: refreshNote == nil
+                      ? "checkmark.circle.fill" : "arrow.up.circle.fill")
                     .font(.title2)
-                    .foregroundColor(.green)
+                    .foregroundColor(refreshNote == nil ? .green : .orange)
             }
 
         case .error:
