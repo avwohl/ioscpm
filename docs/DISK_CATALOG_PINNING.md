@@ -2,13 +2,23 @@
 
 **Status:** Done. Applied in `4be8a13` (2026-07-25, v1.5.1 build 42):
 `EmulatorViewModel.swift` builds both the catalog URL and the download base from
-a single `releaseTag = "v1.4.5"`. Every build from 43 on has shipped with it.
+a single `releaseTag`. **The pin is `v1.4.12` as of `0010591`; it read `v1.4.5`
+from build 42 to build 58.** No build carrying `v1.4.12` has reached a user — the
+App Store serves 1.4.9, builds 36/37. Measure that with
+`tools/check-store-version.sh` rather than reading a number here.
 The pinned `disks.xml` + `hd1k_combo.img` URLs both return 200.
-Mismatch check (verify step 3) **confirmed**: the pinned v1.4.5 Combo (sha256
-`be19984e…`, byte-exact to disks.xml) boots against the shipped `emu_avw.rom`
+Mismatch check (verify step 3) **confirmed** — on the *v1.4.5* Combo (sha256
+`be19984e…`, byte-exact to that tag's disks.xml), which is the measurement that
+was actually run: it boots against the shipped `emu_avw.rom`
 (HBIOS SYSVER 0x3510 = v3.5.1.0) with CBIOS v3.5.1 and **no** HBIOS/CBIOS
 mismatch banner — verified headlessly in the native `romwbw_emu` CLI, which
 shares the exact core the iOS app compiles (see memory `ioscpm-native-boot-verify`).
+That result carries to the `v1.4.12` combo (`89b8ae1a…`) by argument rather than
+by a re-run: the two images differ in 5,121 bytes out of 51,380,224 and every one
+of them is inside `R8.COM`, `W8.COM` or their two directory entries, so the CBIOS
+is byte-identical and the banner cannot appear. If you want it re-measured on the
+new bytes instead of argued from a diff, that is a Mac task and it has not been
+done.
 **Why:** the Windows (z80cpmw) and Android (cpmdroid) ports already pinned the
 disk catalog to an explicit release tag; iOS was the last port floating on
 `releases/latest`. This doc records what changed and why.
@@ -33,17 +43,31 @@ release instead of `latest`:
 
 | Port | Where | Catalog source |
 |---|---|---|
-| Windows (z80cpmw) | `DiskCatalog.cpp` → `RELEASE_TAG` | pinned `v1.4.5` |
-| Android (cpmdroid) | `DiskCatalogRepository.kt` → `RELEASE_TAG` | pinned `v1.4.5` |
-| iOS (this app) | `EmulatorViewModel.swift` → `releaseTag` | pinned `v1.4.5` |
+| Windows (z80cpmw) | `DiskCatalog.cpp` → `RELEASE_TAG` | pinned `v1.4.12` |
+| Android (cpmdroid) | `DiskCatalogRepository.kt` → `RELEASE_TAG` | pinned `v1.4.12` |
+| iOS (this app) | `EmulatorViewModel.swift` → `releaseTag` | pinned `v1.4.12` |
 
-`v1.4.5` is a published release (a prerelease mirror of `v1.4.11`, carrying the
-v3.5.1 disk set with the w8-fixed combo). It is intentionally marked
-**prerelease** so it does **not** become the repo's "Latest".
+`v1.4.12` (2026-09-01) is the pinned release: the same v3.5.1 disk set, with
+`hd1k_combo.img` respun to carry the current `r8.com` and `w8.com`. Nineteen of
+the twenty images are byte-identical to `v1.4.5`'s; only the combo moved.
+
+`v1.4.5` is still published and **still marked prerelease** — re-measured
+2026-09-04, `gh api repos/avwohl/ioscpm/releases/tags/v1.4.5 --jq .prerelease` is
+`true`. It is a prerelease mirror of `v1.4.11` (both catalogs hash `6ae94b8c…`)
+carrying the v3.5.1 set with the w8-lowercase-fixed combo. It is frozen: nothing
+may be uploaded to it and its flag does not move.
+
+**`releases/latest` became `v1.4.12` on 2026-09-04**, deliberately — what that
+decided, and what it cost, is recorded in `docs/DISK_W8FIX_RUNBOOK.md` under
+"2026-09-04". The consequence for this document is that `latest` and the pin are
+now the same tag, so they are no longer two independent layers. A future release
+that must not reach the floating fleet has to be held by its own `--prerelease`
+flag; there is no longer an accident keeping `latest` behind the pin.
 
 ### Why it was pinned
 
-While iOS floated, `latest` = `v1.4.11` = CBIOS v3.5.1, so it happened to match.
+Until 2026-09-04, `latest` was `v1.4.11` = CBIOS v3.5.1, so while iOS floated it
+happened to match.
 But the day a **v3.6.0** ioscpm release is published as a *normal*
 (non-prerelease) release, it becomes "Latest", and a floating client would
 immediately start downloading v3.6.0 disks against its **v3.5.1** ROM →
@@ -64,20 +88,20 @@ the comment/pattern matches cpmdroid's):
     // disks from a different RomWBW release print an HBIOS/CBIOS mismatch warning
     // at boot. Bump this tag together with core/ROM upgrades. Help (HelpView)
     // deliberately stays on releases/latest — help floats, disks are pinned.
-    private static let releaseTag = "v1.4.5"
+    private static let releaseTag = "v1.4.12"
     private static let catalogURL = "https://github.com/avwohl/ioscpm/releases/download/\(releaseTag)/disks.xml"
     private static let releaseBaseURL = "https://github.com/avwohl/ioscpm/releases/download/\(releaseTag)"
 ```
 
 It replaced two constants that hard-coded `…/releases/latest/download/…`.
 
-### The URL shape — it is NOT a plain `latest → v1.4.5` substitution
+### The URL shape — it is NOT a plain `latest → v1.4.12` substitution
 
 Worth remembering when the tag is next bumped: the path segments reorder
 between the two forms.
 
 - floating: `…/releases/`**`latest/download`**`/<asset>`
-- pinned:   `…/releases/`**`download/v1.4.5`**`/<asset>`
+- pinned:   `…/releases/`**`download/v1.4.12`**`/<asset>`
 
 `releaseBaseURL` keeps the same **trailing-slash convention as the floating
 line it replaced** (no trailing slash), so the download code that appends
@@ -106,7 +130,7 @@ content isn't version-locked to the ROM; disk images are).
 2. Sanity-check the pinned URL resolves:
    ```
    curl -sILo /dev/null -w '%{http_code}\n' \
-     https://github.com/avwohl/ioscpm/releases/download/v1.4.5/disks.xml
+     https://github.com/avwohl/ioscpm/releases/download/v1.4.12/disks.xml
    ```
    Expect `200`.
 3. Boot a downloaded disk (e.g. Combo) and confirm **no** "HBIOS/CBIOS Version
@@ -122,7 +146,10 @@ When the stack is rebuilt to RomWBW v3.6.0, do it in lockstep across all ports:
    `romwbw_emu/archive/romwbw-v3.6.0/`, but the `emu_avw` v3.6.0 build does not
    yet exist) and rebuild the disk set from v3.6.0.
 2. Cut a **new** ioscpm tag (e.g. `v1.6.0`; the app already ships v1.5.1) — do
-   **not** reuse `v1.4.5` (the installed v3.5.1 fleet is hardwired to it).
+   **not** reuse `v1.4.5`, and do not reuse `v1.4.12` either. `v1.4.5` is frozen
+   under `docs/DISK_W8FIX_RUNBOOK.md`; `v1.4.12` is what every port now pins
+   **and** what `releases/latest` resolves to, so overwriting it would reach both
+   the pinned and the floating fleet at once.
 3. Bump the pinned tag in **all three**: z80cpmw `DiskCatalog.cpp`, cpmdroid
    `DiskCatalogRepository.kt`, and this iOS constant.
 

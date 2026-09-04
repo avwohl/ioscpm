@@ -33,7 +33,7 @@ The manifest is an XML file listing all available disk images:
         <description>49MB multi-slice disk with CP/M 2.2, games, utilities...</description>
         <size>51380224</size>
         <license>Mixed</license>
-        <sha256>be19984edbcbb901973c268b870587235ea128e3c5e13b80a35d8c9488ec6d6e</sha256>
+        <sha256>89b8ae1aaa6867dc515c3511b34c4f0c311a77e99ff71066f5a774bef99cde1d</sha256>
         <defaultSlot>0</defaultSlot>
     </disk>
     <!-- more disks... -->
@@ -70,8 +70,20 @@ dropped from the catalog in the same bump are all kept. The alert afterwards
 gives both counts. Before build 56, `deleteAllDownloadedDisks()` took every `.img`
 in `Documents/Disks` regardless of where it came from.
 
-There is still no confirmation beforehand, and nothing is offered as an update:
-the user is told after the fact. So do not think of this attribute as metadata.
+**Since build 60 the attribute is no longer the only thing that can refresh an
+image, and it should not be the thing you reach for.** `DiskLedger.swift` records
+which published image each installed file came from — the catalog `<sha256>` a
+verified download matched — so a respun image can be replaced on that evidence
+alone, per file, with the version attribute left exactly where it is. That is how
+the `hd1k_combo.img` respin reaches a device that already held the old one.
+Deliberately *not* keyed on hashing the file against the catalog: a downloaded
+disk is a writable CP/M volume and `saveDownloadedDisks()` rewrites it, so that
+comparison marks every disk a user has saved work into as stale. See
+"User Data Persistence" in `KNOWN_PROBLEMS.md`.
+
+There is still no confirmation beforehand on the version-attribute path, and it
+offers nothing as an update: the user is told after the fact. So do not think of
+this attribute as metadata.
 Bumping it clears the catalog half of everyone's disk library, unprompted, on
 their next launch — and for the builds actually in service (1.4.9, builds 36/37,
 which predate both the narrowing and the catalog pin) it still clears **all** of
@@ -85,18 +97,19 @@ in `KNOWN_PROBLEMS.md`.
 ### Release URLs
 
 Clients read the catalog and the images from an explicit, pinned release tag —
-`releaseTag` in `EmulatorViewModel.swift`, currently `v1.4.5`:
+`releaseTag` in `EmulatorViewModel.swift`, currently `v1.4.12`:
 ```
-Catalog:  https://github.com/avwohl/ioscpm/releases/download/v1.4.5/disks.xml
-Base URL: https://github.com/avwohl/ioscpm/releases/download/v1.4.5
+Catalog:  https://github.com/avwohl/ioscpm/releases/download/v1.4.12/disks.xml
+Base URL: https://github.com/avwohl/ioscpm/releases/download/v1.4.12
 ```
 
 Individual disk downloads append `/` plus the filename to the base URL:
 ```
-https://github.com/avwohl/ioscpm/releases/download/v1.4.5/hd1k_combo.img
+https://github.com/avwohl/ioscpm/releases/download/v1.4.12/hd1k_combo.img
 ```
 
-The help system is deliberately *not* pinned: `HelpView.swift:187-188` still
+The help system is deliberately *not* pinned: `indexURL` and `baseURL` in
+`HelpView.swift` still
 fetches `help_index.json` and the `help_*.md` topics from
 `https://github.com/avwohl/ioscpm/releases/latest/download/`. Help content is not
 version-locked to the ROM; disk images are. See `docs/DISK_CATALOG_PINNING.md`.
@@ -119,11 +132,18 @@ When creating a new GitHub release:
      downloaded
 
 3. The disk catalog does not follow `/latest/` (only the help system does).
-   Clients read the pinned tag `v1.4.5`; a new release tag reaches no installed
-   client until `releaseTag` in `EmulatorViewModel.swift` is bumped and a
-   new app build ships. The
-   `v1.4.5` release is intentionally marked **prerelease** so it never becomes
-   the repo's "Latest". See `docs/DISK_CATALOG_PINNING.md`.
+   Clients from build 42 on read the pinned tag `v1.4.12`; a new release tag
+   reaches none of them until `releaseTag` in `EmulatorViewModel.swift` is bumped
+   and a new app build ships.
+
+   **The builds actually in service are not among them.** The App Store serves
+   1.4.9 (builds 36/37), which predates the pin and still fetches from
+   `releases/latest/download/`. So a release that is *not* marked `--prerelease`
+   reaches those devices immediately, with nothing installed and nothing
+   submitted. `v1.4.5` is still marked prerelease and stays that way. `v1.4.12`
+   was deliberately un-marked on 2026-09-04 and is now `releases/latest` — see
+   `docs/DISK_W8FIX_RUNBOOK.md` under "2026-09-04" for why, and
+   `docs/DISK_CATALOG_PINNING.md` for what it changed about the two layers.
 
 ## Client Implementation
 
@@ -174,7 +194,7 @@ That dead path is deleted; there is one download path and it verifies.
 Two entries are refused rather than installed:
 
 - **No `<sha256>` in the catalog entry.** Not "assume ok" — all 20 entries in
-  the pinned `v1.4.5` catalog carry a hash, so an entry without one is a
+  the pinned `v1.4.12` catalog carry a hash, so an entry without one is a
   degraded or hostile catalog. Accepting it would have made the check optional
   at the catalog's choosing.
 - **A `<filename>` that is not a plain name.** The catalog is downloaded

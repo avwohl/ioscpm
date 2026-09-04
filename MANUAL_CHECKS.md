@@ -9,7 +9,11 @@ a one-line pointer at this one.
 `CHANGELOG.md`; what it left open goes in `todo.txt`.  A check that has been run
 and left in place turns this file into the accumulating record `todo.txt` was.
 
-Most of this needs a Mac, not a device.  The iOS Simulator runs the identical
+Most of this needs a Mac, not a device, and **this machine is one** — Xcode 26.6
+is at `/Applications/Xcode.app`.  If `xcodebuild` tells you it "requires Xcode",
+that only means `xcode-select` points at the Command Line Tools; prefix the
+command with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` rather
+than concluding there is no toolchain.  The iOS Simulator runs the identical
 Swift layer against a real sandbox - `xcrun simctl get_app_container booted
 com.awohl.cpm data` gives you the `Documents` folder to inspect - and
 `SUPPORTS_MACCATALYST = YES`, so the Catalyst pass is a `xcodebuild
@@ -42,10 +46,15 @@ Build 52 is a data-loss fix and none of it has been driven by hand.  Use a
       EMPTY.TXT` at the `A>` prompt makes the empty file (CCP built-in, not
       checked here); any other route to a zero-length CP/M file does as well.
 
-Checks 1 and 2 need a disk image carrying the **new** `w8.com`, and the catalog
-does not serve one - `v1.4.5/hd1k_combo.img` has only `Usage: W8 <cpmname>` in
-it, no `[hostpath]`.  Copy an image in through Files from `romwbw_emu/disks/`
-instead, and check which one you have first:
+Checks 1 and 2 need a disk image carrying the **new** `w8.com`, and **the
+catalog now serves one**: `v1.4.12/hd1k_combo.img` (`89b8ae1a…`) has
+`Usage: W8 <cpmname> [hostpath]`, `Usage: R8 <hostpath>` and the `06 e9 cf`
+probe.  That was not true when this section was written - `v1.4.5`'s combo has
+only `Usage: W8 <cpmname>`, no `[hostpath]` - so a device holding the older image
+looks identical in the picker and silently makes checks 1, 2, 14 and 15 the wrong
+test.  **Check which one you have before running any of them**, either by
+downloading the combo fresh on a clean install or by copying one in through Files
+from `romwbw_emu/disks/`:
 
     xxd -p w8.com | tr -d '\n' | grep -c 06e9cf   # 1 = interlocked, 0 = armed
 
@@ -114,8 +123,13 @@ the rejection arm — only the passing one, which is every ordinary download.
       **no** `.img` behind in `Documents/Disks`.
 - [ ] The first-run fetch (`downloadDisksAndStart`) surfaces that as a failure
       rather than starting the emulator with a missing disk.
-- [ ] A catalog entry with no `<sha256>` at all still installs. The field has
-      always been optional and a missing hash is not a failure.
+- [ ] A catalog entry with no `<sha256>` at all is **refused**, with
+      `No checksum in catalog - not saved`, and nothing is written to
+      `Documents/Disks`. This box used to say the opposite — "the field has
+      always been optional and a missing hash is not a failure" — and had been
+      wrong since 2026-09-01, when `downloadDiskFromSettings` started refusing
+      such an entry rather than installing it. All 20 entries in the pinned
+      catalog carry a hash, so one without is a degraded or hostile catalog.
 
 ## 6. The narrowed catalog invalidation
 
@@ -141,29 +155,33 @@ could not cover:
 
 ---
 
-## 7. Build 59 has never been compiled — this gates 8 through 13
+## 7. Build 60 is built — what that leaves
 
-Everything below arrived in `8e7587f` and has had exactly one kind of
-verification: `Tests/run_tests.sh`, 11 suites, 869 checks.  Every piece of it
-that touches SwiftUI or UIKit — `ContentView.swift`, `TerminalView.swift`,
-`EmulatorViewModel.swift`, `iOSCPMApp.swift`, `CatalystWindow.swift` — has never
-been through a compiler, because no machine that has touched this work had
-Xcode.  `xcrun --sdk macosx swiftc -parse` is a syntax check and was the most
-that could be run.
+Everything below arrived in `8e7587f` and the 2026-09-04 sweep.  For three builds
+this file said there was no Xcode here and none of it could be compiled.  **That
+was wrong** — `/Applications/Xcode.app` is Xcode 26.6; bare `xcodebuild` only
+fails because `xcode-select` points at the Command Line Tools.  Use:
 
-- [ ] It builds at all.  `xcodebuild` for the Simulator **and** for
-      `-destination 'platform=macOS,variant=Mac Catalyst'`.  Do this before
-      anything else here; a type error in the UI layer would fail every check
-      below for one reason, and finding that out five checks in wastes the pass.
-- [ ] It launches, boots CP/M and takes keyboard input the way build 58 did.
-      The sweep moved the whole screen model and escape parser out of
+    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild …
+
+- [x] It builds.  Clean for `-destination 'platform=iOS Simulator,name=iPhone 17
+      Pro'` **and** for `-destination 'platform=macOS,variant=Mac Catalyst'`,
+      with no warnings on either.  Done 2026-09-04 on build 60.
+- [x] It launches and paints.  Installed and launched on the iPhone 17 Pro
+      simulator: comes up as `v1.5.1.60`, prints the banner, and shows the
+      on-screen key row (section 8) and the `sb 0/0` scrollback counter.
+- [ ] It **boots CP/M** and takes keyboard input the way build 58 did.  Not done
+      — the launch check above stopped at the "Press Play to start" screen.  The
+      sweep moved the whole screen model and escape parser out of
       `EmulatorViewModel` into `TerminalScreen`; the suite says the parser is
       right, and nothing says the wiring to the view is.
 - [ ] Scrollback still works — build 57 fixed it and build 58 cleared it on
       start.  Both go through code the extraction moved.
+- [ ] The **Catalyst** build has been compiled but never run.  Everything in
+      sections 2, 9 and 10 needs it launched.
 
-If it does not build and the fix is not small, `git revert 8e7587f` backs the
-whole sweep out; it went in as a fast-forward and comes out cleanly.
+If it stops building and the fix is not small, `git revert 8e7587f` backs the
+first sweep out; it went in as a fast-forward and comes out cleanly.
 
 ## 8. The on-screen key row, on a phone
 
@@ -285,3 +303,139 @@ audio engine near it; the Settings toggle is "Terminal Bell".
       deliberately does not touch it, because the setting is the user's and not
       the guest's, and a test says so.
 - [ ] The setting survives a relaunch, and travels in a profile (section 11).
+
+## 14. R8 now says which file it is actually reading
+
+`emu_host_file_open_read()` (`emu_io_ios.mm`) is **synchronous** as of build 60.
+It used to park the request on the main queue and return, so the state was still
+`WAITING_READ` when R8 asked `H_GETRNAME` (0xEA) ten Z80 instructions later, and
+`emu_host_file_get_read_name()` truthfully answered `""` — leaving R8 to print
+the name the CCP shouted at it.  `Tests/CoreHostFileTests.cc` proves the core
+side of this against both backend shapes; what no suite can reach is the
+Objective-C++ that does the actual resolving.
+
+Needs an image whose `r8.com` calls 0xEA.  `v1.4.12/hd1k_combo.img` does — the
+bytes `06 ea cf` occur in it — so a freshly downloaded Combo is enough; the
+`v1.4.5` image is not.
+
+- [ ] Put a file in `Imports` whose name is **lowercase**: `esc.txt`.  At the
+      `A>` prompt run `R8 ESC.TXT` (the CCP uppercases it whatever you type).
+      R8 must print `Reading: /…/Documents/Imports/esc.txt` — an absolute path,
+      ending in the **file's own** lowercase spelling.  Printing `ESC.TXT` means
+      the resolve took the case the CCP invented, which is what
+      `fileExists(atPath:)` used to do on a case-insensitive volume.
+- [ ] The file arrives in CP/M intact and under the expected name.
+- [ ] A **zero-byte** file in `Imports` still produces a zero-byte CP/M file
+      rather than an error.  The open must reach `HOST_FILE_READING` even with
+      nothing to read; guarding that on a non-empty read is the hole build 53
+      closed on the write side.
+
+## 15. R8 on a file that is not there — a deliberate behaviour change
+
+Before build 60 the open **succeeded** for a name that did not resolve: R8
+printed `Creating:`, the first read hit instant EOF, and a zero-byte CP/M file
+was left behind.  The open now fails.
+
+- [ ] `R8 NOSUCH.COM` → R8 reports it cannot open the host file, and **no CP/M
+      file is created**.  `DIR` afterwards must not show a zero-length
+      `NOSUCH.COM`.
+- [ ] The alert still names the Imports folder path, and the folder exists
+      afterwards — the Swift handler is now failure-only and creating that
+      directory is the one thing it still does.
+- [ ] `R8 ../SOMETHING` cannot reach outside `Imports`.  The containment
+      reduction is still in front of the scan, not instead of it.
+- [ ] `R8` naming a **directory** inside `Imports` fails rather than making an
+      empty CP/M file.  `fopen` succeeds on a directory on Darwin — measured —
+      so this is the `S_ISREG` guard, and nothing else exercises it.
+- [ ] A file in `Imports` **larger than 8 MB** fails the open rather than
+      arriving truncated.  R8 derives the CP/M name from what was typed and
+      cannot notice a short read, so a truncated copy would land under the right
+      name with both sides reporting success.
+
+## 16. A superseded disk image, refreshed
+
+Build 60's `DiskLedger`.  The suite (`Tests/DiskLedgerTests.swift`, 66 checks)
+covers the decision; the **automatic path has now been driven end to end** on the
+iPhone 17 Pro simulator against a real sandbox, which is what the ticked box
+below records.  Everything else here is still unobserved.
+
+Staging a case by hand needs two things known.  The ledger is a **JSON string**,
+so `PlistBuddy` (which strips the quotes) and a `-key value` launch argument
+(which parses `{…}` as a plist dict) both corrupt it — use
+`plutil -replace diskLedger -string '<json>' \
+  "$(xcrun simctl get_app_container booted com.awohl.cpm data)/Library/Preferences/com.awohl.cpm.plist"`.
+And `cfprefsd` caches preferences, so **shut the simulator down** before editing
+that plist or the app will never see it.
+
+The interesting setup is the one every existing install is in: an image on disk
+with **no ledger entry**, because nothing has ever written one.
+
+- [ ] Fresh install, download the Combo, then relaunch.  The row shows a green
+      hash and offers no update.  Provenance was recorded by the download.
+- [ ] Install with an image already present and no ledger (simulate by deleting
+      the `diskLedger` key from the app container's preferences).  On the next
+      catalog fetch the file is hashed **once**, off the main thread; a matching
+      image adopts its provenance and never hashes again.  Watch that a
+      relaunch does not re-read 49 MB.
+- [ ] An image that does **not** match the catalog and has no ledger entry gets
+      the orange Update control and the "any files you saved will be lost"
+      confirmation — and is **never** refreshed on its own, on any network.
+      There is no evidence that separates a superseded image from one the user
+      wrote to, and guessing here destroys data.
+- [x] With a ledger entry proving the file pristine and superseded, on an
+      unmetered path it refreshes itself unattended.  Verified 2026-09-04:
+      `hd1k_games.img` was staged carrying a different image's bytes with
+      provenance to match, and the app logged
+      `[Freshness] Path: reachable=true expensive=false constrained=false`,
+      `[Freshness] Refreshing superseded image 'hd1k_games.img' automatically`,
+      `SHA256 verified: 7f33738c…`, `Install successful` — the file ended up
+      hashing to the catalog's value, the ledger recorded the new provenance with
+      its measurement, and the **next launch downloaded nothing at all**, which
+      is the half that would otherwise loop.  No `.incoming` left behind.
+- [ ] The row goes green in the UI afterwards.  Only the log and the files were
+      inspected above; nobody has looked at the settings screen.
+- [ ] On **cellular** it does not refresh — the row says "waiting for Wi-Fi" and
+      the Update button still works if tapped.  Low Data Mode behaves the same
+      way and says so.  Unobserved: the simulator reports an unconstrained,
+      inexpensive path and there is no way to make it say otherwise.
+- [ ] Cellular must not produce an error.  The automatic session's own refusal
+      arrives as `NSURLErrorNotConnectedToInternet`, whose text is "The Internet
+      connection appears to be offline" — a lie on good LTE.  It must be
+      swallowed into the waiting state, not retried three times and parked as a
+      red error.
+- [ ] Boot the machine off a superseded disk and leave it running.  Nothing
+      refreshes it, and the note says "stop the emulator to update this disk".
+      The Update item must be **gone** from the menu, not merely inert: the next
+      flush would write the old image straight back over the download while the
+      ledger recorded the new hash as this file's provenance, which is a lie that
+      never corrects itself.
+- [ ] Start an automatic refresh on Wi-Fi and press Play before it finishes.
+      The transfer is cancelled rather than landing under the running machine,
+      and the row goes back to showing the installed disk.
+- [ ] The same, but let the machine WRITE to the disk before the download lands
+      (create a file in CP/M and wait for the twenty-second flush, or Stop).
+      The install must be **abandoned** — the log says the file changed under the
+      transfer — and the user's disk must still be there with their file in it.
+      This is the check that the whole feature is safe; it is the one path on
+      which an unattended download can reach a file somebody is using.
+- [ ] Fill the device's storage and then update a disk.  The old image must
+      survive: the install stages into `Disks/<name>.img.incoming` and swaps, so
+      a failure leaves what was there rather than nothing.  Confirm no stray
+      `.incoming` file is left behind afterwards.
+- [ ] Cancel a refresh with the X while the old disk is still installed.  The row
+      must go back to the green installed state, **not** to a download arrow —
+      the file never went anywhere.  And it must **stay** cancelled: a cancelled
+      transfer used to fall into the generic retry arm and restart itself a
+      second later.
+- [ ] Press **Reset**, then look at a superseded disk that was in a slot.  It
+      must still count as mounted — no automatic refresh, no Update item —
+      because `HBIOSEmulator::reset()` leaves the disk loaded and the machine can
+      still write its copy back.  Also confirm the twenty-second auto-save timer
+      has stopped: `[SaveDisks]` must not keep appearing in the log after a
+      Reset the way it did before.
+- [ ] Delete a superseded disk.  The orange "any files you saved in it are lost"
+      note goes with it rather than sitting under a row for a file that no longer
+      exists.
+- [ ] Settings with the Combo installed no longer stutters.  `checksumStatus`
+      used to hash 49 MB inside `body`; it is a dictionary lookup now, so
+      scrolling the disk list should cost nothing.

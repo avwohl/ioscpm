@@ -11,101 +11,57 @@ build.  Tag each item with what it needs, so a session on another machine can
 see at a glance what that machine can take.
 
 
-Needs a Mac
------------
+It is built.  It is not submitted.
+------------------------------------
 
-- [MAC] emu_host_file_get_read_name() answers truthfully now and R8 still cannot
-  hear it, and that is a shape worth fixing rather than a wrong answer.  The
-  backend records the resolved path (emu_host_file_load_named) and the getter
-  returns it while HOST_FILE_READING.  But R8 prints its `Reading:` line between
-  the open and the first read, and an open here only parks the request for the
-  Swift layer's next main-queue turn - the guest is rewound on HBF_HOST_READ,
-  not on the open - so at the moment R8 asks the state is still WAITING_READ and
-  the honest answer is "".  Watched on the simulator at build 55 against an image
-  whose R8 does call 0xEA: `R8 ESC.TXT` for a file stored as `esc.txt` printed
-  `Reading: ESC.TXT`.  cpmdroid has the identical shape for the identical reason.
+- [RELEASE] build 60 compiles clean for the Simulator and for Mac Catalyst, runs
+  on the iPhone 17 Pro simulator, and has never been submitted.  The App Store
+  serves 1.4.9, builds 36/37, from 2026-03-19 - re-measure with
+  tools/check-store-version.sh rather than trusting that.  Bump the build number
+  only when a submission is actually cut; MARKETING_VERSION does not move.
 
-  The fix is settled and specified in WIP.md - read it before starting, because
-  an earlier idea recorded there is wrong and named as wrong.  Resolve the name
-  at OPEN time instead of at data time: make this port's open synchronous inside
-  emu_host_file_open_read(), which is what the CLI and Windows backends already
-  do.  No shared-core file changes; emu_io_ios.mm is port-local.  The duplicate
-  case-insensitive scan gets DELETED from Swift rather than added to C++, so
-  there is one resolver and not two that can drift.
+  This machine cannot upload.  `xcodebuild archive` succeeds but signs with the
+  Apple Development identity, which cannot be exported for the App Store; that
+  needs a distribution certificate, an App Store provisioning profile and an App
+  Store Connect API key, none of which are here.  KNOWN_PROBLEMS.md "Releasing"
+  is the standing entry.  So this item is a person with credentials, not a
+  session.
 
-  A second bug falls out of the same edit.  iOS's Documents volume is
-  case-INsensitive, so Swift's fileExists fast path succeeds for a file stored
-  as esc.txt when the CCP asked for ESC.TXT, and the path handed on carries the
-  case the CCP invented rather than the case the file has - so even when the
-  race lands the right way the answer is dishonest.  realpath() does not fix
-  this; always scan and take the directory entry's own spelling.
+  What is waiting on that submission:
 
-  Testable here: run_core_suite compiles a .cc suite against the symlinked core
-  and lets the test supply the backend, the way Tests/CoreKeyboardTests.cc
-  already stubs the whole host-file API.  WIP.md also lists six traps that have
-  each bitten this code before, and the manual check that closes the item.
+    releaseTag is "v1.4.12" and no installed copy carries it.  Since 2026-09-04
+    releases/latest IS v1.4.12, so a floating 1.4.9 device gets the fixed R8 on a
+    FRESH download - but start() only fetches a disk that is absent, so a device
+    already holding hd1k_combo.img keeps the old R8 until a build ships.
+
+    DiskLedger.swift is what reaches those devices.  Driven end to end on the
+    simulator against a real sandbox: a superseded image was measured, judged,
+    replaced and recorded, and left alone on the next launch.
+
+    emu_host_file_open_read() is synchronous, so R8 can report the file it is
+    really reading.  Tests/CoreHostFileTests.cc drives the core sequence and
+    run_tests.sh compiles the backend, but nothing has run it against a real
+    Imports folder - MANUAL_CHECKS.md sections 14 and 15.
+
+  MANUAL_CHECKS.md section 1 still has all six boxes unticked, and sections 8
+  through 16 want a person driving the app.  Nothing there needs a machine this
+  one is not.
+
+  Use Xcode with DEVELOPER_DIR rather than xcode-select: bare `xcodebuild` fails
+  with a message that reads like "Xcode is not installed" and only means
+  xcode-select points at the Command Line Tools.  Three builds' worth of notes in
+  this repository drew the wrong conclusion from it.
+
+    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild ...
 
 
-The repin has not shipped
--------------------------
+Open questions
+--------------
 
-- [RELEASE] releaseTag is "v1.4.12" in EmulatorViewModel.swift as of 0010591 and
-  no build a user can install carries it.  The App Store is on 1.4.9, builds
-  36/37, from 2026-03-19; build 59 is numbered in CHANGELOG.md and marked **Not
-  built** there, because the machine it was written on has Command Line Tools and
-  no Xcode.  Until a build carrying that constant is compiled and submitted,
-  every installed copy fetches the v1.4.5 catalog and gets the R8 that hands an
-  unfiltered host basename to F_DELETE - importing a host file whose name holds
-  ? or * erases every matching CP/M file first and says nothing.  Bump the build
-  number only; MARKETING_VERSION does not move.  MANUAL_CHECKS.md section 1 has
-  all six boxes unticked and wants doing on the same build.
-
-  Shipping it is necessary and not sufficient, which is the part to settle before
-  writing release notes that promise the fix.  disks.xml's version attribute is
-  13 at v1.4.5, v1.4.11 and v1.4.12 alike - left there deliberately, because
-  changing it makes deleteCatalogDisks(named:) clear the catalog half of every
-  device's library - so checkCatalogVersionAndInvalidate takes its "Version
-  unchanged" branch and invalidates nothing.  hd1k_combo.img is the only one of
-  the twenty images whose bytes moved between those tags, so a device that
-  already downloaded it keeps the old R8 after the update, indefinitely.  What
-  the user sees is checksumStatus painting the installed hash red against the
-  catalog's; there is no control that re-downloads it.  Either the new build
-  re-fetches an image whose installed hash disagrees with the catalog, or the
-  next catalog bump takes the wipe.  cpmdroid has the identical hole and
-  KNOWN_PROBLEMS.md's "User Data Persistence" holds the standing half.
-
-- [ANY] docs/DISK_DISTRIBUTION.md and docs/DISK_CATALOG_PINNING.md still teach
-  v1.4.5 as the pin - in the two URL examples, in the "Creating a Release" steps,
-  in the three-port table, and in the sentence about "all 20 entries in the
-  pinned v1.4.5 catalog".  Those two documents are what a session reads to learn
-  what the pin is, and both now contradict the code.  release_assets/disks.xml
-  itself is fine: it is byte-identical to the copy published at v1.4.12.
-
-- [DECISION] one flag would reach every installed iOS user without any build, and
-  it is the flag the interlock is deliberately holding.  The App Store serves
-  1.4.9, builds 36/37, from 2026-03-19; pinning arrived at build 42 (4be8a13), so
-  the fleet in service predates releaseTag entirely and still fetches
-  releases/latest.  That resolves to v1.4.11 - the only recent non-prerelease -
-  whose hd1k_combo.img is be19984e... and whose r8.com is the old 1079-byte one
-  with no wildcard filter.  Clear v1.4.12's prerelease flag and it becomes
-  releases/latest, and every one of those devices starts fetching the fixed R8 on
-  its next catalog read, with nothing submitted and nothing installed.
-
-  The reason not to is the whole point of the flag.  Those builds do not have the
-  W8 path sanitiser, which is build 52, and RELEASE_ORDER_2026-08-25.md's step 5
-  says a catalog bump ships only in a build that carries its port's sanitiser -
-  refreshing the catalog is what puts a path-capable W8 in front of a user.  So
-  the flag trades a live R8 data-loss bug on an unfixed fleet against handing that
-  same fleet a W8 it cannot safely be given.  Settle it deliberately; do not clear
-  the flag as a side effect of some other release.  The version attribute is 13 on
-  both tags, so this particular move fires no wipe - that hazard is separate.
-
-- [ANY] docs/DISK_W8FIX_RUNBOOK.md's warning about hd1k_combo_ioscpm_w8fixed.img
-  names only v1.4.5, and the asset is on v1.4.11 as well - byte-identical to the
-  unfixed combo at both tags, in no catalog at either, and deliberately dropped
-  from v1.4.12, which is why that release has 29 assets where the older two have
-  30.  v1.4.11 is the tag that matters here, because it is releases/latest.  The
-  rule itself is already written in four places and does not need restating; add
-  v1.4.11 to the tag list in that one warning and stop.  Do not delete the asset
-  from either published release - nothing fetches it, and CLAUDE.md's release
-  rules forbid touching v1.4.5 at all.
+- [MAC] disk sizes larger than 8 MB: whether DiskSize.swift's hd512 multi-slice
+  shape actually comes up as several drive letters, or whether it needs the hd1k
+  shape with a hand-written type-0x2E MBR.  Both readings agree on what
+  emu_check_disk_size() accepts and disagree about what HBF_EXTSLICE does with a
+  0xE5 image over 8 MB.  WIP.md carries the argument on both sides and the reason
+  the current code is believed right; MANUAL_CHECKS.md section 12 is the check
+  that answers it.

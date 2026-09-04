@@ -74,6 +74,14 @@ run instead.  Do not reconstruct these from memory or from an older revision of
 that file: the revision that was superseded told you to do two of the forbidden
 things.
 
+**Two of them were deliberately exercised on 2026-09-04, and that is recorded
+rather than hidden.**  `v1.4.12`'s help assets were replaced with `--clobber`
+and its `--prerelease` flag was cleared, so `releases/latest` is now `v1.4.12`.
+The runbook's **2026-09-04** section says what was traded and why.  The rules
+still govern everything else: `v1.4.5` was not touched, no disk asset moved, and
+the `<disks version>` attribute did not change.  Read that section before
+concluding the repository violates its own rules and trying to "fix" it.
+
 ## Fixing "Simulator Busy" Errors
 
 When the iOS Simulator reports busy/failed preflight, run ALL these steps in a SINGLE command:

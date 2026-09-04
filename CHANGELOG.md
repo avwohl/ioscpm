@@ -1,18 +1,282 @@
 # Changelog
 
-## Version 1.5.1 (Build 59)
+## Version 1.5.1 (Build 60)
 
-`Tests/run_tests.sh`: 11 suites, 869 checks, all passing — up from 7 suites and
-350.  **Not built.**  There is no Xcode on the machine this was written on, only
-Command Line Tools, so `xcodebuild` does not run and there is no simulator.
-Every previous entry here could claim a clean Catalyst build and this one cannot:
-the SwiftUI and UIKit half has never been compiled.  It needs a real build before
-it is submitted.  That is also why every piece of new logic below was put in a
-type with no UIKit behind it — a command-line suite was the only verification
-available, so the code was shaped to be reachable from one.
+`Tests/run_tests.sh`: 13 suites, 980 checks, all passing — up from 7 suites and
+350.  **Built, launched and driven** — see "This machine had Xcode all along"
+below, because for three builds this file said otherwise and that was wrong.
 
-Six of `todo.txt`'s seven items close here.  `WIP.md` carries the full state, the
-one open question and the one item still open.
+Clean build for the iOS Simulator **and** for `-destination 'platform=macOS,
+variant=Mac Catalyst'`, no warnings on either.  Launched on the iPhone 17 Pro
+simulator: it comes up as `v1.5.1.60`, paints the banner, and shows the
+on-screen key row and the scrollback counter.  The disk-freshness refresh below
+was then driven end to end against a real sandbox — a superseded image was
+staged, and the app measured it, judged it, fetched the replacement, verified the
+checksum, installed it and recorded its provenance, then did nothing at all on
+the next launch.
+
+**Not submitted, and not run on hardware.**  A clean archive is evidence that the
+code builds and evidence of nothing else; see "Releasing" in
+`KNOWN_PROBLEMS.md`.  CP/M itself has not been booted here and the Catalyst build
+has been compiled but not driven.  `MANUAL_CHECKS.md` carries what is left.
+
+Every piece of new logic below is still in a type with no UIKit behind it.  That
+was originally forced by the mistaken belief that a command-line suite was the
+only verification available; it stays because it turned out to be the right
+shape anyway — `DiskLedger` is 66 checks that need no simulator.
+
+This entry covers two sittings.  The first closed six of `todo.txt`'s seven
+items; the second, on 2026-09-04, closed four of the five that were left and
+added the disk-freshness refresh that the `[RELEASE]` item had described and
+nobody had written.
+
+**It was numbered 59 while it was being written and goes out as 60.**  59 was
+carried in the tree for two sittings and never became a binary anybody could
+install — the entry said so in as many words, on the mistaken grounds that this
+machine could not compile it.  The number moved once, deliberately, for the
+submission this build is actually for.  `MARKETING_VERSION` does not move.
+
+`todo.txt` is down to one item — submitting it — and one open question.
+`WIP.md` carries both.
+
+**One thing this file said was impossible turned out not to be.**  `emu_io_ios.mm`
+was recorded as untestable here; it is Foundation-only Objective-C++, so the
+macOS SDK compiles it clean at `-Wall`, and that is now the `EmuIOBackendCompiles`
+suite.  It is a compile and not a run, but every delegate hop in that file is
+`respondsToSelector:`-guarded, so a mistyped selector fails **silently** at
+runtime and nothing else in the repository would have caught it.
+
+### This machine had Xcode all along
+
+Builds 57 and 58, and this entry for as long as it was numbered 59, all
+recorded — in this file and in `WIP.md` — that there was no Xcode on the machine
+and therefore no build and no simulator.  That was false, and it is worth writing
+down how it got believed, because it cost three builds' worth of verification.
+
+`xcodebuild -version` answers:
+
+    xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer
+    directory '/Library/Developer/CommandLineTools' is a command line tools instance
+
+which reads like "Xcode is not installed" and is not.  It says only that
+`xcode-select` points at the Command Line Tools.  `/Applications/Xcode.app` is
+here — Xcode 26.6 — and `~/Library/Developer/Xcode/Archives/2026-09-03/` holds
+two **build 58** archives made on this machine.  The tree was asserting it could
+not do a thing it had done the day before.
+
+**Nothing needs `sudo xcode-select`.**  Set the variable for the command:
+
+    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild …
+
+`KNOWN_PROBLEMS.md`'s "This machine can archive but cannot upload" was right all
+along and contradicted the other three files; it should have been the clue.  The
+lesson is the one `CLAUDE.md` already states for shipped state and applies just
+as well to a toolchain: **measure it, do not infer it from an error message.**
+
+### An installed disk image can finally be told it is out of date
+
+`todo.txt` had this under "The repin has not shipped", and it is the half that
+shipping a build could not fix by itself:
+
+> `disks.xml`'s version attribute is 13 at v1.4.5, v1.4.11 and v1.4.12 alike -
+> left there deliberately, because changing it makes `deleteCatalogDisks(named:)`
+> clear the catalog half of every device's library - so
+> `checkCatalogVersionAndInvalidate` takes its "Version unchanged" branch and
+> invalidates nothing.  `hd1k_combo.img` is the only one of the twenty images
+> whose bytes moved between those tags, so a device that already downloaded it
+> keeps the old R8 after the update, indefinitely.  What the user sees is
+> `checksumStatus` painting the installed hash red against the catalog's; there
+> is no control that re-downloads it.
+
+There is now.  `DiskLedger.swift` is Foundation-only and carries every decision;
+`Tests/DiskLedgerTests.swift` is 66 checks over it.
+
+**The obvious implementation destroys user data, and that is the whole design.**
+"Hash the file, re-download when it differs from the catalog" reads as the right
+answer and is not.  A downloaded disk is a **writable CP/M volume**:
+`saveDownloadedDisks()` writes the running machine's image back over
+`Documents/Disks/<name>.img` on every warm boot and every backgrounding.  So the
+first time somebody saves a file inside a catalog disk, its bytes stop matching
+the catalog for ever — and it is not stale, it is theirs.  A refresh keyed on
+that comparison would silently overwrite 49 MB of their work, on Wi-Fi,
+unprompted.  That is `KNOWN_PROBLEMS.md`'s standing "Data Loss Risk with GitHub
+Disks", automated.  It is also, incidentally, why `checksumStatus` paints that
+disk red today: the red is often correct and almost never means what it looks
+like it means.
+
+So staleness is decided from **provenance**, not from bytes.  The ledger records,
+per filename, the catalog `<sha256>` that a *verified* download matched — a fact
+about which published image these bytes came from, which local writes cannot
+touch:
+
+    superseded  <=>  recorded provenance != the catalog's current <sha256>
+
+"Have the bytes moved since we wrote them" is a second, independent question, and
+it decides only whether replacing them is **lossy**.  A superseded image proven
+pristine is refreshed automatically.  A superseded image the user has written to
+gets a button that says, in as many words, that files saved in the disk will be
+lost.
+
+Automatic means automatic on a network that is not expensive and not
+constrained, and the guarantee is the session's own flags rather than the path
+monitor — `allowsExpensiveNetworkAccess = false`, `allowsConstrainedNetworkAccess
+= false`, applied by the OS at connect time, so a path that flips to cellular
+between the decision and the transfer still cannot spend the data.
+`waitsForConnectivity` is deliberately left **false**: setting it looks polite
+and converts the prompt failure into a wait bounded only by
+`timeoutIntervalForResource`, which defaults to seven days.  The refusal arrives
+as `NSURLErrorNotConnectedToInternet`, whose text is "The Internet connection
+appears to be offline" — a lie on good LTE — so it is intercepted before the
+retry loop and turned into "waiting for Wi-Fi".  The Update control works on any
+network, always, which is the only thing that makes restricting the automatic
+half defensible.  `session:` on `downloadDiskFromSettings` has **no default
+argument** on purpose: it recurses at four retry sites, and one of them left on
+the unrestricted session would quietly spend somebody's cellular data, so a
+missed site fails to compile instead.
+
+**The honest limit.**  Every install in service has no ledger, because nothing
+has ever written one, and from bytes alone a superseded image and one the user
+typed into are indistinguishable.  Those get the button and never the automatic
+path.  One case does resolve itself: an image that already hashes to the catalog
+is current whoever downloaded it, so its provenance is adopted on sight — which
+covers nineteen of the twenty entries and stops the library being re-hashed on
+every launch.  The automatic half therefore starts working for images downloaded
+by build 60 or later, and that is the answer rather than a shortcoming to
+optimise away.
+
+**The check that matters is the last one, not the first.**  Everything the
+decision rests on is sampled before a 49 MB transfer begins; the line that
+destroys the old file runs a minute later, and by then none of it is known.  A
+refresh that started while nothing was running can land after the user has booted
+that disk and saved work into it — `saveDownloadedDisks()` writes every twenty
+seconds — so the install re-reads the destination's size and modification time
+immediately before replacing it and **abandons** the download if they have moved.
+Pressing Play also cancels any refresh of a disk about to be mounted, and
+cancellation is terminal rather than a retry.  The replace itself is
+stage-then-swap now instead of remove-then-move: the old shape had a window in
+which a `moveItem` that threw left the user with no disk at all, having already
+deleted the working copy.
+
+Two more things fall out.  `checksumStatus` no longer hashes anything: it reads the
+ledger's cached measurement, taken once off the main thread and stored against
+the size and modification time it was taken for.  It had been hashing the whole
+image inside a SwiftUI computed property that `body` reads — 49 MB per render for
+the combo, and the comment above it already admitted SwiftUI re-evaluates `body`
+freely.  And a disk that is mounted in a slot while the machine runs is never
+refreshed automatically, because the next flush would write the old image
+straight back over the download.
+
+Two bugs found by reviewing the above rather than by hitting them, both older
+than this change and both made dangerous by it:
+
+- **`reset()` left the twenty-second disk auto-save timer running.**  `stop()`
+  invalidated it and `reset()` never did, so after a Reset the timer kept writing
+  the emulator's in-memory image over `Documents/Disks/<name>.img` against a
+  machine that reported `isRunning == false`.  On its own that is a curiosity; it
+  becomes destructive the moment anything trusts `isRunning` to mean "the
+  emulator can no longer write to this file", which is what the refresh guard
+  did.  `isMounted` now asks `isDiskLoaded(_:)` as well, because
+  `HBIOSEmulator::reset()` deliberately does not close the disks.
+- **A cancelled download was retried.**  The completion handler's error arm looks
+  only at `attemptsRemaining`, so `URLError.cancelled` scheduled a fresh transfer
+  one second later.  That made the cancel button not cancel, and it would have
+  turned the guard that stops a refresh landing under a running machine into the
+  thing that *started* one.  Cancellation is terminal now.
+
+### R8 says which file it is actually reading
+
+The last `[MAC]` item.  `emu_host_file_get_read_name()` had answered truthfully
+since build 55 and R8 still could not hear it, because the failure was in the
+*open* and not in the getter.  This port's `emu_host_file_open_read()` parked the
+request — it `dispatch_async`ed to the main queue and returned — and R8 emits
+`H_OPEN_R` (0xE1) and `H_GETRNAME` (0xEA) about ten Z80 instructions apart, so
+the main queue had essentially never run in between.  `HBF_HOST_GETRNAME` gates
+on `HOST_FILE_READING`; at the moment R8 asked, the state was still
+`WAITING_READ` and `""` was the honest answer.  Watched on the simulator at build
+55: `R8 ESC.TXT` for a file stored as `esc.txt` printed `Reading: ESC.TXT`, the
+name the CCP shouted.
+
+The open is **synchronous** now, which is what the CLI and Windows backends have
+always done.  Zero shared-core files change — `emu_io_ios.mm` is port-local.  The
+alternative of resolving the name at open, keeping the data async and relaxing
+the getter's gate was considered and is dominated: relaxing that gate is an
+`emu_io.h` contract change touching four repositories, and it would have the
+backend answer with a name for a file it has not opened, which is the exact claim
+this call exists to replace.
+
+**A second bug fell out of the same edit.**  iOS's Documents volume is
+case-INsensitive, so Swift's `fileExists(atPath: Imports/ESC.TXT)` *succeeded*
+for a file stored as `esc.txt`, and the path handed on carried the case the CCP
+invented rather than the case the file has.  So even when the race landed the
+right way the answer was dishonest.  The scan takes the directory entry's own
+spelling now; `realpath()` does not fix this, because it resolves symlinks and
+`.`/`..`, not case.  The duplicate case-insensitive scan was **deleted from
+Swift** rather than added to C++, so there is one resolver and not two that can
+drift.  What is left of the Swift handler is failure-only, and must not touch
+host-file state.
+
+Two traps found by writing it rather than by remembering, both measured:
+
+- **`fopen` succeeds on a directory** on Darwin, and the first `fread` returns 0.
+  Without an `fstat`/`S_ISREG` guard, `R8 SOMEDIR` reported a successful open,
+  printed a `Reading:` line and left an empty CP/M file.
+- **`emu_host_path_basename(x, "")` does not answer `""`.**  An empty fallback is
+  itself replaced — with `"download.bin"` — so the degenerate path went hunting
+  for a file of that name.  The backend passes a one-byte sentinel and tests for
+  that.
+
+`Tests/CoreHostFileTests.cc` is 48 checks and supplies **two backend shapes**,
+synchronous and parking, driving R8's real sequence through both: the parking one
+is kept as a test so the regression is visible rather than remembered.  It also
+covers `storeHostName`'s clamping and the PC-rewind arm, neither of which had a
+test.
+
+**Deliberate behaviour change**, in `MANUAL_CHECKS.md` section 15: a file that is
+not in `Imports` now makes the open *fail*, so R8 prints that it cannot open the
+host file and creates nothing.  It used to succeed, print `Creating:`, and hit
+instant EOF on the first read — leaving a zero-byte CP/M file behind.
+
+### v1.4.12 is `releases/latest`, deliberately
+
+Not a code change; a change to what the repository serves, recorded here because
+it reaches users and no build does.  `docs/DISK_W8FIX_RUNBOOK.md` under
+"2026-09-04" carries the full account and the amended rule.
+
+The App Store fleet is 1.4.9 (builds 36/37), which predates the catalog pin and
+floats on `releases/latest`.  That resolved to `v1.4.11`, whose combo carries the
+`r8.com` that hands an unfiltered host basename to `F_DELETE`.  No build carrying
+the repin can be produced on the machines that have this work, so the flag was
+the only lever that reaches those devices at all, and it was cleared on purpose.
+
+Two things had to be got right first, and one of them was nearly missed.
+`v1.4.12` had shipped an **older, thinner help set** naming the wrong container id
+(`com.awohl.iOSCPM`; the app is `com.awohl.cpm`), and help is the deliberately
+floating half — `HelpView.swift` and z80cpmw's `HelpWindow.cpp` both fetch it
+from `releases/latest/download/`.  Flipping the flag as-is would have regressed
+help on both.  So the eight help assets were replaced first, with `--clobber`,
+touching no disk asset and no `disks.xml`; all 21 disk assets kept their original
+ids and 2026-09-01 timestamps, checked against the tag's API object rather than
+the `releases/latest` redirect.  And clearing `prerelease` alone does **not** move
+`releases/latest`: GitHub keeps an explicit `make_latest` on a release created as
+a prerelease, so `--latest` is required and its absence is silent.
+
+**What it actually reaches is less than `todo.txt` claimed, and that is the
+correction worth keeping.**  That item said clearing the flag means "every one of
+those devices starts fetching the fixed R8 on its next catalog read".  It does
+not: `start()` only downloads a disk that is **absent**.  A device already
+holding `hd1k_combo.img` never re-fetches it.  The flip reaches fresh installs
+and first downloads; everyone else needs the ledger above, and therefore needs a
+build.
+
+What it cost is real and was traded knowingly.  Those builds have no W8 path
+sanitiser — that is build 52 — and refreshing the catalog is what puts a
+path-capable `W8` in front of a user.  The `06 e9 cf` interlock narrows it: 0xE9
+does not exist in a build 36/37 core, HBIOS answers `0xFF` from the
+unknown-function path, and `W8` refuses the host-path form.  That closes the
+honest footgun and nothing more — the interlock lives inside `W8.COM` and a
+crafted `.COM` calling 0xE2 directly skips it, an exposure that predates this and
+is unchanged by it.  No wipe fired: the version attribute is 13 on both tags,
+checked on both.
 
 ### The CSI parser leaves EmulatorViewModel
 

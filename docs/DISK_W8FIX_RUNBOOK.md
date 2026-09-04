@@ -38,13 +38,79 @@
 > - **Refresh the *published* bytes, not `romwbw_emu/disks/hd1k_combo.img`.**
 >   The tracked image is a superset carrying developer scratch files.
 >
-> One artifact to know about: **`hd1k_combo_ioscpm_w8fixed.img`**, on `v1.4.5`,
-> is byte-identical to the *unfixed* combo despite its name, is in no catalog
-> entry, and was deliberately dropped from `v1.4.12`. Do not republish it.
+> One artifact to know about: **`hd1k_combo_ioscpm_w8fixed.img`**, on `v1.4.5`
+> **and on `v1.4.11`**, is byte-identical to the *unfixed* combo despite its
+> name, is in no catalog entry at either tag, and was deliberately dropped from
+> `v1.4.12` — which is why that release has 29 assets where the older two have
+> 30. Do not republish it, and do not delete it from either release: nothing
+> fetches it, and `v1.4.5` may not be touched at all.
 >
 > Everything below is kept for its audit history and its signature method, both
 > of which are still correct. The two numbered upload steps are corrected in
 > place.
+
+## 2026-09-04 — the flag was cleared on `v1.4.12`, on purpose
+
+`releases/latest` resolves to **`v1.4.12`**. This was decided rather than
+happening, and the rules above are amended by it, not repealed. Read this before
+concluding that a rule was broken.
+
+**What was done, in order.**
+
+1. The eight help assets on `v1.4.12` were replaced with the repo's current
+   `release_assets/help_index.json` and `help_*.md`, using
+   `gh release upload v1.4.12 --clobber`. `v1.4.12` had shipped an older, thinner
+   help set naming the wrong container id (`com.awohl.iOSCPM`; the app is
+   `com.awohl.cpm`) with no Android or Windows sections. Verified afterwards
+   against `repos/avwohl/ioscpm/releases/tags/v1.4.12` — not against the
+   `releases/latest` redirect, which has served stale bytes for minutes after an
+   upload before — that all 21 disk assets kept their original asset ids and
+   their 2026-09-01 timestamps, and that only the eight help objects are new.
+2. `gh release edit v1.4.12 --prerelease=false`, then `--latest`. Clearing the
+   flag alone did **not** move `releases/latest`: GitHub keeps an explicit
+   `make_latest` on a release created as a prerelease, so the second command is
+   required and its absence is silent.
+3. Measured after: `latest/download/disks.xml` is byte-identical to
+   `release_assets/disks.xml` and still `<disks version="13">`;
+   `latest/download/hd1k_combo.img` hashes `89b8ae1a…`, matching the catalog;
+   `latest/download/help_index.json` matches the repo.
+
+**Why `--clobber` was used, when the rule above forbids it.** The rule exists to
+stop published *disk* bytes changing under a client pinned to them — the
+retroactive arming that is not undoable. Help is the deliberately floating half:
+`HelpView.swift` and z80cpmw's `HelpWindow.cpp` both fetch it from
+`releases/latest/download/`, so replacing it is the mechanism, not a violation of
+it. No disk image and no `disks.xml` was touched. **The rule stands for disk
+assets and for `v1.4.5` absolutely.**
+
+**Why the flag was cleared.** The App Store fleet is 1.4.9 (builds 36/37), which
+predates the catalog pin and floats. It was fetching `v1.4.11`'s combo, whose
+`r8.com` hands an unfiltered host basename to `F_DELETE` — importing a host file
+whose name holds `?` or `*` erases every matching CP/M file first, silently. No
+build carrying the repin can be produced on the machines that have this work, so
+the flag was the only lever that reaches those devices at all.
+
+**What it actually reaches, which is less than it sounds.** `start()` only
+downloads a disk that is **absent** — it gates on `isDiskDownloaded`. A device
+that already holds `hd1k_combo.img` never re-fetches it, so the flip reaches
+fresh installs and first downloads and nobody else. `todo.txt` claimed "every one
+of those devices starts fetching the fixed R8 on its next catalog read"; that was
+an overstatement and this corrects it. Reaching the rest needs the client-side
+refresh added in build 60 (`DiskLedger.swift`), and therefore needs a build.
+
+**What it cost.** Those builds have no W8 path sanitiser — that is build 52 — and
+refreshing the catalog is what puts a path-capable `W8` in front of a user, which
+is why `RELEASE_ORDER_2026-08-25.md` step 5 gates a catalog bump on the port
+carrying its sanitiser. The mitigation is the `06 e9 cf` interlock and it is
+partial: see the superseded note under "Audit result (2026-07-22)" above for
+exactly how far it goes. No wipe fired — the version attribute is 13 on
+`v1.4.11` and `v1.4.12` alike, checked on both.
+
+**The rule for the next release is unchanged.** `--prerelease` always, on any
+asset carrier, unless someone deliberately decides otherwise and writes down what
+they traded — which is what this section is. A v3.6.0 disk set in particular must
+still be held: the floating fleet has a v3.5.1 ROM and would take the mismatch on
+every download.
 
 ## Background
 
@@ -73,9 +139,23 @@ download also settles a question romwbw_emu's `RELEASE_ORDER_2026-08-25.md`
 leaves open ("Do shipped images carry the old W8? *Believed yes, not verified
 here*"): it does. The only `W8` usage string in the image is
 `Usage: W8 <cpmname>` — no `[hostpath]` — and the interlock probe bytes
-`06 e9 cf` do not occur anywhere in the image. So the catalog as published today
-cannot arm the host-path `W8` at all; the exposure that build 52 fixes is via
-images a user imports through Files, not via anything this release serves.
+`06 e9 cf` do not occur anywhere in the image. So the catalog as published *on
+that date* could not arm the host-path `W8` at all; the exposure that build 52
+fixes was via images a user imports through Files, not via anything the release
+served.
+
+> **Superseded 2026-09-04 — that last sentence is no longer true of what the
+> repository serves.** `v1.4.12`'s `hd1k_combo.img` (`89b8ae1a…`) carries
+> `Usage: W8 <cpmname> [hostpath]`, `Usage: R8 <hostpath>` and the `06 e9 cf`
+> probe, and `releases/latest` now resolves to `v1.4.12`. So the floating 1.4.9
+> fleet does download a host-path-capable `W8`. What holds it is the probe, not
+> the tag: `HBF_HOST_CAPS` (0xE9) does not exist in a build 36/37 core, HBIOS
+> answers A = 0xFF from the unknown-function path, and `W8` refuses the path
+> form. That closes the honest footgun and nothing else — the interlock is
+> advisory, lives inside `W8.COM`, and a crafted `.COM` calling 0xE2 directly
+> skips it, exactly as `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` says in its
+> "the interlock is not a security boundary" block. That exposure predates today
+> and is unchanged by it. See "2026-09-04" below for why the trade was taken.
 
 Note: `cpmemu/util/cpm_disk.py` reads/writes **single hd1k** images correctly
 but its **combo** extract/add path is unreliable (it returned the wrong slice's
@@ -131,16 +211,19 @@ moved twice, and the two are no longer the same file:
 
 - **`v1.4.5`** (uploaded 2026-07-25) serves the catalog naming
   `be19984e…` — the um80-lowercase-fixed combo, but still the *old* `R8`/`W8`.
-  Frozen. Every port pins this tag today.
-- **`v1.4.12`** (2026-09-01, prerelease) serves the catalog naming
-  `89b8ae1a…` — the same image with the current `r8.com`/`w8.com`. This is what
-  `release_assets/disks.xml` tracks now, as of `d31815e`.
+  Frozen. Every port pinned this tag until `0010591`; none does now.
+- **`v1.4.12`** (2026-09-01) serves the catalog naming `89b8ae1a…` — the same
+  image with the current `r8.com`/`w8.com`. This is what
+  `release_assets/disks.xml` tracks, as of `d31815e`, and what all three ports
+  pin. It was published `--prerelease`; that flag was cleared on 2026-09-04 and
+  it is now `releases/latest` as well. See "2026-09-04" at the top.
 
-So `release_assets/` deliberately no longer matches what the fleet reads. If you
-need the bytes `v1.4.5` serves, fetch them from the release rather than from
+`release_assets/` therefore matches the pinned catalog again — it is
+byte-identical to `v1.4.12`'s `disks.xml`. What it does not match is `v1.4.5`; if
+you need the bytes that tag serves, fetch them from the release rather than from
 this checkout.
 
-The app downloads `disks.xml` from the pinned `releases/download/v1.4.5/`
+The app downloads `disks.xml` from the pinned `releases/download/v1.4.12/`
 (`releaseTag` in `EmulatorViewModel.swift`; see `docs/DISK_CATALOG_PINNING.md`),
 so the image and catalog must be uploaded **together**.
 

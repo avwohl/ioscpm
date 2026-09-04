@@ -54,7 +54,7 @@ To clear auto-boot settings, go to Settings and tap "Clear Auto-Boot".
 
 Disk images are built from [RomWBW](https://github.com/wwarthen/RomWBW) v3.5.1 material and
 distributed from this repository's own GitHub release. The catalog and the images are fetched
-from the tag `v1.4.5`, pinned on purpose: the core's HBIOS identifies as RomWBW v3.5.1, and
+from the tag `v1.4.12`, pinned on purpose: the core's HBIOS identifies as RomWBW v3.5.1, and
 disks from a different RomWBW release print an HBIOS/CBIOS mismatch at boot. Every download is
 checked against the SHA-256 in `disks.xml`. The catalog carries 20 images; a selection:
 

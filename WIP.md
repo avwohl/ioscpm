@@ -1,25 +1,65 @@
 # WIP — what is left after the todo sweep
 
-The sweep itself is **done and on `main`**: commit `8e7587f`, numbered build 59,
-six of `todo.txt`'s seven items implemented and described in `CHANGELOG.md`, and
-those six now deleted from `todo.txt` as its header requires. What is left there
-is the one item below. This file is no longer a branch hand-off; it carries only
-what is still open, and the detailed spec `todo.txt` points at.
+`todo.txt` is down to one open item and one open question, and neither is a
+half-finished change: the item is "build 60 is built and not submitted", which
+needs credentials this machine does not have, and the question is a design choice
+nothing here can settle. This file carries the detail behind both.
 
-## Build 59 has never been compiled — read this first
+The second sweep, on 2026-09-04, closed four of the five items that were left —
+the synchronous host-file open, both documentation items, and the prerelease
+decision — and added the disk-freshness refresh, which was the unwritten half of
+the [RELEASE] item. `CHANGELOG.md` under build 60 has the whole account.
 
-`Tests/run_tests.sh` is green at 11 suites and 869 checks, and that is the *only*
-verification any of it has had. There has been no Xcode on any machine that has
-touched this work, only Command Line Tools, so `xcodebuild` does not run and
-there is no simulator. The SwiftUI and UIKit half — `ContentView.swift`,
-`TerminalView.swift`, `EmulatorViewModel.swift`, `iOSCPMApp.swift`,
-`CatalystWindow.swift` — has never been through a compiler.
+## This machine has Xcode — read this first
 
-Every earlier CHANGELOG entry could claim a clean Catalyst build that was
-launched and driven. Build 59 cannot. **Build it before submitting it.** If it
-does not build, `git revert 8e7587f` backs the whole sweep out cleanly.
+**Every earlier revision of this file said it did not, and that was wrong.**
+`xcodebuild -version` fails with
+
+    xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer
+    directory '/Library/Developer/CommandLineTools' is a command line tools instance
+
+which reads like "not installed" and only means `xcode-select` points elsewhere.
+`/Applications/Xcode.app` is Xcode 26.6, the simulators are there, and
+`~/Library/Developer/Xcode/Archives/2026-09-03/` holds two build 58 archives made
+here. No `sudo` is needed to use it — set the variable per command:
+
+    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild …
+
+**Build 60 is built.** Clean for the iOS Simulator and for
+`-destination 'platform=macOS,variant=Mac Catalyst'`, no warnings on either;
+launched on the iPhone 17 Pro simulator, where it comes up as `v1.5.1.60` with
+the key row and the scrollback counter painting. The disk refresh was driven end
+to end against a real sandbox. What has **not** happened: nothing submitted,
+nothing run on hardware, CP/M not booted, the Catalyst build compiled but not
+driven. `MANUAL_CHECKS.md` carries the rest.
+
+`Tests/run_tests.sh` is green at **13 suites and 980 checks**. Two things also
+became checkable that this file said were not, and both are wired into it:
+
+- **`emu_io_ios.mm` compiles.** It is Foundation-only Objective-C++, so
+  `xcrun --sdk macosx clang++ -fsyntax-only -fobjc-arc` builds it clean at
+  `-Wall`. That is the `EmuIOBackendCompiles` suite. It is a compile, not a run —
+  nothing observes behaviour. The flag that earns it is
+  **`-Wundeclared-selector`**, promoted to an error: every delegate hop in that
+  file is `respondsToSelector:`-guarded, so a selector that no longer exists
+  fails **silently** at runtime — the message is simply never sent. Plain `-Wall`
+  says nothing, because `@selector()` accepts any literal. Verified by renaming
+  the protocol method and confirming the guard site is what errors.
+- **The whole network API surface type-checks at the real deployment floor.**
+  `xcrun --sdk macosx swiftc -target arm64-apple-ios15.0-macabi` accepts
+  `allowsExpensiveNetworkAccess`, `allowsConstrainedNetworkAccess`,
+  `NWPathMonitor`, `path.isConstrained` and `URLError.networkUnavailableReason`
+  with no availability guard. `IPHONEOS_DEPLOYMENT_TARGET` is 15.0 and every one
+  of those is iOS 13.
+
+**It builds. Submitting it is the open item**, and this machine cannot: the
+archive signs with `Apple Development`, which cannot be exported for the App
+Store. See "Releasing" in `KNOWN_PROBLEMS.md` — that entry was correct all along
+and contradicted this file for three builds.
 
 ## THE ONE OPEN QUESTION — disk sizes larger than 8 MB
+
+Unchanged by anything this session did.
 
 `iOSCPM/Views/DiskSize.swift` currently offers **1 / 2 / 4 / 7 hd512 slices**
 (N × 8,519,680 bytes). A spec agent independently proposed something different:
@@ -32,17 +72,17 @@ Both agree on the facts, which were read out of the core, not guessed:
   8,388,608; `1,048,576 + N × 8,388,608`; exactly 8,519,680; any multiple of
   8,519,680. **A round 16/32/64 MB image is refused** — that is the trap a naive
   picker would have fallen into, and `Tests/DiskSizeTests.swift` asserts it.
-- `HBF_EXTSLICE` (`hbios_dispatch.cc`, ~line 2390) detects hd1k **only** from an
-  MBR with a type-0x2E partition, or from a file that is exactly 8 MB.
-  Otherwise it falls back to hd512 with `slice_size = 16640` sectors.
+- `HBF_EXTSLICE` (`hbios_dispatch.cc`) detects hd1k **only** from an MBR with a
+  type-0x2E partition, or from a file that is exactly 8 MB. Otherwise it falls
+  back to hd512 with `slice_size = 16640` sectors.
 
 Where they differ: the agent says a 0xE5 image over 8 MB is "misdetected and its
 slices run off the end of the file". That is true of the *hd1k combo* shape with
 no MBR, but **not** of an exact multiple of 8,519,680: 16640 × 512 = 8,519,680,
 so N slices land exactly on the file. The capacity guard is
-`slice_start_sector >= disk.total_sectors()` (hbios_dispatch.cc ~2433), which
-that shape satisfies. I believe the current implementation is correct and needs
-no MBR; the agent's needs a hand-written 512-byte MBR.
+`slice_start_sector >= disk.total_sectors()`, which that shape satisfies. I
+believe the current implementation is correct and needs no MBR; the agent's
+needs a hand-written 512-byte MBR.
 
 **Not yet verified on a real machine, and cannot be here.** Decide one of:
 
@@ -51,112 +91,84 @@ no MBR; the agent's needs a hand-written 512-byte MBR.
 2. Switch to `1 MB + N × 8 MB` and write a type-0x2E MBR at LBA 2048. Matches
    the shipped combo images; more code, and the MBR must be exactly right.
 
-Either way this belongs in `MANUAL_CHECKS.md` before the todo item is called
-closed, and it is there now: **check 12**, which asks for a 2-slice disk to show
-two drive letters.  If it does not, the question is answered the other way and
-`DiskSize.swift` needs the hd1k shape with a hand-written MBR.
+`MANUAL_CHECKS.md` **check 12** is the one that answers it: a 2-slice disk must
+show two drive letters. If it does not, the question is answered the other way
+and `DiskSize.swift` needs the hd1k shape with a hand-written MBR.
 
-## STILL TO DO — one item
+## The host-file open is synchronous now — what to know if it misbehaves
 
-1. **The last todo item: `emu_host_file_get_read_name()` / R8's `Reading:` line.**
-   Not started. Traced fully, and the fix is settled — **make this port's open
-   synchronous**, which is what the CLI and Windows backends already do.
+The item this file used to carry as "STILL TO DO" is implemented.
+`emu_host_file_open_read()` resolves, opens and reads on the emulator thread and
+returns with the state already `HOST_FILE_READING`, which is the only way
+`HBF_HOST_GETRNAME` can answer — it gates on that state, and R8 asks between the
+open and the first read. Zero shared-core files changed; `emu_io_ios.mm` is
+port-local.
 
-   - **The gap.** `emu_host_file_open_read()` (`iOSCPM/Core/emu_io_ios.mm`
-     ~line 402) basenames the guest path, sets `HOST_FILE_WAITING_READ`,
-     `dispatch_async`es `emuHostFileRequestRead:` to the main queue and returns.
-     The Swift layer does the Imports lookup on the main queue and only then
-     calls `emu_host_file_load_named()`, which is what moves the state to
-     `HOST_FILE_READING`. The emulator runs on `_emulatorQueue`, and R8 emits
-     `H_OPEN_R` (0xE1) and `H_GETRNAME` (0xEA) about ten Z80 instructions apart,
-     so the main queue has essentially never run in between.
+The duplicate case-insensitive scan was **deleted from Swift** rather than added
+to C++, so there is one resolver. That also fixed a second bug: iOS's Documents
+volume is case-insensitive, so `fileExists(atPath: Imports/ESC.TXT)` succeeded
+for a file stored as `esc.txt` and the path handed on carried the case the CCP
+invented. The scan takes the directory entry's own spelling; `realpath()` does
+not fix this, because it resolves symlinks and `.`/`..`, not case.
 
-   - **An earlier idea in this session was wrong; do not spend time on it.**
-     "Resolve the name in the backend at open, keep the data async, and relax
-     the getter's gate" cannot work: `HBF_HOST_GETRNAME` in `hbios_dispatch.cc`
-     itself gates on `emu_host_file_get_state() == HOST_FILE_READING`, so it
-     never calls the getter at all. Relaxing *that* gate is a shared-core and
-     `emu_io.h` contract change touching cpmemu, romwbw_emu, z80cpmw and
-     cpmdroid — and it would have the backend answer with a name for a file it
-     has not opened, which is the exact "claim about the open" the contract says
-     this call exists to replace. It is dominated anyway: a backend that can
-     resolve the name synchronously can read the bytes synchronously too.
+Traps that are now handled, each of which had bitten this code or would have:
 
-   - **The fix.** In `emu_host_file_open_read()`, on the emulator thread: keep
-     the `emu_host_path_basename(filename, "")` reduction (it is the containment
-     guard — without it `R8 ../SOMETHING` escapes Imports again), scan the
-     Imports directory, `fopen`/`fread` the file, record the absolute resolved
-     path in `g_host_read_filename`, and return with the state already
-     `HOST_FILE_READING`. **Zero shared-core files change** — `emu_io_ios.mm` is
-     port-local. The duplicate case-insensitive scan is *deleted from Swift*
-     rather than added to C++, so there is one resolver, not two.
+- A zero-byte file still reaches `HOST_FILE_READING`. Guarding that on a
+  non-empty read reopens the hole closed in build 53.
+- `fopen` **succeeds on a directory** on Darwin — measured — and the first
+  `fread` returns 0. Hence the `fstat`/`S_ISREG` guard; without it `R8 SOMEDIR`
+  reported a successful open and made an empty CP/M file.
+- `emu_host_path_basename(x, "")` does **not** answer `""` for a path naming no
+  file. An empty fallback is itself replaced, with `"download.bin"`, so the
+  degenerate case went hunting for a file of that name. The backend passes a
+  one-byte sentinel instead and tests for it; `Tests/CoreHostFileTests.cc` pins
+  this.
+- The read is bounded at 8 MB, and a larger file **fails the open** rather than
+  being truncated. The guest now blocks inside one HBIOS call with no rewind, so
+  an unbounded read would hang the machine — but truncating instead would hand
+  CP/M a short file under the right name with both sides reporting success, and
+  R8 has no way to notice.
+- `@autoreleasepool` around the Foundation work: it runs on `_emulatorQueue`,
+  and `runLoop` is one `dispatch_async` block that does not return until the
+  emulator stops, so there is no per-iteration pool to drain into.
+- The Swift handler is failure-only now and **must not touch host-file state**.
+  The open has already returned false and R8 has been told; calling
+  `emu_host_file_cancel()` there would cancel a later transfer.
 
-   - **A second, separate bug falls out of the same edit.** iOS's Documents
-     volume is case-INsensitive, so Swift's current
-     `fileExists(atPath: Imports/ESC.TXT)` fast path *succeeds* for a file
-     stored as `esc.txt`, and the path handed to `emu_host_file_load_named()`
-     then carries the case the CCP invented rather than the case the file has.
-     So even when the race lands the right way the answer is dishonest.
-     `realpath()` does not fix this on iOS — it resolves symlinks and `.`/`..`,
-     not case. **Always scan the directory and take the entry's own spelling**;
-     the fast path has to go, not be kept "for speed". z80cpmw's
-     `resolveRealPathExisting()` arrived at the same correction independently.
-
-   - **Traps, each of which has bitten this code before:**
-     - `fopen` succeeding with size 0 **must still** set `HOST_FILE_READING`.
-       Guarding the state change on `size > 0` reopens the zero-byte hole closed
-       in build 53 (romwbw_emu v1.36, cpmdroid c06fa58).
-     - Use `stringWithFileSystemRepresentation:length:`, not
-       `stringWithUTF8String:` — a CP/M command line is arbitrary 8-bit and the
-       latter returns nil, which silently becomes "No filename given".
-     - `@autoreleasepool` around the Foundation work: it now runs on
-       `_emulatorQueue`, not the main thread.
-     - Bound the read size (8 MB). Today's Swift `Data(contentsOf:)` is
-       unbounded too, so this is new protection rather than a regression fix,
-       but the guest now blocks inside one HBIOS call with no rewind.
-     - Any new optional delegate selector must be spelled identically in
-       `emu_io_ios.mm`, `RomWBWEmulator.h/.mm` and Swift — every hop is
-       `respondsToSelector:`-guarded, so a typo fails **silently**.
-     - Leave `emu_host_file_load` / `load_named` / `cancel` defined but
-       unreferenced from Swift. Do not wire them into a new async path: after
-       this change the R8 path touches `g_host_read_*` only on the emulator
-       thread, which also removes an existing unsynchronised cross-thread write.
-
-   - **Deliberate behaviour change to record in MANUAL_CHECKS.md:** a file that
-     is not in Imports now makes the open fail, so R8 prints `Cannot open host
-     file` and creates nothing. Today the open succeeds, R8 prints `Creating:`,
-     and the first read hits instant EOF — leaving a zero-byte CP/M file behind.
-
-   - **Testable here, and worth it.** `run_core_suite` compiles a `.cc` suite
-     against the symlinked core with plain `c++` and lets the *test* supply the
-     backend — `Tests/CoreKeyboardTests.cc` already stubs the whole host-file
-     API this way. So `Tests/CoreHostFileTests.cc` can implement two backend
-     shapes, synchronous and parking, and drive R8's real sequence
-     (0xE1 → 0xEA → 0xE3) through `HBIOSDispatch::handlePortDispatch()` with
-     `setBlockingAllowed(false)`, the mode this port runs in. That covers the
-     thing that was broken — whether GETRNAME can answer when R8 asks — plus
-     `storeHostName`'s clamping and the PC-rewind arm, neither of which has a
-     test today. Anchor the new block on the existing `run_core_suite
-     CoreKeyboardTests` line, not a line number.
-     `emu_io_ios.mm` itself stays untestable here (Objective-C++ over
-     NSFileManager; pulling a `.mm` into `run_core_suite` would break its
-     non-Mac fallback).
-
-   - **The whole item, as one manual check:** on a device, against an image
-     whose `r8.com` calls 0xEA (`romwbw_emu/disks/hd1k_combo.img` — the
-     catalog's v1.4.5 image has no such R8), `R8 ESC.TXT` for a file stored as
-     `esc.txt` must print `Reading: /.../Documents/Imports/esc.txt`, lowercase.
-
+What is unverified: all of it, on a device. `MANUAL_CHECKS.md` sections 14 and 15
+are the checks, and section 15 records the deliberate behaviour change — a file
+that is not in `Imports` now fails the open, so R8 creates nothing where it used
+to leave a zero-byte CP/M file behind.
 
 ## Verification available on this machine
 
-    ./Tests/run_tests.sh                       # 11 suites, 869 checks
+    ./Tests/run_tests.sh                       # 13 suites, 980 checks
     sh tools/check-store-version.sh            # needs the network
     sh tools/check-disk-pins.sh                # needs the network
     xcrun --sdk macosx swiftc -parse iOSCPM/Views/*.swift iOSCPM/iOSCPMApp.swift
     plutil -lint iOSCPM.xcodeproj/project.pbxproj
 
-`-parse` is a syntax check only. The SwiftUI and UIKit files
-(`ContentView.swift`, `TerminalView.swift`, `EmulatorViewModel.swift`,
-`iOSCPMApp.swift`, `CatalystWindow.swift`) have **never been type-checked**,
-because that needs the iOS SDK. They are the highest-risk part of this change.
+`-parse` is a syntax check only, and is no longer the best available — it was
+only ever the fallback for the mistaken belief that there was no Xcode. Prefer
+the real thing:
+
+    export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+    xcodebuild -project iOSCPM.xcodeproj -scheme iOSCPM \
+        -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+    xcodebuild -project iOSCPM.xcodeproj -scheme iOSCPM \
+        -destination 'platform=macOS,variant=Mac Catalyst' build
+
+and to drive it:
+
+    xcrun simctl boot 'iPhone 17 Pro'
+    xcrun simctl install booted <DerivedData>/Build/Products/Debug-iphonesimulator/iOSCPM.app
+    xcrun simctl launch --console-pty booted com.awohl.cpm
+    xcrun simctl get_app_container booted com.awohl.cpm data   # the sandbox
+
+Two traps when steering the app's `UserDefaults` from outside for a test: the
+ledger is stored as a **JSON string**, and both `PlistBuddy` and a
+`-key value` launch argument will try to parse it as a property list — PlistBuddy
+silently strips the quotes and leaves invalid JSON. Use
+`plutil -replace <key> -string '<json>' <container>/Library/Preferences/com.awohl.cpm.plist`.
+And `cfprefsd` caches preferences, so shut the simulator down before editing the
+plist or the app will never see the change.
