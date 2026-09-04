@@ -100,9 +100,12 @@ The repin has not shipped
   the flag as a side effect of some other release.  The version attribute is 13 on
   both tags, so this particular move fires no wipe - that hazard is separate.
 
-- [ANY] the asset named hd1k_combo_ioscpm_w8fixed.img at v1.4.5 and v1.4.11 is
-  not fixed.  It is byte-identical to the broken hd1k_combo.img beside it, it is
-  in no catalog, and v1.4.12 drops it - which is why that release has 29 assets
-  where the older two have 30.  The name is the only thing about it that claims a
-  fix.  Nothing references it, so deleting it from both releases costs nothing and
-  removes a trap for whoever next goes looking for "the fixed image".
+- [ANY] docs/DISK_W8FIX_RUNBOOK.md's warning about hd1k_combo_ioscpm_w8fixed.img
+  names only v1.4.5, and the asset is on v1.4.11 as well - byte-identical to the
+  unfixed combo at both tags, in no catalog at either, and deliberately dropped
+  from v1.4.12, which is why that release has 29 assets where the older two have
+  30.  v1.4.11 is the tag that matters here, because it is releases/latest.  The
+  rule itself is already written in four places and does not need restating; add
+  v1.4.11 to the tag list in that one warning and stop.  Do not delete the asset
+  from either published release - nothing fetches it, and CLAUDE.md's release
+  rules forbid touching v1.4.5 at all.
