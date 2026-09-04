@@ -80,3 +80,29 @@ The repin has not shipped
   pinned v1.4.5 catalog".  Those two documents are what a session reads to learn
   what the pin is, and both now contradict the code.  release_assets/disks.xml
   itself is fine: it is byte-identical to the copy published at v1.4.12.
+
+- [DECISION] one flag would reach every installed iOS user without any build, and
+  it is the flag the interlock is deliberately holding.  The App Store serves
+  1.4.9, builds 36/37, from 2026-03-19; pinning arrived at build 42 (4be8a13), so
+  the fleet in service predates releaseTag entirely and still fetches
+  releases/latest.  That resolves to v1.4.11 - the only recent non-prerelease -
+  whose hd1k_combo.img is be19984e... and whose r8.com is the old 1079-byte one
+  with no wildcard filter.  Clear v1.4.12's prerelease flag and it becomes
+  releases/latest, and every one of those devices starts fetching the fixed R8 on
+  its next catalog read, with nothing submitted and nothing installed.
+
+  The reason not to is the whole point of the flag.  Those builds do not have the
+  W8 path sanitiser, which is build 52, and RELEASE_ORDER_2026-08-25.md's step 5
+  says a catalog bump ships only in a build that carries its port's sanitiser -
+  refreshing the catalog is what puts a path-capable W8 in front of a user.  So
+  the flag trades a live R8 data-loss bug on an unfixed fleet against handing that
+  same fleet a W8 it cannot safely be given.  Settle it deliberately; do not clear
+  the flag as a side effect of some other release.  The version attribute is 13 on
+  both tags, so this particular move fires no wipe - that hazard is separate.
+
+- [ANY] the asset named hd1k_combo_ioscpm_w8fixed.img at v1.4.5 and v1.4.11 is
+  not fixed.  It is byte-identical to the broken hd1k_combo.img beside it, it is
+  in no catalog, and v1.4.12 drops it - which is why that release has 29 assets
+  where the older two have 30.  The name is the only thing about it that claims a
+  fix.  Nothing references it, so deleting it from both releases costs nothing and
+  removes a trap for whoever next goes looking for "the fixed image".
