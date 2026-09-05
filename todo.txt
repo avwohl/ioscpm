@@ -49,8 +49,22 @@ It is submitted.  It is not released.
     every installed copy still fetches from v1.4.12, those tags must stay live,
     and the fixed R8 still only reaches an installed device through a shipped
     build.  What it changes is the future: on a build-64 device the v0 catalog
-    names hd1k_combo-v0-3.5.1.img with the corrected bytes, and the disk ledger
-    refreshes it unattended on Wi-Fi without an app release.
+    names hd1k_combo-v0-3.5.1.img and the disk ledger can refresh it unattended
+    on Wi-Fi without an app release.
+
+    BUT DECIDE WHAT THAT REFRESH IS FOR BEFORE LETTING IT RUN.  The migration
+    renames rather than re-downloads, so a migrated device keeps its v1.4.12
+    bytes under the v0 name - and hd1k_combo is the one image of twenty whose
+    hash differs between the two catalogs: 89b8ae1a... at v1.4.12, 0ca4ec60...
+    in romwbw_disks.  Both carry the same fixed r8.com and w8.com with the
+    06 e9 cf HBF_HOST_CAPS probe; the bytes differ because romwbw_disks builds
+    its own combo, not because anything is wrong with this one.  So the ledger's
+    verdict is "superseded" on the strength of a hash that moved because the
+    catalog moved, and acting on it spends 49 MB of a user's data for no
+    functional change.  z80cpmw reaches the identical verdict and calls nothing
+    that acts on it, which is the only reason it is harmless there.
+    romwbw_disks' todo.txt holds this decision for all three ports - do not let
+    this one act on it alone.
 
     DiskLedger.swift is what reaches those devices.  Driven end to end on the
     simulator against a real sandbox: a superseded image was measured, judged,
