@@ -267,10 +267,41 @@ func runAllTests() {
             + "what lets the migration copy a value across without destroying the original")
 }
 
+func runEquivalenceTests() {
+
+    section("The one pre-v0 image accepted as equivalent")
+
+    let v0Combo = "0ca4ec60cb8bca71b8f0287c4b634c3126887be483db9b59b41bdff424f89303"
+    let priorCombo = "89b8ae1aaa6867dc515c3511b34c4f0c311a77e99ff71066f5a774bef99cde1d"
+
+    check(CatalogMigration.isEquivalentPriorImage(provenance: priorCombo,
+                                                  catalogSha256: v0Combo),
+          "the v1.4.12 combo is equivalent to the v0 one - same 94 files, byte for byte, "
+            + "differing only in the CP/M slack between them")
+    check(CatalogMigration.isEquivalentPriorImage(provenance: priorCombo.uppercased(),
+                                                  catalogSha256: v0Combo.uppercased()),
+          "and the comparison folds case, because nothing guarantees how a hash was stored")
+
+    check(!CatalogMigration.isEquivalentPriorImage(provenance: v0Combo,
+                                                  catalogSha256: priorCombo),
+          "the relation is one-way: the v0 image is not a stand-in for the older one")
+    check(!CatalogMigration.isEquivalentPriorImage(
+              provenance: String(repeating: "0", count: 64), catalogSha256: v0Combo),
+          "an unrelated hash is not equivalent, which is the whole point - this must not "
+            + "become a way to bless a corrupt or truncated image")
+    check(!CatalogMigration.isEquivalentPriorImage(provenance: priorCombo,
+                                                  catalogSha256: String(repeating: "f", count: 64)),
+          "and it is keyed on the catalog hash too, so it cannot leak onto another image")
+
+    check(CatalogMigration.equivalentPriorImage.count == 1,
+          "exactly one entry: hd1k_combo is the only one of the twenty whose bytes moved")
+}
+
 @main
 enum CatalogMigrationTestMain {
     static func main() {
         runAllTests()
+        runEquivalenceTests()
         print("\n" + String(repeating: "=", count: 60))
         print("Results: \(checks - failures) passed, \(failures) failed")
         if failures > 0 {

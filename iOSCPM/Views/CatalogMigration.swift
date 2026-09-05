@@ -121,6 +121,44 @@ enum CatalogMigration {
     /// `deleteCatalogDisks(named:)` use. `Documents` is published to the Files
     /// app on a case-insensitive volume, so a user's `HD1K_COMBO.IMG` and the
     /// catalog's `hd1k_combo.img` are one file on one device and two on another.
+    /// Pre-v0 images that are equivalent to the v0 image of the same name, keyed
+    /// by the v0 catalog's `sha256` and holding the pre-v0 catalog's.
+    ///
+    /// There is exactly one, and it exists because two toolchains built the same
+    /// disk. `hd1k_combo` is the only one of the twenty images whose bytes differ
+    /// between ioscpm `v1.4.12` and `catalog-v0-3.5.1.json`, and the difference is
+    /// not in anything a guest can reach: both are 51,380,224 bytes, slices 1-5 are
+    /// byte-identical, slice 0's directory lists the same 94 files, and all 94
+    /// extract byte-identical - `r8.com` and `w8.com` included, at 1,792 bytes
+    /// each. The 2,342 bytes that differ are CP/M slack between those files:
+    /// unallocated blocks still holding a deleted file's content, plus a little
+    /// `0xE5` directory padding. Measured, not assumed - `romwbw_disks`
+    /// `docs/FINDINGS.md` section 10 carries the byte ranges.
+    ///
+    /// So a migrated device holds an image whose every file already matches the
+    /// catalog, under a hash that does not. Refreshing it would spend 49 MB of
+    /// somebody's data - their cellular data, for the ones who have no choice - to
+    /// replace 2,342 bytes of garbage with different garbage.
+    ///
+    /// This is deliberately keyed on PROVENANCE, which is what makes it safe. A
+    /// v0 download records the v0 catalog's hash, so no downloaded file can ever
+    /// carry the pre-v0 one: only the migration, which copies the old catalog's
+    /// hash across when it renames, can put that value here. It therefore cannot
+    /// bless a corrupt, truncated or unrelated file, and it stops applying the
+    /// moment a device fetches the canonical image, because the refresh overwrites
+    /// the provenance that made it apply.
+    static let equivalentPriorImage: [String: String] = [
+        // hd1k_combo-v0-3.5.1.img
+        "0ca4ec60cb8bca71b8f0287c4b634c3126887be483db9b59b41bdff424f89303":
+            "89b8ae1aaa6867dc515c3511b34c4f0c311a77e99ff71066f5a774bef99cde1d"
+    ]
+
+    /// True when `provenance` names an image already known to be equivalent to the
+    /// image `catalogSha256` names. Both are compared lowercased, as stored.
+    static func isEquivalentPriorImage(provenance: String, catalogSha256: String) -> Bool {
+        equivalentPriorImage[fold(catalogSha256)] == fold(provenance)
+    }
+
     static func fold(_ filename: String) -> String { filename.lowercased() }
 
     // MARK: - Keys scoped to one RomWBW release

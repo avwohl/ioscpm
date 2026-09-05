@@ -10,6 +10,41 @@ cannot run here either.  The three suites that do run are the C++ core and the
 symlink check, and none of them touches a URL, a catalog or a `UserDefaults`
 key.  Nothing here has fetched anything from anywhere.
 
+### The migrated combo is accepted, not re-downloaded
+
+`hd1k_combo` is the one image of the twenty whose bytes differ between ioscpm
+`v1.4.12` and `romwbw_disks`' `catalog-v0-3.5.1.json`, and the migration renames
+rather than re-downloads — so every migrated device holds
+`hd1k_combo-v0-3.5.1.img` under a hash the catalog does not name. Before this,
+`DiskLedger.freshness` called that `.superseded`, and this is the one port that
+would have acted on it unattended.
+
+It is not superseded. The published `v1.4.12` asset was fetched and compared
+byte for byte against the v0 image: both 51,380,224 bytes, slices 1-5
+byte-identical, slice 0's directory listing the same 94 files, and all 94
+extracting byte-identical — `r8.com` and `w8.com` included, 1,792 bytes each.
+The 2,342 bytes that differ are CP/M slack between those files: unallocated
+blocks still holding a deleted file's content, and a little `0xE5` directory
+padding. Two toolchains wrote the same disk and left different rubbish in the
+gaps.
+
+So `CatalogMigration.equivalentPriorImage` records that one equivalence and
+`freshness` returns `.current` for it. The refresh would have cost 49 MB of
+somebody's data — their cellular data, for the users who have no choice — to
+swap 2,342 bytes of garbage for different garbage.
+
+Keyed on **provenance**, which is what makes it safe rather than a hole. A
+download records the catalog it was fetched against, so only the migration can
+put the pre-v0 hash in that field; the exception cannot bless a corrupt,
+truncated or unrelated image, and it stops applying the moment a device fetches
+the canonical one, because that overwrites the provenance. Six checks in
+`Tests/CatalogMigrationTests.swift` hold the relation one-way, case-folded, and
+pinned to the one entry.
+
+`romwbw_disks` `docs/FINDINGS.md` section 10 carries the byte ranges and the
+reasoning; z80cpmw reaches the same verdict and calls nothing that acts on it,
+and cpmdroid compares filenames only.
+
 ### The release tag is gone
 
 `releaseTag = "v1.4.12"`, `catalogURL` and `releaseBaseURL` are deleted, not

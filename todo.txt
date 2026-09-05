@@ -52,7 +52,7 @@ It is submitted.  It is not released.
     names hd1k_combo-v0-3.5.1.img and the disk ledger can refresh it unattended
     on Wi-Fi without an app release.
 
-    BUT DECIDE WHAT THAT REFRESH IS FOR BEFORE LETTING IT RUN.  The migration
+    DECIDED 2026-09-05, AND IMPLEMENTED: it does not refresh.  The migration
     renames rather than re-downloads, so a migrated device keeps its v1.4.12
     bytes under the v0 name - and hd1k_combo is the one image of twenty whose
     hash differs between the two catalogs: 89b8ae1a... at v1.4.12, 0ca4ec60...
@@ -63,8 +63,13 @@ It is submitted.  It is not released.
     catalog moved, and acting on it spends 49 MB of a user's data for no
     functional change.  z80cpmw reaches the identical verdict and calls nothing
     that acts on it, which is the only reason it is harmless there.
-    romwbw_disks' todo.txt holds this decision for all three ports - do not let
-    this one act on it alone.
+    So CatalogMigration.equivalentPriorImage accepts that one prior image, and
+    DiskLedger.freshness returns .current for it instead of .superseded.  It is
+    keyed on PROVENANCE, which is what makes it safe: a download records the
+    catalog it was fetched against, so only the migration can put the pre-v0
+    hash there, and the exception stops applying the moment a device fetches the
+    canonical image.  romwbw_disks' docs/FINDINGS.md section 10 has the byte
+    ranges.
 
     DiskLedger.swift is what reaches those devices.  Driven end to end on the
     simulator against a real sandbox: a superseded image was measured, judged,

@@ -281,6 +281,18 @@ struct DiskLedger: Equatable {
 
         if let provenance = provenance {
             if provenance == catalog { return .current }
+            // The one image the v0 migration leaves under a hash that disagrees
+            // with the catalog naming it, because two toolchains built the same
+            // disk and left different slack between the same 94 files. Only the
+            // migration can produce this provenance - a download records the
+            // catalog it was fetched against - so this cannot bless a corrupt or
+            // unrelated file, and it stops applying as soon as a device fetches
+            // the canonical image. CatalogMigration.equivalentPriorImage carries
+            // the measurements.
+            if CatalogMigration.isEquivalentPriorImage(provenance: provenance,
+                                                      catalogSha256: catalog) {
+                return .current
+            }
             // Superseded. Whether replacing it is lossy depends on a measurement
             // that still applies; with no usable measurement, assume the user has
             // written to it. Conservative in the only direction that cannot lose
