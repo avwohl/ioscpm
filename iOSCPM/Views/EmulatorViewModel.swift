@@ -9,10 +9,29 @@ import CryptoKit
 import Network
 
 // ROM option with name and filename
-struct ROMOption: Identifiable, Hashable {
-    let id = UUID()
+struct ROMOption: Identifiable, Hashable, Equatable {
+    /// The filename is the identity, exactly as it is for DiskOption below.
+    ///
+    /// It was `let id = UUID()`, which the synthesized == and hash took in, so
+    /// two ROMOptions naming the same file compared UNEQUAL. That was
+    /// survivable only because availableROMs was a `let` holding one element
+    /// built once: the picker at ContentView tags its rows with
+    /// `rom as ROMOption?` and SwiftUI matches the tag against selectedROM by
+    /// ==, so a value rebuilt from a catalog would match no tag and the picker
+    /// would go blank on every refresh. Identity by filename is the same
+    /// convention every other keyed store in this file already uses.
+    var id: String { filename }
     let name: String
     let filename: String
+
+    // Equatable and Hashable on the filename, for the reason above.
+    static func == (lhs: ROMOption, rhs: ROMOption) -> Bool {
+        lhs.filename == rhs.filename
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(filename)
+    }
 }
 
 // Disk option with name and filename
@@ -35,7 +54,21 @@ struct DiskOption: Identifiable, Hashable, Equatable {
 
 // Downloadable disk image catalog entry
 struct DownloadableDisk: Identifiable, Codable {
+    /// Still the filename, deliberately, even though the catalog now carries a
+    /// stable `id` of its own (`catalogID` below).
+    ///
+    /// This id is what ContentView's DiskDownloadRow is built on, and that row
+    /// then reads `downloadStates[disk.filename]`, `refreshPlan(for:)`,
+    /// `cancelDownload(_:)` and `deleteDownloadedDisk(_:)` - four keyed lookups
+    /// into stores that know nothing about catalog ids. A row whose identity
+    /// and whose lookups disagree shows another disk's progress.
     var id: String { filename }
+    /// The catalog's own id: "hd1k_combo", the same under every RomWBW release
+    /// while the filename carries the release. Not a lookup key anywhere in
+    /// this app - it is what makes a disk recognisable ACROSS releases, and
+    /// what the schema says to key on rather than array position or a parsed
+    /// filename.
+    let catalogID: String
     let filename: String
     let name: String
     let description: String
@@ -66,6 +99,57 @@ enum DownloadState: Equatable {
     case downloading(progress: Double)
     case downloaded
     case error(String)
+}
+
+/// Why there is no catalog on screen, and how far the two-hop fetch got.
+///
+/// This replaces a bare `catalogError: String?`. One string had nowhere to say
+/// "the index came back and this release's catalog did not", and those want
+/// different answers: the first means this device cannot reach GitHub, the
+/// second means the release list is fine and one asset behind it is not - which
+/// is a publishing problem upstream that no amount of reconnecting fixes.
+///
+/// `servedFromCache` is the other half of the same point. A stale release list
+/// with a good catalog is not a failure the user has to act on today; it is a
+/// note. Reporting it with the same weight as "nothing loaded" is how a warning
+/// stops being read.
+struct CatalogFailure: Equatable {
+    enum Stage: Equatable {
+        /// index-v0.json, the one URL compiled into this app.
+        case index
+        /// That release's catalog-v0-<ver>.json.
+        case catalog(romwbwVersion: String)
+        /// The index was read and this build's emulator core can run none of
+        /// the releases in it. Not a network problem and not recoverable by
+        /// retrying: it means the core is older (or newer) than everything
+        /// romwbw_disks publishes.
+        case noSupportedRelease
+    }
+
+    let stage: Stage
+    /// The underlying reason, in the words of whatever produced it.
+    let detail: String
+    /// True when a cached document is on screen anyway.
+    let servedFromCache: Bool
+
+    /// One line, naming which hop failed.
+    var summary: String {
+        switch stage {
+        case .index:
+            return servedFromCache
+                ? "Using the saved list of RomWBW releases - the current one could not be fetched."
+                : "Could not fetch the list of RomWBW releases."
+        case .catalog(let version):
+            return servedFromCache
+                ? "Using the saved RomWBW \(version) disk catalog - the current one could not be fetched."
+                : "The RomWBW release list loaded, but the \(version) disk catalog did not."
+        case .noSupportedRelease:
+            return "This app's emulator cannot run any of the published RomWBW releases."
+        }
+    }
+
+    /// What the settings screen shows: the hop, then the reason.
+    var displayText: String { detail.isEmpty ? summary : "\(summary) \(detail)" }
 }
 
 class EmulatorViewModel: NSObject, ObservableObject {
@@ -108,8 +192,24 @@ class EmulatorViewModel: NSObject, ObservableObject {
             }
         }
     }
+    /// The ROMs this app can load: the one in its bundle.
+    ///
+    /// Still one entry, and still a `let`. The v0 catalog does serve ROMs -
+    /// two per release, `emu_avw` flagged default - and `loadROMFromPath:`
+    /// already exists on the bridge, so turning this into catalog data is a
+    /// short step. It is deliberately not taken here: docs/ROM_ATTESTATION.md
+    /// is an App Store filing naming emu_avw.rom specifically, an app whose
+    /// only ROM is a download has nothing to boot on a first offline launch,
+    /// and a half-done version of it - offering a ROM the app cannot actually
+    /// load - would be worse than not offering one. What the release picker
+    /// does instead is SAY when the release in play is not the bundled ROM's;
+    /// see romReleaseMismatchNotice.
+    ///
+    /// ROMOption's identity is the filename, so this array can become computed
+    /// without the picker's tags going stale. That was the trap: `let id =
+    /// UUID()` made every rebuilt value compare unequal to the selection.
     let availableROMs: [ROMOption] = [
-        ROMOption(name: "EMU AVW", filename: "emu_avw.rom"),
+        ROMOption(name: "EMU AVW", filename: EmulatorViewModel.bundledROMFilename),
     ]
 
     // Disk selection for slots 0-3 (OS slots) and data drives
@@ -126,51 +226,229 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
     }
 
-    private func persistSelectedDisks() {
-        let filenames = selectedDisks.map { $0?.filename ?? "" }
-        UserDefaults.standard.set(filenames, forKey: "selectedDisks")
+    /// Which disks are in which slots, for THIS RomWBW release.
+    ///
+    /// A 3.5.1 disk is not a 3.6.0 disk - the filenames differ and the guest
+    /// prints `*** WARNING: HBIOS/CBIOS Version Mismatch ***` if they are
+    /// crossed - so the selection is stored per release. The unsuffixed key is
+    /// what every build before the v0 catalog wrote; the migration copies its
+    /// value once and then leaves it alone, so a user who downgrades the app
+    /// still finds their slots.
+    ///
+    /// Computed from the release in play rather than fixed at load time: the
+    /// release picker moves it, and a key captured once would go on reading
+    /// 3.5.1's slots after the user switched to 3.6.0 - which is not a stale
+    /// display but a wrong write, since the very next persist would put 3.6.0
+    /// names under the 3.5.1 key.
+    var selectedDisksKey: String {
+        CatalogMigration.versionedKey("selectedDisks", romwbwVersion: romwbwVersion)
+    }
+
+    /// Write the four slots back.
+    ///
+    /// `remembered` is what the key held before `restoreDiskSelections()` ran,
+    /// and it is passed only from there. A slot whose stored name the catalog
+    /// cannot resolve right now is nil in memory - the restore assigns the
+    /// lookup's optional result - and writing that nil straight back is what
+    /// permanently erased a configured disk the first time a catalog stopped
+    /// naming it. A remembered name costs nothing to keep: the slot is still
+    /// empty in the UI and `start()` still skips it, so it cannot brick the
+    /// Play button, and it comes back on its own the moment the catalog names
+    /// it again.
+    ///
+    /// A slot bound to a local file is excluded. `restoreLocalDiskBindings()`
+    /// runs inside the same bracket and deliberately writes `filename: ""` over
+    /// whatever catalog name that slot had; putting the name back would fight
+    /// with it every launch.
+    private func persistSelectedDisks(remembering remembered: [String]? = nil) {
+        var filenames = selectedDisks.map { $0?.filename ?? "" }
+        if let remembered = remembered {
+            for i in filenames.indices {
+                guard filenames[i].isEmpty,
+                      i < remembered.count,
+                      i < localDiskURLs.count, localDiskURLs[i] == nil else { continue }
+                filenames[i] = remembered[i]
+            }
+        }
+        UserDefaults.standard.set(filenames, forKey: selectedDisksKey)
     }
 
     @Published var availableDisks: [DiskOption] = [
         DiskOption(name: "None", filename: ""),
     ]
 
-    // Downloadable disk catalog - pinned to an explicit ioscpm release (matching
-    // the Windows/Android ports). The core's HBIOS identifies as RomWBW v3.5.1;
-    // disks from a different RomWBW release print an HBIOS/CBIOS mismatch warning
-    // at boot. Bump this tag together with core/ROM upgrades. Help (HelpView)
-    // deliberately stays on releases/latest — help floats, disks are pinned.
+    // MARK: The catalog, and the one URL this app compiles in
     //
-    // v1.4.12 (2026-09-03) replaces v1.4.5, which served an R8 that hands an
-    // unfiltered host basename to F_DELETE: importing a host file whose name
-    // contains ? or * made an ambiguous FCB and erased every matching CP/M file
-    // first, silently. This repository published the fixed image on 2026-09-01
-    // and then went on serving its own users the broken one for two days,
-    // because publishing an asset is not the same as shipping it. tools/
-    // check-disk-pins.sh exists to make that gap fail rather than go unnoticed.
+    // There is no release tag any more. `releaseTag = "v1.4.12"` and the two
+    // URLs built out of it are gone: a disk fix reached users only through an
+    // edit, a rebuild and a shipped release, and v1.4.5's broken R8 - which
+    // handed an unfiltered host basename to F_DELETE, so importing a file whose
+    // name held ? or * silently erased every matching CP/M file first - went on
+    // being served for two days after the fixed image was published, because
+    // publishing an asset is not the same as shipping it.
     //
-    // Safe on both counts the release order asks about, checked rather than
-    // assumed. The invalidation wipe cannot fire: v1.4.5 and v1.4.12 both carry
-    // <disks version="13">, and checkCatalogVersionAndInvalidate only acts on a
-    // change - and since build 56 it clears only disks the catalog can give
-    // back. And the two catalogs are 7042 bytes each differing on one line, the
-    // <sha256> of hd1k_combo.img; byte-diffing the images themselves shows 5,121
-    // bytes changed out of 51,380,224, all of it R8.COM, W8.COM and their two
-    // directory entries, first difference 1.02 MB in - so the RomWBW generation
-    // this comment pins against is byte-identical and the mismatch warning
-    // cannot appear.
-    private static let releaseTag = "v1.4.12"
-    private static let catalogURL = "https://github.com/avwohl/ioscpm/releases/download/\(releaseTag)/disks.xml"
-    private static let releaseBaseURL = "https://github.com/avwohl/ioscpm/releases/download/\(releaseTag)"
-    /// Which releaseTag the cached catalog on disk was fetched under.  The cache
-    /// holds one tag's <sha256> values but parseDiskCatalogXML always rebuilds the
-    /// URLs from the CURRENT releaseTag, so a cache from a different pin pairs the
-    /// wrong hashes with the right URLs.  See loadCachedCatalog.
-    private static let catalogCacheTagKey = "catalogCacheTag"
+    // What replaces it is two hops, and only the first is compiled in:
+    //
+    //   1. index-v0.json, below. Lists every RomWBW release romwbw_disks
+    //      publishes, each with an absolute catalog_url and that catalog's
+    //      catalog_sha256/catalog_size.
+    //   2. the selected release's catalog, verified against those two before it
+    //      is parsed. It carries its own base_url, and an asset URL is
+    //      base_url + filename - no tag interpolation anywhere, and no "/"
+    //      inserted by this app (the document's base_url ends in one).
+    //
+    // The index tag holds that one small file and nothing else, so re-cutting
+    // it costs one upload of a few kilobytes. That is what makes a floating
+    // entry point safe here when HelpView's releases/latest is safe for the
+    // same reason: the thing that moves is tiny, and the things clients cache
+    // never move.
+    //
+    // The OLD tags stay live regardless. Every build already in service is
+    // hardwired to https://github.com/avwohl/ioscpm/releases/download/v1.4.12/
+    // and GitHub release asset URLs cannot be redirected. Migrating this app
+    // does not free v1.4.5 or v1.4.12; only the last user uninstalling does.
+    private static let indexURL =
+        "https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json"
+
+    /// Which RomWBW release the cached catalog was fetched under used to be a
+    /// UserDefaults stamp, because the parser rebuilt every URL from the
+    /// CURRENT releaseTag and a cache from another pin paired the wrong hashes
+    /// with the right URLs. It cannot happen now: the cache holds the whole
+    /// document, base_url included, so a cached catalog is self-consistent by
+    /// construction, and the release is in the cache FILENAME rather than in a
+    /// key that can drift from it.
+    ///
+    /// The old "catalogCacheTag" key is deliberately left in place, unread. It
+    /// costs nothing, and a user who downgrades this app should find their
+    /// settings as they left them.
+    ///
+    /// Always called with an explicit release, never with an implicit "the
+    /// current one": the release switch reads and writes caches on both sides
+    /// of the move, and a cache written under the wrong name is a 3.6.0 catalog
+    /// that a 3.5.1 launch would read as its own.
+    private func catalogCacheURL(for version: String) -> URL {
+        downloadsDirectory
+            .appendingPathComponent("catalog-\(CatalogMigration.interface)-\(version).json")
+    }
+
+    /// The release list, cached so a first launch with no network still knows
+    /// which releases exist rather than offering only the one in play.
+    private var indexCacheURL: URL {
+        downloadsDirectory.appendingPathComponent("index-\(CatalogMigration.interface).json")
+    }
+
+    /// The catalog generation last seen for THIS RomWBW release, and the only
+    /// thing that may delete a downloaded image.  Per release because deletion
+    /// is per release; see checkCatalogGenerationAndInvalidate.
+    ///
+    /// Not the old unsuffixed "catalogVersion" key, which held the XML's
+    /// `version` attribute - "13" against a v0 generation of 1. That key is
+    /// orphaned rather than carried forward, so the first v0 fetch on any
+    /// device finds this one empty and takes the first-run branch.
+    ///
+    /// Takes the release explicitly, like `catalogCacheURL(for:)` and for the
+    /// same reason: this key gates a DELETION, and reading `romwbwVersion` from
+    /// inside would file one release's generation under another's the moment a
+    /// fetch outlives the picker.
+    private func catalogGenerationKey(for version: String) -> String {
+        CatalogMigration.versionedKey("catalogGeneration", romwbwVersion: version)
+    }
 
     @Published var diskCatalog: [DownloadableDisk] = []
     @Published var catalogLoading: Bool = false
-    @Published var catalogError: String?
+
+    /// Why there is no catalog, and which hop failed. Nil when all is well.
+    @Published var catalogFailure: CatalogFailure?
+
+    /// The whole decoded catalog for the release in play, kept because the disk
+    /// list is not all of it: `roms[]` is what says which ROM this release
+    /// publishes, and that is the difference between "your disks are for 3.6.0"
+    /// and "your disks are for 3.6.0 and the ROM booting them is not".
+    private var catalogDocument: RomWBWCatalogDocument?
+
+    // MARK: The RomWBW release in play
+    //
+    // Every RomWBW release is its own machine. Its disks have their own
+    // filenames (hd1k_combo-v0-3.5.1.img is not hd1k_combo-v0-3.6.0.img), its
+    // NVRAM blob will not validate under another release's ROM - NVSW_CHECKSUM
+    // XORs the version bytes into its seed, so it resets to defaults with no
+    // error - and a 3.5.1 disk booted under a 3.6.0 ROM prints
+    // *** WARNING: HBIOS/CBIOS Version Mismatch ***.
+    //
+    // So the release is a first-class selection, and everything whose validity
+    // depends on it is stored per release. Switching releases DELETES NOTHING:
+    // 3.5.1 -> 3.6.0 -> 3.5.1 comes back to exactly the slots, boot string and
+    // downloaded images it left.
+
+    /// The releases the picker offers: what the index publishes, filtered to
+    /// what this build's emulator core says it can run.
+    ///
+    /// Seeded with the release in play so the picker always has a row matching
+    /// its selection - an unmatched selection renders blank, and on a first
+    /// offline launch the index never arrives at all.
+    @Published private(set) var romwbwVersions: [RomWBWIndexEntry] = []
+
+    /// Which release is in play. The picker binds straight to this.
+    @Published var romwbwVersion: String = EmulatorViewModel.initialRomWBWVersion() {
+        didSet {
+            // Swift does not re-enter an observer for an assignment made inside
+            // it, so the revert below is safe; the flag is for the OTHER way in
+            // - adoptRomWBWVersion(_:refetch:), which assigns from outside and
+            // would otherwise have this run the switch a second time.
+            guard !isSwitchingRomWBWVersion, oldValue != romwbwVersion else { return }
+
+            // Not while a machine is running off the old release's disks. The
+            // switch empties the slots, and saveDownloadedDisks() writes the
+            // guest's live image back to the file the SLOT names: with the
+            // slots emptied under a running emulator, the periodic flush and
+            // the one in stop() would both find nothing to write to and discard
+            // the user's work without a word.
+            if isRunning {
+                romwbwVersion = oldValue
+                showError("Stop the emulator before changing the RomWBW release. "
+                          + "The disks in the drives belong to \(oldValue).")
+                return
+            }
+
+            applyRomWBWVersionSwitch(from: oldValue, refetch: true)
+        }
+    }
+
+    /// Guards the didSet above against running twice for one move.
+    private var isSwitchingRomWBWVersion = false
+
+    /// Where the release choice is remembered. Scoped by interface but NOT by
+    /// release - it names the release, so it cannot be per release.
+    private static let romwbwVersionKey =
+        "selectedRomWBWVersion.\(CatalogMigration.interface)"
+
+    /// The ROM the app bundle ships, and the release it declares.
+    ///
+    /// Read out of the image rather than asserted: there is no compile-time pin
+    /// left to read anywhere in this tree - the core takes the RomWBW version
+    /// from whichever ROM it loads - so the only honest answer comes from the
+    /// four HCB bytes at 0x103-0x106 of the file itself. nil when the bundled
+    /// ROM is missing or carries no HCB, which is a broken build rather than a
+    /// user-visible condition; the fallback is the release the storage
+    /// migration was written for.
+    static let bundledROMFilename = "emu_avw.rom"
+    static let bundledROMRelease: String? =
+        RomWBWEmulator.romWBWRelease(ofBundledROM: bundledROMFilename)
+
+    /// The release to start on when the user has never chosen one.
+    ///
+    /// Runs as `romwbwVersion`'s stored-property initializer, which Swift
+    /// evaluates before `profileStore`'s and therefore before the storage
+    /// migration. That is only safe because the key it reads is a new one that
+    /// no migration touches: anything this needed from a migrated key would
+    /// have to move, not be read from here.
+    private static func initialRomWBWVersion() -> String {
+        if let stored = UserDefaults.standard.string(forKey: romwbwVersionKey),
+           !stored.isEmpty {
+            return stored
+        }
+        return bundledROMRelease ?? CatalogMigration.bundledRomWBWVersion
+    }
 
     // MARK: Disk freshness
     //
@@ -269,13 +547,31 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // Changed by SYSCONF in ROM or by UI, synced to UserDefaults
     @Published var bootString: String = "" {
         didSet {
-            // Save to UserDefaults whenever it changes (from UI or SYSCONF sync)
-            UserDefaults.standard.set(bootString, forKey: Self.nvramKey)
+            // Save to UserDefaults whenever it changes (from UI or SYSCONF
+            // sync), under the key for the release in play. Clearing autoboot
+            // clears THIS release's, and leaves the other release's alone.
+            UserDefaults.standard.set(bootString, forKey: nvramKey)
         }
     }
 
-    // NVRAM persistence key
-    private static let nvramKey = "emulatorNvram"
+    // NVRAM persistence key, per RomWBW release.
+    //
+    // RomWBW's NVSW_CHECKSUM XORs the running release's version bytes into its
+    // seed, so a blob saved under 3.5.1 fails validation under a 3.6.0 ROM and
+    // silently resets to defaults - the user's autoboot setting disappears with
+    // no error anywhere. One key per release is the only shape that survives a
+    // machine that can load either. The unsuffixed key is what every earlier
+    // build wrote; the v0 migration copies its value across once and leaves it
+    // in place.
+    //
+    // Computed from the release in play for the same reason
+    // `selectedDisksKey` is: the picker moves it, and every reader and writer
+    // has to move with it. The readers and writers are `restoreBootString()`
+    // (from init and from the release switch) and bootString's didSet, reached
+    // from applyProfile, clearAutoboot and syncNvramFromEmulator.
+    private var nvramKey: String {
+        CatalogMigration.versionedKey("emulatorNvram", romwbwVersion: romwbwVersion)
+    }
 
     // Manifest disk write warning setting (defaults to true = warnings enabled)
     private static let warnManifestWritesKey = "warnManifestWrites"
@@ -397,11 +693,183 @@ class EmulatorViewModel: NSObject, ObservableObject {
     static let profileStoreKey = "emulatorProfiles"
 
     @Published private(set) var profileStore: ProfileStore =
-        ProfileStore.decoded(from: UserDefaults.standard.data(forKey: EmulatorViewModel.profileStoreKey))
+        ProfileStore.decoded(from: EmulatorViewModel.profileDataAfterV0Migration())
 
     private func persistProfiles() {
         if let data = profileStore.encoded() {
             UserDefaults.standard.set(data, forKey: Self.profileStoreKey)
+        }
+    }
+
+    // MARK: - Interface v0 storage migration
+
+    /// Set once the rename pass below has finished with nothing left to do.
+    ///
+    /// It exists to keep a directory listing off every launch, not to make the
+    /// pass safe: the pass is idempotent by construction, because a name that
+    /// already carries `-v0-` maps to nothing. See CatalogMigration.
+    private static let v0MigrationDoneKey = "migratedToInterfaceV0"
+
+    /// Run the storage migration, then hand back the profile bytes it left.
+    ///
+    /// This is spelled as the initializer expression for `profileStore` rather
+    /// than as a call at the top of `init()` because Swift runs stored-property
+    /// initializers BEFORE the body of any initializer. A `migrate()` first in
+    /// `init()` would migrate the ledger (read at the bottom of `init()`) and
+    /// the disk slots (read later still, from `restoreDiskSelections()`)
+    /// correctly, and would already have lost the race for every profile - and
+    /// it would look like it had worked, because the two halves that are easy
+    /// to check are the two that were migrated. Making the migration produce
+    /// the bytes is the only spelling that cannot be reordered by accident.
+    private static func profileDataAfterV0Migration() -> Data? {
+        migrateStorageToInterfaceV0()
+        return UserDefaults.standard.data(forKey: profileStoreKey)
+    }
+
+    /// Rename what this app remembers about a catalog disk, from `<id>.img` to
+    /// `<id>-v0-3.5.1.img`, across all four stores and the files themselves.
+    ///
+    /// Runs before anything reads any of them, which is not a convention but a
+    /// requirement: `restoreDiskSelections()` resolves each stored name against
+    /// the catalog and writes nil back for a name it cannot find, so one fetch
+    /// after an unmigrated upgrade erases the user's slot configuration. The
+    /// ordering is enforced by where this is called from, above.
+    ///
+    /// What it will not do, in order of how much they cost:
+    ///
+    ///   - It never deletes. Not a file, not a key, not a ledger record. A name
+    ///     the catalog has never used belongs to the user and is left exactly
+    ///     as it is, under the name they gave it.
+    ///   - It renames rather than copies. `DiskLedger.measurementApplies`
+    ///     compares a stored measurement against the file's CURRENT size and
+    ///     modification time, and `moveItem` preserves both; a copy-then-delete
+    ///     changes mtime, invalidates every record, and makes the app re-hash
+    ///     ~210 MB whose answer it already had.
+    ///   - It carries provenance across rather than re-deriving it.
+    ///     `installedCatalogSha256` records which published image these bytes
+    ///     came from, and that survives a rename. It cannot be recomputed: see
+    ///     DiskLedger.swift for why hashing the file answers a different
+    ///     question, and `recordInstall`'s comment for why a verified download
+    ///     is the only place provenance may be written.
+    private static func migrateStorageToInterfaceV0() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: v0MigrationDoneKey) else { return }
+
+        let fm = FileManager.default
+        let directory = disksDirectoryURL
+
+        // The files first. A stored name may only be rewritten once the file it
+        // names has actually moved - a slot pointing at a name with no file
+        // behind it resolves to nothing, and the restore writes that nothing
+        // back over the user's configuration.
+        var notMoved: Set<String> = []
+        var renamed = 0
+
+        // A directory that is not there yet is not a failure - a device that
+        // has downloaded nothing has nothing to rename, and the keys below name
+        // nothing that is on disk either. A directory that IS there and cannot
+        // be listed is a different answer: "unknown", not "empty". Swallowing
+        // that into an empty listing would rename no file, rewrite every stored
+        // name anyway, and then set the done flag over it - the half-applied
+        // state where start() refuses to boot and saveDownloadedDisks() throws
+        // the guest's work away in silence. So it defers the whole pass with
+        // the flag left clear, and the next launch tries again.
+        var contents: [String] = []
+        if fm.fileExists(atPath: directory.path) {
+            do {
+                contents = try fm.contentsOfDirectory(atPath: directory.path)
+            } catch {
+                print("[Migration] Could not list \(directory.path):"
+                      + " \(error.localizedDescription) - deferred to the next launch")
+                return
+            }
+        }
+
+        for rename in CatalogMigration.renames(in: contents) {
+            let source = directory.appendingPathComponent(rename.from)
+            let destination = directory.appendingPathComponent(rename.to)
+            // `moveItem` THROWS when the destination exists, and this pass may
+            // not delete either copy, so the destination is checked first and
+            // the old file is left where it is. Re-checked here rather than
+            // trusted from `renames(in:)`, because two names differing only in
+            // case map onto one v0 name and the first rename creates the
+            // second's destination.
+            guard !fm.fileExists(atPath: destination.path) else { continue }
+            do {
+                try fm.moveItem(at: source, to: destination)
+                renamed += 1
+            } catch {
+                // Leave every reference to this one alone as well, so the file
+                // and the names that point at it stay consistent. The usual
+                // cause is transient: Documents is protected until the device
+                // has been unlocked once, and the app can be launched in the
+                // background before that.
+                notMoved.insert(CatalogMigration.fold(rename.from))
+                print("[Migration] Could not rename '\(rename.from)': \(error.localizedDescription)")
+            }
+        }
+
+        // The four slots. Prefer the versioned key once it exists: a pass that
+        // could not move a file leaves the done flag clear and runs again next
+        // launch, by which time the user may have changed a slot, and copying
+        // the legacy value over it again would put the older choice back.
+        //
+        // The target key is the BUNDLED release's, not the one the release
+        // picker has selected. Everything this pass touches was written by a
+        // build that had no picker and one pinned catalog, so it can only be
+        // 3.5.1 data; filing it under 3.6.0 because that is where the user
+        // happens to be would claim disks for a release they were never built
+        // for. This runs before any instance exists, which is what makes that
+        // hard to get wrong: there is no romwbwVersion here to reach for.
+        let migratedSlotsKey = CatalogMigration.versionedKey("selectedDisks")
+        if let stored = defaults.stringArray(forKey: migratedSlotsKey)
+            ?? defaults.stringArray(forKey: "selectedDisks") {
+            defaults.set(CatalogMigration.migratedSlots(stored, notMoved: notMoved),
+                         forKey: migratedSlotsKey)
+        }
+
+        // The saved profiles, in place under their own key: a profile is not
+        // release-specific, it names disks by filename and the filenames now
+        // carry the release. Note that decoding sorts and de-duplicates, so the
+        // stored bytes change even when no name did.
+        if let data = defaults.data(forKey: profileStoreKey) {
+            let store = CatalogMigration.migrated(ProfileStore.decoded(from: data),
+                                                  notMoved: notMoved)
+            if let encoded = store.encoded() {
+                defaults.set(encoded, forKey: profileStoreKey)
+            }
+        }
+
+        // The ledger, likewise in place and for the same reason. Only when
+        // there is one: `deserialized(nil)` is an empty ledger, and writing
+        // that would put an empty record set where there had been no key.
+        if let stored = defaults.string(forKey: diskLedgerKey),
+           let serialized = CatalogMigration.migrated(DiskLedger.deserialized(stored),
+                                                      notMoved: notMoved).serialized() {
+            defaults.set(serialized, forKey: diskLedgerKey)
+        }
+
+        // The NVRAM blob, which holds no filename at all - this is a key move,
+        // not a rename. Same reasoning as the slots: into the bundled release's
+        // key, because a boot string saved before there was a picker was saved
+        // against the bundled ROM. The legacy key is left in place
+        // deliberately.
+        let migratedNvramKey = CatalogMigration.versionedKey("emulatorNvram")
+        if defaults.object(forKey: migratedNvramKey) == nil,
+           let legacy = defaults.string(forKey: "emulatorNvram") {
+            defaults.set(legacy, forKey: migratedNvramKey)
+        }
+
+        // A file that could not be moved is worth another attempt on the next
+        // launch rather than a name frozen half-migrated for ever. The pass is
+        // idempotent and costs one directory listing, so re-running it is
+        // cheaper than the state it avoids.
+        if notMoved.isEmpty {
+            defaults.set(true, forKey: v0MigrationDoneKey)
+        }
+        if renamed > 0 || !notMoved.isEmpty {
+            print("[Migration] interface v0: renamed \(renamed) disk image(s), "
+                  + "\(notMoved.count) deferred to the next launch")
         }
     }
 
@@ -722,8 +1190,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         setupAudio()
 
-        // Restore boot string from NVRAM key
-        bootString = UserDefaults.standard.string(forKey: Self.nvramKey) ?? ""
+        // Restore the boot string for the release in play. romwbwVersion is a
+        // stored property, so it is already set by the time this body runs.
+        restoreBootString()
+
+        // Seed the release picker with the release in play, so it has a row
+        // matching its selection before any index arrives - and on a launch
+        // with no network, for ever.
+        romwbwVersions = [RomWBWIndexEntry.placeholder(romwbwVersion: romwbwVersion)]
 
         // Restore the configurable keyboard mapping
         loadKeyMapping()
@@ -804,17 +1278,22 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// Restore saved disk selections from UserDefaults, or set defaults
     private func restoreDiskSelections() {
+        // Read once, before anything can rewrite it, and hand it to the persist
+        // at the end so a name this catalog cannot resolve is remembered rather
+        // than blanked. See persistSelectedDisks(remembering:).
+        let savedSelections = UserDefaults.standard.stringArray(forKey: selectedDisksKey)
+
         isRestoringSelections = true
         defer {
             isRestoringSelections = false
             // Once, at the end, with the whole selection settled. The first-run
             // path picks defaults out of the catalog and those do have to be
             // written; it is only the three intermediate states that did not.
-            persistSelectedDisks()
+            persistSelectedDisks(remembering: savedSelections)
         }
 
         // Check if user has saved selections
-        let hasSavedSelections = UserDefaults.standard.stringArray(forKey: "selectedDisks") != nil
+        let hasSavedSelections = savedSelections != nil
         debugPrint("[RestoreDisks] hasSavedSelections=\(hasSavedSelections)")
         debugPrint("[RestoreDisks] availableDisks has \(availableDisks.count) entries:")
         for disk in availableDisks {
@@ -822,7 +1301,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
 
         if hasSavedSelections {
-            if let savedDisks = UserDefaults.standard.stringArray(forKey: "selectedDisks") {
+            if let savedDisks = savedSelections {
                 debugPrint("[RestoreDisks] Saved filenames: \(savedDisks)")
                 for (index, filename) in savedDisks.enumerated() where index < 4 {
                     if !filename.isEmpty {
@@ -879,7 +1358,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         emulator?.closeAllDisks()
 
         // Load selected ROM
-        let romFile = selectedROM?.filename ?? "emu_avw.rom"
+        let romFile = selectedROM?.filename ?? Self.bundledROMFilename
         debugPrint("[EmulatorVM] Loading ROM: \(romFile)")
         guard emulator?.loadROM(fromBundle: romFile) == true else {
             // The bridge records why: missing from the bundle, unreadable, or
@@ -894,6 +1373,15 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
         debugPrint("[EmulatorVM] ROM loaded successfully: \(romFile)")
         statusText = "ROM loaded: \(selectedROM?.name ?? romFile)"
+
+        // The disks about to be mounted may be for another RomWBW release than
+        // the ROM that just loaded. RomWBW itself prints
+        // *** WARNING: HBIOS/CBIOS Version Mismatch *** when that happens, in
+        // the middle of a boot; this puts the same fact where someone reading a
+        // log will find it, naming both releases.
+        if let mismatch = romReleaseMismatchNotice {
+            debugPrint("[EmulatorVM] \(mismatch)")
+        }
 
         var diskLoadErrors: [String] = []
 
@@ -1355,12 +1843,22 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     // MARK: - NVRAM Persistence
 
-    /// Load NVRAM from UserDefaults (restores boot config from previous session)
-    private func loadNvram() {
-        if let setting = UserDefaults.standard.string(forKey: Self.nvramKey) {
-            emulator?.setNvramSetting(setting)
-            debugPrint("[NVRAM] Loaded setting '\(setting)' from UserDefaults")
-        }
+    /// Read the boot string for the release in play back out of UserDefaults.
+    ///
+    /// Called from init and from the release switch. It replaces a `loadNvram()`
+    /// that had no caller anywhere in the tree - dead since before the ledger
+    /// existed - and that pushed the stored setting straight into the emulator,
+    /// which `loadSelectedResources()` already does at load time. Leaving a dead
+    /// reader of a key that is now per release would have been worse than the
+    /// dead code was: the version-scoping would have looked done and been
+    /// applied in one of the two places that matter.
+    ///
+    /// The assignment writes the value straight back through bootString's
+    /// didSet, under the SAME key it was just read from. That is idempotent,
+    /// and after a switch it is what puts an empty string under a release the
+    /// user has never set a boot option for.
+    private func restoreBootString() {
+        bootString = UserDefaults.standard.string(forKey: nvramKey) ?? ""
     }
 
     /// Sync NVRAM from emulator to UI (called when SYSCONF changes NVRAM)
@@ -1925,85 +2423,452 @@ class EmulatorViewModel: NSObject, ObservableObject {
         pathMonitor.start(queue: DispatchQueue.global(qos: .utility))
     }
 
-    // MARK: - Disk Catalog Management
+    // MARK: - Choosing a RomWBW release
 
-    /// Fetch disk catalog from remote XML, falling back to cached version
+    /// Move to another release without being asked to by the picker.
+    ///
+    /// Used when the index no longer offers the release in play. Assigning to
+    /// `romwbwVersion` from out here WOULD run its didSet, which is why the
+    /// flag exists: the switch is performed once, by this function, with
+    /// `refetch` under the caller's control - the index path is already in the
+    /// middle of a fetch and must not start a second one.
+    private func adoptRomWBWVersion(_ version: String, refetch: Bool) {
+        guard version != romwbwVersion else { return }
+        let previous = romwbwVersion
+        isSwitchingRomWBWVersion = true
+        romwbwVersion = version
+        isSwitchingRomWBWVersion = false
+        applyRomWBWVersionSwitch(from: previous, refetch: refetch)
+    }
+
+    /// Everything that has to change when the release does.
+    ///
+    /// **Nothing is deleted here, and nothing may be.** Every store this moves
+    /// off is keyed per release and stays exactly where it was: the slots under
+    /// `selectedDisks.v0.<previous>`, the boot string under
+    /// `emulatorNvram.v0.<previous>`, the generation under
+    /// `catalogGeneration.v0.<previous>`, the images in Documents/Disks under
+    /// names carrying `<previous>`, and the saved catalog under
+    /// `catalog-v0-<previous>.json`. 3.5.1 -> 3.6.0 -> 3.5.1 therefore comes
+    /// back to precisely what it left. The old single `catalogVersion` key made
+    /// exactly this sequence wipe the library twice, which is what
+    /// per-(interface, release) scoping is for.
+    ///
+    /// The in-memory reset runs inside `isRestoringSelections` so that emptying
+    /// the four slots does not persist four blanks - by the time this runs,
+    /// `selectedDisks`'s didSet is already writing to the NEW release's key,
+    /// and blanking that would destroy the slots the user set the last time
+    /// they were on it.
+    private func applyRomWBWVersionSwitch(from previous: String, refetch: Bool) {
+        UserDefaults.standard.set(romwbwVersion, forKey: Self.romwbwVersionKey)
+        debugPrint("[Release] RomWBW \(previous) -> \(romwbwVersion)")
+
+        isRestoringSelections = true
+        selectedDisks = Array(repeating: nil, count: 4)
+        isRestoringSelections = false
+
+        // The catalog and the picker's disk list belong to the release that is
+        // leaving. Anything still in flight does not: a download in progress
+        // writes the file it was started for, under the name it was started
+        // with, and its ledger record is keyed on that name - so the download
+        // dictionaries are deliberately left alone rather than cleared under a
+        // task that is still polling them.
+        catalogDocument = nil
+        diskCatalog = []
+        availableDisks = [DiskOption(name: "None", filename: "")]
+
+        // Under a per-release key the boot string cannot simply be kept: it is
+        // the other release's, and RomWBW would fail its checksum and silently
+        // reset. Read this release's own.
+        restoreBootString()
+
+        statusText = "RomWBW \(romwbwVersion) selected"
+        if refetch { fetchDiskCatalog() }
+    }
+
+    /// What to say when the disks in play are not for the ROM that will boot
+    /// them, or nil when they agree.
+    ///
+    /// This app still boots the ROM in its own bundle - docs/ROM_ATTESTATION.md
+    /// is an App Store filing naming emu_avw.rom, and an app whose only ROM is
+    /// a download has nothing to boot on a first offline launch - so selecting
+    /// a release the bundle does not carry gives a machine whose CBIOS and
+    /// HBIOS disagree. RomWBW says so itself, at boot, with
+    /// *** WARNING: HBIOS/CBIOS Version Mismatch ***. Saying it here, where the
+    /// choice is made, is the difference between a warning and a surprise.
+    ///
+    /// The ROM this release publishes is named from the catalog's `roms[]` by
+    /// its `default` flag - not by position and not by looking for "emu_avw",
+    /// neither of which the schema promises - and is simply left out of the
+    /// sentence when the catalog carries no ROMs at all.
+    var romReleaseMismatchNotice: String? {
+        guard let bundled = Self.bundledROMRelease, bundled != romwbwVersion else { return nil }
+        let published = catalogDocument?.defaultROM?.filename
+        let itWants = published.map { " (it publishes \($0))" } ?? ""
+        return "This build boots the bundled RomWBW \(bundled) ROM. "
+            + "RomWBW \(romwbwVersion) disks\(itWants) will boot under it with an "
+            + "HBIOS/CBIOS version mismatch warning until ROM downloads arrive."
+    }
+
+    // MARK: - Disk catalog: the two-hop fetch
+
+    /// Fetch the release index, then the selected release's catalog.
+    ///
+    /// Two hops, one compiled-in URL, and nothing built from a tag. The index
+    /// says which releases exist and where each catalog is; the catalog says
+    /// where its assets are. Either hop can fail on its own, and which one did
+    /// is the difference between "this device cannot reach GitHub" and "the
+    /// release list is fine and one asset behind it is missing" - so the two
+    /// are reported separately rather than as one string.
+    ///
+    /// Any failure falls back to the cache for the release in play, because
+    /// this arm is reached exactly when the network is down: emptying the
+    /// catalog would leave `start()` refusing to boot (it rejects an empty
+    /// catalog before it ever checks whether anything needs downloading) and
+    /// would drop the user's own imported images with it, since
+    /// `refreshAvailableDisks()` is the only thing that scans the directory.
     func fetchDiskCatalog() {
         catalogLoading = true
-        catalogError = nil
+        catalogFailure = nil
 
-        guard let url = URL(string: Self.catalogURL) else {
-            debugPrint("[Catalog] Invalid catalog URL")
-            loadCachedCatalog()
+        guard let url = URL(string: Self.indexURL) else {
+            // A compiled-in constant that is not a URL is a build mistake, not
+            // a condition - but it must not take the app down with it.
+            debugPrint("[Catalog] Invalid index URL")
+            continueFromCachedIndex(indexProblem: "the compiled-in index URL is not a URL")
             return
         }
 
-        debugPrint("[Catalog] Fetching from: \(Self.catalogURL)")
+        debugPrint("[Catalog] Fetching index: \(Self.indexURL)")
 
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self = self else { return }
-                self.catalogLoading = false
 
-                if let error = error {
-                    self.debugPrint("[Catalog] Fetch error: \(error.localizedDescription)")
+                if let problem = CatalogTransfer.problem(
+                        errorDescription: error?.localizedDescription,
+                        statusCode: (response as? HTTPURLResponse)?.statusCode,
+                        byteCount: data?.count) {
+                    self.debugPrint("[Catalog] Index fetch failed: \(problem)")
+                    self.continueFromCachedIndex(indexProblem: problem)
+                    return
                 }
 
-                if let httpResponse = response as? HTTPURLResponse {
-                    self.debugPrint("[Catalog] HTTP status: \(httpResponse.statusCode)")
+                guard let data = data,
+                      let index = try? JSONDecoder().decode(RomWBWIndex.self, from: data) else {
+                    self.debugPrint("[Catalog] Index did not decode")
+                    self.continueFromCachedIndex(
+                        indexProblem: "the release list could not be read")
+                    return
                 }
 
-                if let data = data, error == nil {
-                    self.debugPrint("[Catalog] Received \(data.count) bytes")
-                    // Parse and cache the new catalog
-                    let result = self.parseDiskCatalogXML(data)
-                    self.debugPrint("[Catalog] Parsed \(result.disks.count) disks, version: '\(result.version)'")
-                    for disk in result.disks {
-                        self.debugPrint("[Catalog]   - '\(disk.filename)' (\(disk.name))")
-                    }
-                    if !result.disks.isEmpty {
-                        // Check if catalog version changed - if so, invalidate the
-                        // downloaded disks this catalog can hand back. The NEW
-                        // catalog's names, not the old one's: a file the new
-                        // catalog does not list cannot be re-downloaded from it,
-                        // which is exactly the test for whether deleting it is
-                        // recoverable.
-                        let notice = self.checkCatalogVersionAndInvalidate(
-                            newVersion: result.version,
-                            catalogFilenames: Set(result.disks.map { $0.filename }))
-
-                        self.diskCatalog = result.disks
-                        self.saveCatalogToCache(data)
-                        self.refreshAvailableDisks()
-                        self.restoreDiskSelections()
-                        // AFTER restoreDiskSelections, which ends by setting
-                        // statusText to "Ready - Press Play to start" and so
-                        // silently swallowed anything set before it. The status
-                        // line was the only trace of an invalidation the user
-                        // could see while the alert was being eaten too.
-                        if let notice = notice { self.statusText = notice }
-                        // With the new catalog in force, ask which installed
-                        // images it has moved on from. This is the arm that
-                        // reaches a device already holding a superseded image -
-                        // the version attribute cannot, and deliberately does
-                        // not move.
-                        self.reassessDiskFreshness()
-                        return
-                    }
-                }
-
-                // Fetch failed, try cached version
-                self.debugPrint("[Catalog] Falling back to cached catalog")
-                self.loadCachedCatalog()
+                self.debugPrint("[Catalog] Index lists \(index.romwbwVersions.count) release(s)")
+                self.saveIndexToCache(data)
+                self.adoptIndex(index, indexProblem: nil)
             }
         }.resume()
     }
 
-    /// Check if catalog version changed and invalidate the downloaded disks the
-    /// catalog is able to hand back.
+    /// The index hop failed. Use the saved one if there is a usable one.
+    ///
+    /// A saved release list is worth reading even when it is stale: the
+    /// catalog hop below it may well succeed from ITS cache, and the picker
+    /// then still shows every release rather than collapsing to the one in
+    /// play. `indexProblem` is carried all the way through so that a run which
+    /// ends up showing a perfectly good catalog can still say the list behind
+    /// it is the saved one.
+    private func continueFromCachedIndex(indexProblem: String) {
+        if let data = try? Data(contentsOf: indexCacheURL),
+           let index = try? JSONDecoder().decode(RomWBWIndex.self, from: data) {
+            debugPrint("[Catalog] Using the cached release list")
+            adoptIndex(index, indexProblem: indexProblem)
+            return
+        }
+        catalogFailure = CatalogFailure(stage: .index,
+                                        detail: indexProblem,
+                                        servedFromCache: false)
+        loadCachedCatalog()
+    }
+
+    /// Decide which release to be on, then fetch its catalog.
+    private func adoptIndex(_ index: RomWBWIndex, indexProblem: String?) {
+        // Ask the core, per entry, rather than comparing against a constant:
+        // there is no compile-time pin left, and a build can carry a core that
+        // is newer or older than the releases this index lists.
+        let offered = RomWBWIndex.offered(index.romwbwVersions) { ver, upd in
+            RomWBWEmulator.supportsRomWBW(ver: ver, upd: upd)
+        }
+
+        guard !offered.isEmpty else {
+            // A real condition, and one worth saying out loud: this build's
+            // core can run none of the releases this repository publishes. Not
+            // a network failure, not fixed by retrying, and emphatically not a
+            // reason to fall back to a hardcoded tag.
+            debugPrint("[Catalog] No published release is supported by this core")
+            romwbwVersions = [RomWBWIndexEntry.placeholder(romwbwVersion: romwbwVersion)]
+            catalogFailure = CatalogFailure(
+                stage: .noSupportedRelease,
+                detail: "It runs RomWBW \(RomWBWEmulator.romWBWReleases()); "
+                    + "the catalog publishes none of those.",
+                servedFromCache: false)
+            loadCachedCatalog()
+            return
+        }
+
+        romwbwVersions = offered
+
+        guard let entry = RomWBWIndex.preferred(among: offered,
+                                                keeping: romwbwVersion,
+                                                bundledROMRelease: Self.bundledROMRelease) else {
+            loadCachedCatalog()
+            return
+        }
+
+        if entry.romwbwVersion != romwbwVersion {
+            // The release in play is no longer published, or was never
+            // supported by this core. Move, but do not re-fetch from inside the
+            // move - this call is already the fetch, and the catalog hop below
+            // is the one that finishes it.
+            debugPrint("[Catalog] RomWBW \(romwbwVersion) is not offered; moving to \(entry.romwbwVersion)")
+            adoptRomWBWVersion(entry.romwbwVersion, refetch: false)
+        }
+
+        fetchCatalog(for: entry, indexProblem: indexProblem)
+    }
+
+    /// Fetch one release's catalog, verify it against the index, and adopt it.
+    private func fetchCatalog(for entry: RomWBWIndexEntry, indexProblem: String?) {
+        let version = entry.romwbwVersion
+
+        guard let urlString = entry.catalogURL, let url = URL(string: urlString) else {
+            failCatalogHop(version: version,
+                           detail: "the release list gives it no catalog URL",
+                           indexProblem: indexProblem)
+            return
+        }
+
+        debugPrint("[Catalog] Fetching catalog: \(urlString)")
+
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+
+                // A response for a release that is no longer in play is
+                // DROPPED, not applied. The picker moves `romwbwVersion` the
+                // instant it is tapped and starts its own fetch, but this
+                // request is already out and answers minutes later on a slow
+                // connection. Everything below writes state that belongs to
+                // one release - the disk list, the cache, the slots, and the
+                // generation that decides what gets DELETED - so adopting
+                // 3.5.1's catalog while 3.6.0 is selected would compare
+                // 3.5.1's generation against 3.6.0's stored one and clear the
+                // images 3.5.1 can hand back, for a change neither release
+                // made. Saying nothing is right too: the fetch the switch
+                // started owns the status line now.
+                guard self.romwbwVersion == version else {
+                    self.debugPrint("[Catalog] Dropping the RomWBW \(version) response;"
+                                    + " \(self.romwbwVersion) is in play now")
+                    return
+                }
+
+                if let problem = CatalogTransfer.problem(
+                        errorDescription: error?.localizedDescription,
+                        statusCode: (response as? HTTPURLResponse)?.statusCode,
+                        byteCount: data?.count) {
+                    self.debugPrint("[Catalog] Catalog fetch failed: \(problem)")
+                    self.failCatalogHop(version: version, detail: problem,
+                                        indexProblem: indexProblem)
+                    return
+                }
+
+                guard let data = data else {
+                    self.failCatalogHop(version: version, detail: "the response was empty",
+                                        indexProblem: indexProblem)
+                    return
+                }
+
+                // Verified BEFORE it is parsed, against the size and checksum
+                // the index carries. The index is the only document this app
+                // takes on trust, and it exists so that the big one need not
+                // be. A truncated or substituted catalog parses to a SHORT disk
+                // list rather than to an error, and a short list is what makes
+                // start() refuse to boot a slot it can no longer resolve.
+                if let problem = entry.payloadProblem(byteCount: data.count,
+                                                      sha256: Self.sha256Hex(data)) {
+                    self.debugPrint("[Catalog] Catalog rejected: \(problem)")
+                    self.failCatalogHop(version: version, detail: problem,
+                                        indexProblem: indexProblem)
+                    return
+                }
+
+                guard let document = try? JSONDecoder()
+                        .decode(RomWBWCatalogDocument.self, from: data) else {
+                    self.failCatalogHop(version: version,
+                                        detail: "the catalog could not be read",
+                                        indexProblem: indexProblem)
+                    return
+                }
+
+                // Right bytes, wrong document: an asset uploaded under the
+                // wrong tag, or a v1 catalog published at a v0 URL. The
+                // checksum cannot catch either - it says only that these are
+                // the bytes the index pointed at.
+                if let problem = entry.documentProblem(
+                        document, expectedInterface: CatalogMigration.interface) {
+                    self.debugPrint("[Catalog] Catalog rejected: \(problem)")
+                    self.failCatalogHop(version: version, detail: problem,
+                                        indexProblem: indexProblem)
+                    return
+                }
+
+                self.adoptCatalog(document, data: data, version: version,
+                                  indexProblem: indexProblem)
+            }
+        }.resume()
+    }
+
+    /// Put a verified catalog into force.
+    private func adoptCatalog(_ document: RomWBWCatalogDocument,
+                              data: Data,
+                              version: String,
+                              indexProblem: String?) {
+        catalogLoading = false
+
+        let disks = Self.downloadableDisks(from: document)
+        let generationText = document.generation.map { String($0) } ?? "unstated"
+        debugPrint("[Catalog] Parsed \(disks.count) disks, generation \(generationText)")
+        for disk in disks {
+            debugPrint("[Catalog]   - '\(disk.filename)' (\(disk.name))")
+        }
+
+        guard !disks.isEmpty else {
+            // A verified catalog that lists nothing is a publishing mistake,
+            // not a network problem, and adopting it would empty the picker.
+            failCatalogHop(version: version, detail: "it lists no disks",
+                           indexProblem: indexProblem)
+            return
+        }
+
+        // Whether the generation moved, and only then, delete the downloaded
+        // images this catalog can hand BACK. The new catalog's names, not the
+        // old one's: a file the new catalog does not list cannot be
+        // re-downloaded from it, which is exactly the test for whether deleting
+        // it is recoverable.
+        let notice = checkCatalogGenerationAndInvalidate(
+            generation: document.generation,
+            catalogFilenames: Set(disks.map { $0.filename }),
+            for: version)
+
+        catalogDocument = document
+        diskCatalog = disks
+        saveCatalogToCache(data, for: version)
+        refreshAvailableDisks()
+        restoreDiskSelections()
+        // AFTER restoreDiskSelections, which ends by setting statusText to
+        // "Ready - Press Play to start" and so silently swallowed anything set
+        // before it. The status line was the only trace of an invalidation the
+        // user could see while the alert was being eaten too.
+        if let notice = notice { statusText = notice }
+
+        // A good catalog behind a stale release list is a note, not a failure:
+        // everything on screen works, and what the user cannot see is whether a
+        // release has been added since. Saying so at the same volume as "no
+        // catalog at all" is how a warning stops being read.
+        if let indexProblem = indexProblem {
+            catalogFailure = CatalogFailure(stage: .index,
+                                            detail: indexProblem,
+                                            servedFromCache: true)
+        }
+
+        // With the new catalog in force, ask which installed images it has
+        // moved on from. This is the arm that reaches a device already holding
+        // a superseded image.
+        reassessDiskFreshness()
+    }
+
+    /// The catalog hop failed. Record which release it was for, then fall back.
+    ///
+    /// When the index hop had already failed, that one is reported as the
+    /// stage - it is the first thing that went wrong and the one a user can
+    /// usually act on - with what happened underneath it spelled out in the
+    /// detail. Reporting only the second would say "the release list loaded"
+    /// about a list that came off the disk, which is the sort of small lie that
+    /// sends someone looking in the wrong place.
+    private func failCatalogHop(version: String, detail: String, indexProblem: String?) {
+        catalogLoading = false
+        if let indexProblem = indexProblem {
+            catalogFailure = CatalogFailure(
+                stage: .index,
+                detail: CatalogTransfer.sentence(indexProblem)
+                    + " The saved list's RomWBW \(version) catalog did not load either: "
+                    + CatalogTransfer.sentence(detail),
+                servedFromCache: false)
+        } else {
+            catalogFailure = CatalogFailure(stage: .catalog(romwbwVersion: version),
+                                            detail: detail,
+                                            servedFromCache: false)
+        }
+        loadCachedCatalog()
+    }
+
+    /// The catalog's disks, as the rest of the app wants them.
+    ///
+    /// The URL is absolute and computed once, here, from the document's own
+    /// `base_url` - which ends in "/", so nothing appends a separator. That is
+    /// the one line where the three clients used to disagree.
+    private static func downloadableDisks(
+            from document: RomWBWCatalogDocument) -> [DownloadableDisk] {
+        document.diskEntries.map { entry in
+            DownloadableDisk(catalogID: entry.id,
+                             filename: entry.filename,
+                             name: entry.name,
+                             description: entry.description ?? "",
+                             url: document.assetURL(for: entry.filename),
+                             sizeBytes: entry.size ?? 0,
+                             license: entry.license ?? "Unknown",
+                             sha256: entry.sha256,
+                             defaultSlot: entry.defaultSlot)
+        }
+    }
+
+    /// SHA-256 of a document, as lower-case hex.
+    ///
+    /// Data, not a file: these documents are kilobytes and are hashed before
+    /// they are written anywhere, which is the whole point - the check has to
+    /// happen before anything acts on them. `sha256OfFile` is the mapped
+    /// equivalent for the 49 MB images.
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Check whether this RomWBW release's catalog generation changed and, if
+    /// it did, invalidate the downloaded disks the catalog is able to hand back.
+    ///
+    /// **`generation` is not the old `<disks version="13">` attribute, and the
+    /// two must never share a key.** `generation` advances only when a
+    /// release's artifacts actually change, and it is scoped per RomWBW release
+    /// upstream (romwbw_disks docs/CATALOG_SCHEMA.md §4). The XML this app used
+    /// to fetch carried 13 in an attribute that meant something else; the v0
+    /// catalogs are at generation 1. Had the two shared a key, the first v0
+    /// fetch would have seen 13 ≠ 1, called `deleteCatalogDisks(named:)` with
+    /// the v0 filenames, and deleted the entire library the storage migration
+    /// had just finished renaming into those exact names - with an alert saying
+    /// it was intentional. The old "catalogVersion" key is therefore orphaned
+    /// rather than carried across, so this one starts empty on every device and
+    /// the first v0 fetch takes the first-run branch below.
+    ///
+    /// nil generation means "this document does not say", and the only honest
+    /// response to that is to delete nothing.
+    ///
+    /// The key is per (interface, RomWBW release) for the same reason the
+    /// generation is: a user switching 3.5.1 → 3.6.0 → 3.5.1 is not making
+    /// three catalog changes and must not have their library cleared twice. One
+    /// shared key across releases re-creates that loop exactly, and it would
+    /// not show up in testing today, because both published releases happen to
+    /// be at generation 1.
     ///
     /// **`catalogFilenames` is the whole safety property of this function.** The
-    /// version attribute moving means the images behind those names may have
+    /// generation moving means the images behind those names may have
     /// changed, so a stale copy has to go and be fetched again. It says nothing
     /// about a file the catalog does not name — a disk the user imported through
     /// Files, or one `createNewDisk` made in the app — and those cannot be
@@ -2029,21 +2894,31 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// Returns the status-line text for what it did, for the caller to apply
     /// after restoreDiskSelections - which ends by overwriting statusText.
     @discardableResult
-    private func checkCatalogVersionAndInvalidate(newVersion: String,
-                                                 catalogFilenames: Set<String>) -> String? {
-        let storedVersion = UserDefaults.standard.string(forKey: "catalogVersion") ?? ""
+    private func checkCatalogGenerationAndInvalidate(generation: Int?,
+                                                    catalogFilenames: Set<String>,
+                                                    for version: String) -> String? {
+        // A catalog document that carries no generation cannot say whether
+        // anything changed, and the only honest response to "I do not know" is
+        // to delete nothing. The unsuffixed "catalogVersion" key the XML path
+        // used to write is deliberately left where it is, unread: a user who
+        // downgrades this app should find it as they left it.
+        guard let generation = generation else { return nil }
 
-        print("[Catalog] Checking version: stored='\(storedVersion)' new='\(newVersion)'")
+        let key = catalogGenerationKey(for: version)
+        let newVersion = String(generation)
+        let storedVersion = UserDefaults.standard.string(forKey: key) ?? ""
+
+        print("[Catalog] Checking generation: stored='\(storedVersion)' new='\(newVersion)'")
 
         if storedVersion.isEmpty {
-            // First run - just store the version
-            print("[Catalog] First run, storing catalog version: '\(newVersion)'")
-            UserDefaults.standard.set(newVersion, forKey: "catalogVersion")
+            // First run - just store the generation
+            print("[Catalog] First run, storing catalog generation: '\(newVersion)'")
+            UserDefaults.standard.set(newVersion, forKey: key)
             return nil
         } else if storedVersion != newVersion {
-            print("[Catalog] ⚠️ VERSION CHANGED from '\(storedVersion)' to '\(newVersion)'")
+            print("[Catalog] ⚠️ GENERATION CHANGED from '\(storedVersion)' to '\(newVersion)'")
             let (cleared, kept) = deleteCatalogDisks(named: catalogFilenames)
-            UserDefaults.standard.set(newVersion, forKey: "catalogVersion")
+            UserDefaults.standard.set(newVersion, forKey: key)
 
             // Say nothing at all when nothing was cleared. A user who has only
             // ever imported their own disks has had nothing done to them, and an
@@ -2065,119 +2940,138 @@ class EmulatorViewModel: NSObject, ObservableObject {
             showError(message, title: "Disk Catalog Updated")
             return "Disk catalog updated - \(cleared) disk(s) need redownload"
         } else {
-            print("[Catalog] Version unchanged: '\(newVersion)'")
+            print("[Catalog] Generation unchanged: '\(newVersion)'")
         }
         return nil
     }
 
-    /// Load catalog from local cache
+    /// Show the saved catalog for the release in play.
+    ///
+    /// Reached whenever either hop fails, which in practice means the network
+    /// is down - so this is the arm that decides whether the app is usable
+    /// offline. It is: the cache holds the WHOLE document, `base_url` included,
+    /// so every URL in it is the one it was fetched with and a cached catalog
+    /// is self-consistent by construction.
+    ///
+    /// That is what retired the old salvage branch. The XML cache held one
+    /// tag's `<sha256>` values while the parser rebuilt every URL from the tag
+    /// the BUILD was pinned to, so a cache from a different pin paired the
+    /// wrong hashes with the right URLs, and the only safe response was to
+    /// throw away every entry whose file was not already downloaded. Nothing
+    /// can pair them wrongly now, and the cache filename carries the release,
+    /// so 3.5.1's and 3.6.0's cannot overwrite each other either.
+    ///
+    /// The generation is deliberately NOT consulted here. Deleting a
+    /// downloaded image is a decision to take from a freshly fetched, verified
+    /// document - never from a copy of one this app already acted on.
     private func loadCachedCatalog() {
         catalogLoading = false
-        let cacheURL = downloadsDirectory.appendingPathComponent("disks_catalog.xml")
 
-        // A cache fetched under a different release pin cannot be trusted for
-        // DOWNLOADS.  The cached XML carries the <sha256> values of the tag it came
-        // from, but parseDiskCatalogXML rebuilds every URL from the tag THIS build
-        // is pinned to - so after an app update that moved releaseTag, a device
-        // whose first launch has no network would pair the old hashes with the new
-        // URLs.  That was survivable while the hash was advisory; since downloads
-        // are verified it means three full downloads (49 MB each for the combo)
-        // that cannot succeed.  An absent stamp means the cache predates this
-        // bookkeeping and its tag is unknowable, which is the same problem.
-        //
-        // But it must NOT be thrown away wholesale, and the first version of this
-        // did exactly that.  This branch fires precisely when the network is down,
-        // so there is no refetch to fall back on: emptying diskCatalog would leave
-        // start() refusing to boot - it rejects an empty catalog before it ever
-        // checks whether anything still needs downloading - and would drop the
-        // user's own imported images too, since refreshAvailableDisks() is the only
-        // thing that scans the directory.  A user who already had every disk
-        // downloaded would have been unable to run the emulator at all, offline,
-        // which is worse than the bug being fixed.
-        //
-        // So keep exactly the entries whose file is already on disk.  Those are
-        // never re-downloaded, so their stale <sha256> is never consulted, and the
-        // guest can boot.  Everything else is dropped, which is what stops a
-        // mismatched hash reaching a download.  The cache file and stamp still go,
-        // so the next successful fetch replaces them.
-        let cachedTag = UserDefaults.standard.string(forKey: Self.catalogCacheTagKey)
-        let cacheExists = FileManager.default.fileExists(atPath: cacheURL.path)
-        if cacheExists && cachedTag != Self.releaseTag {
-            debugPrint("[Catalog] Cached catalog is from pin '\(cachedTag ?? "unstamped")', this build is pinned to '\(Self.releaseTag)'")
-            var salvaged: [DownloadableDisk] = []
-            if let data = try? Data(contentsOf: cacheURL) {
-                salvaged = parseDiskCatalogXML(data).disks.filter { isDiskDownloaded($0.filename) }
+        let cacheURL = catalogCacheURL(for: romwbwVersion)
+        guard let data = try? Data(contentsOf: cacheURL),
+              let document = try? JSONDecoder().decode(RomWBWCatalogDocument.self, from: data)
+        else {
+            // Nothing saved for this release. Leave whatever failure the caller
+            // recorded in place - it says which hop failed, which this does not
+            // know - and only speak up when nothing else has.
+            debugPrint("[Catalog] No usable cache for RomWBW \(romwbwVersion)")
+            if catalogFailure == nil {
+                catalogFailure = CatalogFailure(
+                    stage: .catalog(romwbwVersion: romwbwVersion),
+                    detail: "No saved copy on this device. Connect to the internet to download it.",
+                    servedFromCache: false)
             }
-            try? FileManager.default.removeItem(at: cacheURL)
-            UserDefaults.standard.removeObject(forKey: Self.catalogCacheTagKey)
+            showError(catalogFailure?.displayText
+                      ?? "No disk catalog available. Connect to internet to download.")
+            return
+        }
 
-            let msg = "Disk catalog is out of date for this version. Connect to the internet to refresh it."
-            if salvaged.isEmpty {
-                debugPrint("[Catalog] Nothing already downloaded to keep - catalog is empty until a refresh")
-                catalogError = msg
-                showError(msg)
-            } else {
-                debugPrint("[Catalog] Keeping \(salvaged.count) already-downloaded disk(s) so the emulator can still start")
-                diskCatalog = salvaged
-                refreshAvailableDisks()
-                restoreDiskSelections()
-                catalogError = msg
+        let disks = Self.downloadableDisks(from: document)
+        guard !disks.isEmpty else {
+            // Saved, decodable, and empty. Say so rather than showing an empty
+            // list with no explanation: start() refuses to boot on an empty
+            // catalog, and "no disks and no reason" is the state that gets
+            // reported as "the app does nothing".
+            debugPrint("[Catalog] Cached catalog for RomWBW \(romwbwVersion) lists no disks")
+            if catalogFailure == nil {
+                catalogFailure = CatalogFailure(
+                    stage: .catalog(romwbwVersion: romwbwVersion),
+                    detail: "The saved copy on this device lists no disks.",
+                    servedFromCache: false)
             }
             return
         }
 
-        if let data = try? Data(contentsOf: cacheURL) {
-            let result = parseDiskCatalogXML(data)
-            if !result.disks.isEmpty {
-                diskCatalog = result.disks
-                refreshAvailableDisks()
-                restoreDiskSelections()
-                // Safe here and NOT in the salvage branch above. This cache was
-                // fetched under the pin this build carries, so its <sha256>
-                // values are the ones to judge against. The salvaged one's are
-                // from a different tag, and assessing against those would report
-                // the whole library superseded and queue twenty downloads that
-                // could not verify.
-                reassessDiskFreshness()
-                return
-            }
+        debugPrint("[Catalog] Using the cached RomWBW \(romwbwVersion) catalog, \(disks.count) disks")
+        catalogDocument = document
+        diskCatalog = disks
+        refreshAvailableDisks()
+        restoreDiskSelections()
+        // Safe here, unlike in the old salvage branch: these are the sha256
+        // values this release actually publishes, so judging installed images
+        // against them is the same question a live fetch would ask.
+        reassessDiskFreshness()
+
+        if let failure = catalogFailure, failure.stage != .noSupportedRelease {
+            // Something IS on screen, so downgrade the failure to a note that
+            // says which half of it is stale. Not for .noSupportedRelease: a
+            // cached catalog does not make "this build's core can run none of
+            // the published releases" any less true, and it is the one
+            // condition here that a retry cannot fix.
+            catalogFailure = CatalogFailure(stage: failure.stage,
+                                            detail: failure.detail,
+                                            servedFromCache: true)
         }
-        catalogError = "No disk catalog available. Connect to internet to download."
-        showError("No disk catalog available. Connect to internet to download.")
     }
 
-    /// Save catalog XML to local cache
-    private func saveCatalogToCache(_ data: Data) {
-        let cacheURL = downloadsDirectory.appendingPathComponent("disks_catalog.xml")
+    /// Save the verified catalog bytes for one release.
+    ///
+    /// The release is in the FILENAME - catalog-v0-3.5.1.json - not in a
+    /// UserDefaults stamp beside it. A stamp can drift from the file it
+    /// describes; a filename cannot, and two releases' caches then coexist for
+    /// the same reason their disk images do.
+    ///
+    /// The bytes are written exactly as they arrived, after verification and
+    /// never before. Re-encoding the decoded document would drop every field
+    /// this app does not know about, and the next release will add some.
+    private func saveCatalogToCache(_ data: Data, for version: String) {
         do {
-            // .atomic: a kill or a full disk partway through a plain write leaves a
-            // truncated catalog that still carries a matching stamp from an earlier
-            // successful write, so it would pass the check above and parse to zero
-            // disks.  Temp-file-and-rename makes the file wholly old or wholly new.
-            try data.write(to: cacheURL, options: .atomic)
-            // Stamp the pin only after the bytes are down.  Stamping a write that
-            // failed would claim a cache matching this build when the file on disk
-            // is still the previous one.
-            UserDefaults.standard.set(Self.releaseTag, forKey: Self.catalogCacheTagKey)
+            // .atomic: a kill or a full disk partway through a plain write
+            // leaves a truncated document that decodes to nothing, or worse to
+            // a short disk list. Temp-file-and-rename makes the file wholly old
+            // or wholly new.
+            try data.write(to: catalogCacheURL(for: version), options: .atomic)
         } catch {
             debugPrint("[Catalog] Failed to cache catalog: \(error.localizedDescription)")
         }
     }
 
-    /// Parse disks.xml into DownloadableDisk array and catalog version
-    private func parseDiskCatalogXML(_ data: Data) -> (disks: [DownloadableDisk], version: String) {
-        let parser = DiskCatalogXMLParser()
-        let disks = parser.parse(data: data, baseURL: Self.releaseBaseURL)
-        return (disks, parser.catalogVersion)
+    /// Save the release list, for the same reason.
+    private func saveIndexToCache(_ data: Data) {
+        do {
+            try data.write(to: indexCacheURL, options: .atomic)
+        } catch {
+            debugPrint("[Catalog] Failed to cache the release list: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Disk Download Management
 
+    /// Where downloaded disk images live, without creating anything.
+    ///
+    /// Static because the v0 storage migration runs before any instance exists
+    /// - it is what produces the bytes `profileStore` is decoded from - and
+    /// because a migration that renamed files in a different directory from the
+    /// one everything else reads would be silent and total.
+    static var disksDirectoryURL: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Disks", isDirectory: true)
+    }
+
     /// Directory where downloaded disk images are stored
     var downloadsDirectory: URL {
         let fm = FileManager.default
-        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let disks = docs.appendingPathComponent("Disks", isDirectory: true)
+        let disks = Self.disksDirectoryURL
         if !fm.fileExists(atPath: disks.path) {
             try? fm.createDirectory(at: disks, withIntermediateDirectories: true)
         }
@@ -2217,6 +3111,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
         ) {
             for url in contents where url.pathExtension == "img" {
                 let filename = url.lastPathComponent
+                // Another release's catalog image is not a user-added disk.
+                // Under 3.6.0 the twenty 3.5.1 files are all sitting in this
+                // directory, and listing them here would offer a 3.5.1 system
+                // disk for a 3.6.0 machine - the mismatch the versioned
+                // filenames exist to keep apart. Nothing is deleted and nothing
+                // moves: they come back when their release does.
+                if CatalogMigration.belongsToAnotherRelease(filename,
+                                                            romwbwVersion: romwbwVersion) {
+                    continue
+                }
                 if !disks.contains(where: { $0.filename == filename }) {
                     disks.append(DiskOption(
                         name: filename,
@@ -2580,8 +3484,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// Delete the downloaded images the catalog names, and only those.
     ///
     /// Returns (cleared, kept) so the caller can say what happened rather than
-    /// asserting that everything went. See checkCatalogVersionAndInvalidate for
-    /// why the set is the boundary.
+    /// asserting that everything went. See checkCatalogGenerationAndInvalidate
+    /// for why the set is the boundary.
     ///
     /// The comparison is case-insensitive. The catalog's filenames and the
     /// on-disk names are written by the same code, so they agree today — but
@@ -2598,6 +3502,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
             for url in contents where url.pathExtension.lowercased() == "img" {
                 let filename = url.lastPathComponent
                 guard lowercased.contains(filename.lowercased()) else {
+                    // Another RomWBW release's catalog image is kept too, but
+                    // it is not COUNTED: the caller's alert calls what it
+                    // counts "ones you imported or created", and twenty
+                    // hd1k_*-v0-3.5.1.img files sitting under a 3.6.0 catalog
+                    // are neither. They are this catalog's opposite numbers,
+                    // and they come back the moment that release is selected.
+                    if CatalogMigration.belongsToAnotherRelease(filename,
+                                                                romwbwVersion: romwbwVersion) {
+                        continue
+                    }
                     kept += 1
                     debugPrint("[Catalog] Keeping '\(filename)' - not in the catalog, cannot be re-downloaded")
                     continue
@@ -2972,87 +3886,6 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
             if (error as NSError).code != NSUserCancelledError {
                 showError("Import failed: \(error.localizedDescription)")
             }
-        }
-    }
-}
-
-// MARK: - XML Parser for Disk Catalog
-
-class DiskCatalogXMLParser: NSObject, XMLParserDelegate {
-    private var disks: [DownloadableDisk] = []
-    private var currentElement = ""
-    private var currentDisk: [String: String] = [:]
-    private var currentText = ""
-    private var baseURL = ""
-    private(set) var catalogVersion: String = ""
-
-    func parse(data: Data, baseURL: String) -> [DownloadableDisk] {
-        self.baseURL = baseURL
-        disks = []
-        catalogVersion = ""
-
-        let parser = XMLParser(data: data)
-        parser.delegate = self
-        parser.parse()
-
-        return disks
-    }
-
-    func parser(_ parser: XMLParser, didStartElement elementName: String,
-                namespaceURI: String?, qualifiedName qName: String?,
-                attributes attributeDict: [String: String] = [:]) {
-        currentElement = elementName
-        currentText = ""
-
-        if elementName == "disks" {
-            // Extract catalog version from <disks version="1">
-            catalogVersion = attributeDict["version"] ?? ""
-        } else if elementName == "disk" {
-            currentDisk = [:]
-        }
-    }
-
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
-        currentText += string
-    }
-
-    func parser(_ parser: XMLParser, didEndElement elementName: String,
-                namespaceURI: String?, qualifiedName qName: String?) {
-        let trimmed = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        switch elementName {
-        case "filename":
-            currentDisk["filename"] = trimmed
-        case "name":
-            currentDisk["name"] = trimmed
-        case "description":
-            currentDisk["description"] = trimmed
-        case "size":
-            currentDisk["size"] = trimmed
-        case "license":
-            currentDisk["license"] = trimmed
-        case "sha256":
-            currentDisk["sha256"] = trimmed
-        case "defaultSlot":
-            currentDisk["defaultSlot"] = trimmed
-        case "disk":
-            // End of disk element - create DownloadableDisk
-            if let filename = currentDisk["filename"],
-               let name = currentDisk["name"] {
-                let disk = DownloadableDisk(
-                    filename: filename,
-                    name: name,
-                    description: currentDisk["description"] ?? "",
-                    url: "\(baseURL)/\(filename)",
-                    sizeBytes: Int64(currentDisk["size"] ?? "0") ?? 0,
-                    license: currentDisk["license"] ?? "Unknown",
-                    sha256: currentDisk["sha256"],
-                    defaultSlot: Int(currentDisk["defaultSlot"] ?? "")
-                )
-                disks.append(disk)
-            }
-        default:
-            break
         }
     }
 }

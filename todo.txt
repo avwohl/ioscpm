@@ -39,10 +39,18 @@ It is submitted.  It is not released.
 
   What is waiting on that submission:
 
-    releaseTag is "v1.4.12" and no installed copy carries it.  Since 2026-09-04
+    releaseTag WAS "v1.4.12" and no installed copy carries it.  Since 2026-09-04
     releases/latest IS v1.4.12, so a floating 1.4.9 device gets the fixed R8 on a
     FRESH download - but start() only fetches a disk that is absent, so a device
     already holding hd1k_combo.img keeps the old R8 until a build ships.
+
+    Build 64 deleted releaseTag: the tree now reads the romwbw_disks
+    interface-v0 catalog and has no pin at all.  That changes nothing above -
+    every installed copy still fetches from v1.4.12, those tags must stay live,
+    and the fixed R8 still only reaches an installed device through a shipped
+    build.  What it changes is the future: on a build-64 device the v0 catalog
+    names hd1k_combo-v0-3.5.1.img with the corrected bytes, and the disk ledger
+    refreshes it unattended on Wi-Fi without an app release.
 
     DiskLedger.swift is what reaches those devices.  Driven end to end on the
     simulator against a real sandbox: a superseded image was measured, judged,

@@ -102,7 +102,19 @@ For multi-slice disks, use slice-specific definitions (`wbw_hd1k_0`, `wbw_hd1k_1
 ### Data Loss Risk with GitHub Disks
 Disks downloaded from GitHub are writable, allowing users to store data in them. However, this data can be lost at any time if a new version of the disk is released and downloaded, overwriting the user's changes.
 
-The trigger is broader than a download, and the user does not have to do anything at all. `disks.xml` carries a `version` attribute; on every successful catalog fetch, `checkCatalogVersionAndInvalidate` (`EmulatorViewModel.swift`) compares it against the stored `catalogVersion` and, on any difference, clears downloaded images and says so afterwards. So publishing a refreshed catalog reaches every installed device with no tap and no download.
+The trigger is broader than a download, and the user does not have to do anything at all. `disks.xml` carries a `version` attribute; on every successful catalog fetch the invalidation compared it against the stored `catalogVersion` and, on any difference, cleared downloaded images and said so afterwards. So publishing a refreshed catalog reaches every installed device with no tap and no download.
+
+**Build 63 narrowed the trigger again, to nothing on the XML catalog.** `checkCatalogGenerationAndInvalidate` (`EmulatorViewModel.swift`) replaces it and acts only on the interface-v0 catalog's `generation`, under a key scoped per (interface, RomWBW release). `disks.xml` carries no generation, so a build 63 device is not reachable this way at all — and the old `catalogVersion` value is deliberately not copied into the new key, because 13 ≠ 1 would have made the first v0 fetch delete the whole library. Every build in service still reads the attribute, so it is no less dangerous to move.
+
+**Build 64 turns it back on, deliberately, against `generation`.** The v0
+catalogs do carry one, so a generation bump in `romwbw_disks` now clears the
+images that release names on every migrated device — still only the ones the new
+catalog can hand back, still per (interface, RomWBW release), and still never a
+disk the user imported. Switching releases is not a bump and clears nothing: the
+stored generation is per release, so 3.5.1 → 3.6.0 → 3.5.1 deletes nothing,
+which the single `catalogVersion` key could not manage. The publishing rule is
+now upstream's: advancing a `generation` is a destructive act on installed
+devices, and `romwbw_disks/docs/CATALOG_SCHEMA.md` §4 is where it is defined.
 
 **Narrowed in build 56, and only for build 56 and later.** `deleteCatalogDisks(named:)` now deletes only the `.img` files the *new* catalog lists, which is the test for whether deleting one is recoverable: a disk the catalog does not name — one imported through Files, one `createNewDisk` made — cannot be fetched back from anywhere, and is kept. The alert says how many of each. Before that, `deleteAllDownloadedDisks()` took every `.img` in `Documents/Disks` regardless.
 
@@ -116,6 +128,41 @@ The reason it is keyed on provenance and not on the file's own hash is this entr
 - Copy-on-write: create a local copy when the user first modifies a downloaded disk. This is the only one that helps a user who kept data *in* a catalog disk, which is what the paragraph at the top of this entry is about. Build 61 warns before replacing such a disk and never replaces one unasked; it still cannot preserve the contents.
 - Confirm before the wipe, rather than reporting it afterwards. The version-attribute path is unchanged and still reports afterwards; only the new provenance path asks first.
 - None of it reaches the builds in service. 1.4.9 has neither the narrowing nor the ledger.
+
+## Interface v0
+
+### The release picker offers a release this build has no ROM for
+
+Build 64 offers every RomWBW release the emulator core can run — 3.5.1 and
+3.6.0 today. The app still boots the ROM in its **bundle**, which is 3.5.1's, so
+choosing 3.6.0 gives a machine whose disks and ROM disagree and whose guest
+prints `*** WARNING: HBIOS/CBIOS Version Mismatch ***` at boot. The picker says
+so, naming the ROM the selected release publishes, and nothing is lost by trying
+it: every store is per release and switching back restores everything.
+
+The fix is downloading the release's own ROM, and it is deliberately not in this
+build. `loadROMFromPath:` and `loadROMFromData:` already exist on the bridge and
+are already on the live path, so what is missing is a caller that hands them a
+downloaded path, the UI to fetch one, and a decision about
+`docs/ROM_ATTESTATION.md` — an App Store filing that names `emu_avw.rom`
+specifically. Removing the bundled ROM is not an option on its own: an app whose
+only ROM is a download cannot boot on a first offline launch.
+
+### `tools/check-disk-pins.sh` no longer answers for this port
+
+Its question — does the disk image users download carry the current R8/W8 — was
+asked by finding a `vX.Y.Z` pin in each client's source and fetching that tag's
+`disks.xml` from `avwohl/ioscpm`. A migrated client has no pin and does not read
+that repository at all, so for iOSCPM the script now reports `MIGRATED`, skips
+it, and exits 2 (`CANNOT VERIFY`) rather than either failing a correct tree or
+passing quietly. **It still answers for cpmdroid and z80cpmw**, and it must be
+taught the v0 index before either of them migrates, or it will be answering for
+none of them. The v0 form of the question is "does the `generation` the index
+publishes match what this build would download", against `avwohl/romwbw_disks`.
+
+`CLAUDE.md` still tells a reader that bumping the pin means editing `releaseTag`
+in `EmulatorViewModel.swift`. That constant is gone. The sentence needs a
+human's edit; no session made it.
 
 ## Releasing
 

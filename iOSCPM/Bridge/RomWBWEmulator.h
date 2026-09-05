@@ -59,7 +59,39 @@ typedef NS_ENUM(NSInteger, RWBControlifyMode) {
 /// the version out of whichever ROM it loads. Disk slices built by a release
 /// OTHER than the loaded ROM's still print an HBIOS/CBIOS version mismatch, so
 /// this is worth showing to anyone reporting one.
+///
+/// For DISPLAY only. It is one formatted string and the format is not a
+/// contract; the two calls below are how code asks a question.
 + (NSString*)romWBWReleases;
+
+/// Can this build boot that release?  `ver` and `upd` are RomWBW's own packed
+/// bytes - ver = major<<4 | minor, upd = update<<4 | patch, so v3.5.1 is
+/// {0x35, 0x10} - which is exactly what index-v0.json publishes as the hex
+/// strings `hbios.ver_byte` and `hbios.upd_byte`.
+///
+/// This is the filter for the release picker. Asking the core beats comparing
+/// against a constant in Swift: there is no compile-time pin left to compare
+/// with, and a client can be built against a newer or older core than it
+/// expects. It is also why nothing parses +romWBWReleases - that would work
+/// today and break the first time its format changed.
++ (BOOL)supportsRomWBWVer:(uint8_t)ver upd:(uint8_t)upd NS_SWIFT_NAME(supportsRomWBW(ver:upd:));
+
+/// The release a ROM IMAGE declares, as "3.5.1", or nil when the bytes carry
+/// no HBIOS configuration block to read it from.
+///
+/// Answered from the first 264 bytes (the 'W' 0xA8 marker at 0x103/0x104 and
+/// the two version bytes after it), so an image can be inspected before it is
+/// loaded - or, as this app uses it, so the release the bundled ROM is for can
+/// be read out of the ROM itself rather than asserted by a constant that has
+/// to be remembered.
++ (nullable NSString*)romWBWReleaseOfImageData:(NSData*)data
+    NS_SWIFT_NAME(romWBWRelease(ofImageData:));
+
+/// The same, for a ROM in the app bundle. `filename` is the bundle name with
+/// its extension, e.g. "emu_avw.rom". Nil when it is not in the bundle, cannot
+/// be read, or carries no HCB.
++ (nullable NSString*)romWBWReleaseOfBundledROM:(NSString*)filename
+    NS_SWIFT_NAME(romWBWRelease(ofBundledROM:));
 
 // ROM loading
 - (BOOL)loadROMFromBundle:(NSString*)filename;

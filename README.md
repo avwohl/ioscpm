@@ -52,11 +52,14 @@ To clear auto-boot settings, go to Settings and tap "Clear Auto-Boot".
 
 ## Disk Images
 
-Disk images are built from [RomWBW](https://github.com/wwarthen/RomWBW) v3.5.1 material and
-distributed from this repository's own GitHub release. The catalog and the images are fetched
-from the tag `v1.4.12`, pinned on purpose: the core's HBIOS identifies as RomWBW v3.5.1, and
-disks from a different RomWBW release print an HBIOS/CBIOS mismatch at boot. Every download is
-checked against the SHA-256 in `disks.xml`. The catalog carries 20 images; a selection:
+Disk images are built from [RomWBW](https://github.com/wwarthen/RomWBW) material and
+distributed by [romwbw_disks](https://github.com/avwohl/romwbw_disks), which publishes one
+catalog per RomWBW release. The app compiles in a single index URL, picks a release, and takes
+every download URL from that release's catalog — there is no pinned tag to bump any more, so a
+corrected disk reaches users without an app update. Which releases are offered is decided by
+asking the emulator core which ones it can run; a release published as `preview` is marked as
+one. Every download is checked against the SHA-256 the catalog gives, and the catalog itself is
+checked against the index's before it is read. The 3.5.1 catalog carries 20 images; a selection:
 
 | Disk | Description | License |
 |------|-------------|---------|
@@ -67,7 +70,14 @@ checked against the SHA-256 in `disks.xml`. The catalog carries 20 images; a sel
 | ZPM3 | Z-System CP/M 3 | Free |
 | WordStar 4 | Word processor | Abandonware |
 
-Downloaded images are stored in the app's Documents folder and work offline.
+Downloaded images are stored in the app's Documents folder and work offline. Their filenames
+carry the release — `hd1k_combo-v0-3.5.1.img` — so two RomWBW releases' disks can sit side by
+side, and so can the slot selections and boot settings that go with them. Switching release
+deletes nothing.
+
+The app boots the RomWBW ROM in its own bundle. Selecting a release that ROM was not built for
+is allowed and is warned about: RomWBW prints an HBIOS/CBIOS version mismatch at boot when the
+disks and the ROM disagree.
 
 ## Technical Details
 

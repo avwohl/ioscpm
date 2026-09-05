@@ -13,13 +13,20 @@
 //
 //  ## The hole this closes
 //
-//  `disks.xml` carries a `version` attribute, and `checkCatalogVersionAndInvalidate`
-//  is the only thing that has ever caused an installed image to be replaced.
-//  It fires on a change to that attribute and on nothing else.  The attribute is
+//  `disks.xml` carries a `version` attribute, and the invalidation it drove was
+//  the only thing that has ever caused an installed image to be replaced.  It
+//  fired on a change to that attribute and on nothing else.  The attribute is
 //  13 at v1.4.5, v1.4.11 and v1.4.12 alike - left there deliberately, because
 //  moving it makes `deleteCatalogDisks(named:)` clear the catalog half of every
 //  device's library, including for the builds in service, which still carry the
 //  pre-build-56 loop that took every `.img` regardless.
+//
+//  Build 63 stopped reading that attribute at all: the successor,
+//  `checkCatalogGenerationAndInvalidate`, acts only on the v0 catalog's
+//  `generation`, which the XML does not carry.  Nothing below changes - a
+//  generation bump reaches this file by exactly the path the version attribute
+//  did - but the attribute is no longer a way to reach a build 63 device, and
+//  is still the old way to reach every build in service.
 //
 //  So when `hd1k_combo.img` was republished with the fixed `r8.com`, nothing
 //  reached a device that already had the old one.  The user could see it -

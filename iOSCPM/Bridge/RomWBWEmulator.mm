@@ -111,6 +111,49 @@ extern "C" void emu_io_set_delegate(id delegate);
   return [NSString stringWithUTF8String:emu_romwbw_supported_list()];
 }
 
++ (BOOL)supportsRomWBWVer:(uint8_t)ver upd:(uint8_t)upd {
+  // emu_romwbw_release is a plain two-byte struct passed by value, which is
+  // why none of this can be reached from Swift directly: emu_init.h is C++
+  // (<string>, <vector>, no extern "C") and is deliberately not in
+  // iOSCPM-Bridging-Header.h. This file is Objective-C++ and already includes
+  // it, so the whole bridge is these three methods.
+  emu_romwbw_release release;
+  release.ver = ver;
+  release.upd = upd;
+  return emu_romwbw_release_supported(release) ? YES : NO;
+}
+
++ (nullable NSString*)romWBWReleaseOfImageData:(NSData*)data {
+  if (!data) return nil;
+  emu_romwbw_release release;
+  if (!emu_romwbw_release_of_image((const uint8_t*)data.bytes, data.length, &release)) {
+    // No HCB marker, or too short to hold one. Not an error worth a message:
+    // the caller asked a question about arbitrary bytes and the answer is
+    // "these do not say".
+    return nil;
+  }
+  char text[EMU_ROMWBW_STR_MAX];
+  emu_romwbw_release_str(release, text, sizeof(text));
+  return [NSString stringWithUTF8String:text];
+}
+
++ (nullable NSString*)romWBWReleaseOfBundledROM:(NSString*)filename {
+  NSString* name = [filename stringByDeletingPathExtension];
+  NSString* ext = [filename pathExtension];
+  NSString* path = [[NSBundle mainBundle] pathForResource:name ofType:ext];
+  if (!path) {
+    NSLog(@"[RomWBW] ROM not found in bundle: %@", filename);
+    return nil;
+  }
+  // Mapped rather than read: this runs at launch on the 512 KB bundled ROM and
+  // only the first page is ever touched, since the version is four bytes at
+  // 0x103-0x106. Falls back to a plain read on its own when mapping is unsafe.
+  NSData* data = [NSData dataWithContentsOfFile:path
+                                        options:NSDataReadingMappedIfSafe
+                                          error:nil];
+  return data ? [self romWBWReleaseOfImageData:data] : nil;
+}
+
 - (instancetype)init {
   self = [super init];
   if (self) {

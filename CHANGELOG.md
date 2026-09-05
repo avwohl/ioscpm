@@ -1,5 +1,391 @@
 # Changelog
 
+## Version 1.5.1 (Build 64)
+
+**NOT COMPILED.**  Written on a Linux machine with no Xcode: not built, not
+launched, not driven, and no Swift suite was executed.  `Tests/run_tests.sh` was
+run and reports `PASSED, 15 suite(s) SKIPPED - this was not a full run` — one
+more skip than build 63, because this build adds a second Swift suite that
+cannot run here either.  The three suites that do run are the C++ core and the
+symlink check, and none of them touches a URL, a catalog or a `UserDefaults`
+key.  Nothing here has fetched anything from anywhere.
+
+### The release tag is gone
+
+`releaseTag = "v1.4.12"`, `catalogURL` and `releaseBaseURL` are deleted, not
+repointed.  Nothing in this app builds an asset URL from a tag any more.  What
+replaces them is one compiled-in URL and two hops:
+
+1. `index-v0.json`, on the `catalog-v0` tag in `avwohl/romwbw_disks`.  It lists
+   every published RomWBW release with an absolute `catalog_url` and that
+   catalog's `catalog_sha256` and `catalog_size`.
+2. the selected release's catalog, **verified against those two before it is
+   parsed**, which then carries its own `base_url`.  An asset URL is
+   `base_url + filename`, concatenated — the document's `base_url` ends in `/`,
+   and the `"/"` this app used to insert is gone.  That inconsistency between
+   the three clients is the one v0 exists to remove; it is not reproduced here.
+
+The old `avwohl/ioscpm` tags stay live regardless.  Every build already in
+service is hardwired to `releases/download/v1.4.12/`, and GitHub release asset
+URLs cannot be redirected: migrating this app frees nothing.
+
+`DiskCatalogXMLParser` and `parseDiskCatalogXML` are deleted with them.  The
+documents are `Codable` structs in `CatalogDocument.swift` — pure Foundation,
+no URLSession, no UserDefaults — and `Tests/CatalogDocumentTests.swift` drives
+them against JSON cut from the real published documents.  The compatibility
+rules that file has to obey are `romwbw_disks/docs/CATALOG_SCHEMA.md` §6.1:
+unknown fields ignored at every level, `roms[]` not assumed to be present or to
+contain `emu_avw`, entries keyed on `id` rather than on array position,
+`defaultSlot` absent from nineteen of the twenty disks, and `generation`
+compared rather than computed.
+
+Two things are refused rather than adopted, and neither can be caught by the
+other's check.  A payload whose size or SHA-256 does not match the index is
+never parsed — a truncated catalog parses to a *short disk list*, not to an
+error, and a short list is what makes `start()` refuse to boot a slot it can no
+longer resolve.  And a payload that verifies but whose `interface` or
+`romwbw_version` is not the one that was asked for is refused too: the checksum
+says only that these are the bytes the index pointed at, not that the index
+pointed at the right thing.
+
+### `catalogError` could not say which half failed
+
+It was one `String?`, with nowhere to record that the release list came back and
+one catalog behind it did not.  Those are different problems: the first is "this
+device cannot reach GitHub", the second is "a published asset is missing", and
+only one of them is fixed by reconnecting.  `CatalogFailure` carries the stage
+(`.index`, `.catalog(romwbwVersion:)`, `.noSupportedRelease`), the underlying
+reason, and whether a cached document is on screen anyway — which is the
+difference between a failure and a note.  A stale release list under a working
+catalog now reads as a note, because reporting it at the same volume as "nothing
+loaded" is how a warning stops being read.
+
+The cache filename moves with it: `disks_catalog.xml` becomes
+`catalog-v0-<release>.json`, beside a cached `index-v0.json`.  That is not
+tidying.  A v0 build that kept the old name would meet leftover XML on the first
+offline launch, parse zero disks, and `start()` would then refuse to boot.  Two
+releases' caches also have to coexist, which one filename cannot do.  The old
+XML cache and the `catalogCacheTag` key are left where they are, unread, so a
+downgrade finds them.
+
+`loadCachedCatalog`'s salvage branch is gone with the reason for it.  The cache
+holds the whole document, `base_url` included, so a cached catalog is
+self-consistent by construction and can no longer pair one tag's hashes with
+another's URLs.
+
+### The RomWBW release is a choice now, and the core is what answers
+
+The settings screen gains a **RomWBW Release** picker.  It offers what
+`index-v0.json` publishes, filtered by asking the emulator core about each
+entry's `hbios.ver_byte`/`upd_byte` — not by comparing against a constant in
+Swift, because there is no compile-time pin left anywhere in this tree and a
+build can carry a core newer or older than the releases it meets.  A `preview`
+release is marked as one in the picker row, and so is any other status this
+build has not heard of.
+
+Getting at that answer needed bridge work.  `emu_init.h` is C++ (`<string>`,
+`<vector>`, a struct passed by value, no `extern "C"`) and is deliberately not
+in `iOSCPM-Bridging-Header.h`, so Swift cannot call `emu_romwbw_release_*` at
+all.  `+romWBWReleases` is the only release call that was bridged, and it
+returns a formatted `"3.5.1, 3.6.0"` for display — parsing *that* would have
+worked today and broken the first time its format changed.  Three class methods
+on `RomWBWEmulator` (Objective-C++, which already includes `emu_init.h`) do it
+properly: `supportsRomWBW(ver:upd:)`, `romWBWRelease(ofImageData:)` and
+`romWBWRelease(ofBundledROM:)`.
+
+The last of those is also how this build knows which release it bundles.  It
+reads the four HCB bytes at `0x103`–`0x106` out of `emu_avw.rom` itself rather
+than trusting a constant — the core takes the RomWBW version from whichever ROM
+it loads, so the image is the only thing left that knows.
+
+An index in which nothing survives the filter is reported, not papered over: it
+means this build's core can run none of the releases the repository publishes,
+and it is the one condition here that a retry cannot fix, so it is not
+downgraded to a note when a cached catalog loads underneath it.
+
+### Switching releases deletes nothing
+
+Everything whose validity depends on the release is already keyed per release —
+slots under `selectedDisks.v0.<release>`, boot string under
+`emulatorNvram.v0.<release>`, generation under `catalogGeneration.v0.<release>`,
+images under filenames carrying the release, and now the catalog cache too — so
+3.5.1 → 3.6.0 → 3.5.1 comes back to exactly the slots, boot string and
+downloaded images it left.  The single `catalogVersion` key made that sequence
+wipe the library twice; per-(interface, release) scoping is what stops it.
+
+Those keys are computed from the selected release rather than captured once.  A
+key fixed at load time would go on reading 3.5.1's slots after a switch, which
+is not a stale display but a wrong write: the very next persist would file
+3.6.0's names under the 3.5.1 key.
+
+The disk picker also stops listing the other release's images.  Under 3.6.0 the
+twenty `-v0-3.5.1.img` files are still sitting in `Documents/Disks`, and
+`refreshAvailableDisks()` lists every `.img` it does not recognise as a
+user-added disk — which would have offered a 3.5.1 system disk for a 3.6.0
+machine, by name, in the same menu.  `CatalogMigration.belongsToAnotherRelease`
+recognises them; nothing is moved or deleted, and they come back when their
+release does.  A file whose stem the catalog has never named is never hidden, so
+a user's own `my-v0-3.5.1.img` still appears.
+
+Two refusals worth stating.  The switch is refused while the emulator is running
+— it empties the four slots, and `saveDownloadedDisks()` writes the guest's live
+image back to the file the *slot* names, so a switch under a running machine
+would discard the user's work on the next flush with nothing shown.  And the
+in-memory reset runs inside `isRestoringSelections`, so emptying the slots does
+not persist four blanks over the incoming release's saved selection.
+
+A catalog response for a release that is no longer selected is **dropped, not
+applied**.  The picker moves `romwbwVersion` the instant it is tapped and starts
+its own fetch, but the request already out answers minutes later on a slow
+connection — and everything the response would write belongs to one release: the
+disk list, the cache, the slots, and the generation that decides what gets
+deleted.  Without the guard, adopting 3.5.1's catalog while 3.6.0 was selected
+would have compared 3.5.1's generation against 3.6.0's *stored* one and cleared
+the images 3.5.1 can hand back, for a change neither release made.
+`checkCatalogGenerationAndInvalidate` takes the release explicitly for the same
+reason `catalogCacheURL(for:)` does: this key gates a deletion, and reading the
+current release from inside it is how one release's generation gets filed under
+another's.
+
+`deleteCatalogDisks(named:)` also stops counting the other release's images as
+kept.  It never deleted them — they are not in this catalog's name set — but the
+alert calls what it counts "ones you imported or created", and twenty
+`hd1k_*-v0-3.5.1.img` files under a 3.6.0 catalog are neither.
+
+`loadNvram()` is deleted rather than version-scoped.  It had no caller anywhere
+in the tree; `restoreBootString()` replaces it and is called from `init()` and
+from the switch.  A dead reader of a key that is now per release is worse than
+dead code was — the scoping would have looked done and been applied in one of
+the two places that matter.
+
+### The bundled ROM stays bundled, and says so when it disagrees
+
+This build still boots `emu_avw.rom` from the app bundle.  `docs/ROM_ATTESTATION.md`
+is an App Store filing naming that file specifically, and an app whose only ROM
+is a download has nothing to boot on a first offline launch, so ROM downloads
+are their own release.  What that costs is real and is now stated where the
+choice is made: selecting a release other than the bundled ROM's gives a machine
+whose disks and ROM disagree, and RomWBW prints
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***` at boot when they do.  The
+picker carries that sentence, naming the ROM the selected release publishes —
+looked up from `roms[]` by its `default` flag, not by position and not by
+searching for "emu_avw", neither of which the schema promises.
+
+`ROMOption`'s identity moves from `let id = UUID()` to the filename, with `==`
+and `hash` to match.  A fresh UUID per construction made two values naming the
+same ROM compare unequal, which was survivable only while `availableROMs` was
+built once; a picker tags its rows with `rom as ROMOption?` and matches them
+against the selection by `==`, so any rebuilt array would have blanked the
+picker.  `availableROMs` is still one bundled entry — the trap is removed before
+anything can fall into it, not after.
+
+### `tools/check-disk-pins.sh` stops answering, loudly instead of quietly
+
+With `releaseTag` gone it fails in two directions at once: `pin_of` finds
+nothing and prints `NO PIN FOUND` with exit 1 for a tree that is correct, while
+the artifact scan's `v1\.[0-9]+\.[0-9]+` matches neither `v0` nor `3.5.1` and
+lands in the "no evidence either way" case, so a migrated binary is never
+checked and never complained about.  The script now detects a port that compiles
+in the v0 index URL, says so, skips it, and exits 2 — `CANNOT VERIFY`, which is
+what it already does with every other question it cannot answer.  Teaching it
+the v0 index properly is its own job and has to happen before a second port
+migrates.
+
+`CLAUDE.md` still says "editing `releaseTag` in `EmulatorViewModel.swift` reaches
+users only through a build that carries the edit".  That constant no longer
+exists; the sentence needs a human's edit, and this build deliberately did not
+make it.
+
+### What to expect on the first launch after this build
+
+The disk list reads correctly again — the cosmetic mismatch build 63 warned
+about is over, because the catalog now names the same files the migration
+created.
+
+One transfer is expected and is not a bug.  Nineteen of the twenty published
+images are byte-identical between the old `disks.xml` and the v0 catalog;
+`hd1k_combo`'s are not (`89b8ae1a…` became `0ca4ec60…`, 5,121 bytes of R8.COM,
+W8.COM and two directory entries).  A correctly carried ledger record therefore
+judges it `.superseded(locallyModified: false)` for anyone who has not written
+to it, and `startAllowedRefreshes()` fetches 49 MB unattended — on Wi-Fi only,
+not in Low Data Mode, and never while it is mounted in a running machine.  For
+anyone who *has* written to it, the same record is what makes the app offer a
+button instead of overwriting their work.
+
+### What is not done here
+
+ROM downloads, and with them a release picker that fully works for a release the
+bundle does not carry.  `loadROMFromPath:` and `loadROMFromData:` are on the
+bridge and already on the live path, so what is missing is a caller that hands
+them a downloaded path plus the UI to fetch one — and `docs/ROM_ATTESTATION.md`
+has to move with it.
+
+`MANUAL_CHECKS.md` §19 is what a person has to drive on a Mac before this ships,
+and none of it has been driven.  Nothing in this build has made a network
+request; every URL in it was read out of the committed documents in
+`romwbw_disks/catalog/v0/`, not fetched.
+
+## Version 1.5.1 (Build 63)
+
+**NOT COMPILED.**  Written on a Linux machine with no Xcode: not built, not
+launched, not driven, and no Swift suite was executed.  `Tests/run_tests.sh` was
+run and reports `PASSED, 14 suite(s) SKIPPED - this was not a full run`; the
+three suites that do run here are the C++ core and the symlink check, and none
+of them touches a filename, a `UserDefaults` key or the ledger.  The new suite
+this build adds is one of the fourteen that were skipped.  A separate build from
+62 on purpose: this one moves user data, and it has to be possible to say which
+build a device's disk images were renamed by.
+
+### Renaming what the app remembers, before anything renames where it fetches
+
+`romwbw_disks` publishes its catalog as `<id>-v0-<romwbw version>.img` now, so
+`hd1k_combo.img` is `hd1k_combo-v0-3.5.1.img` there and the same disk under
+RomWBW 3.6.0 is a different file with a different name.  The release is in the
+filename so both can sit in `Documents/Disks` at once, which they have to be
+able to do: a 3.5.1 disk booted under a 3.6.0 ROM prints
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***`.
+
+**This build changes no URL.**  It still fetches `disks.xml` from `v1.4.12` and
+still parses XML.  All it does is rename what is already on the device, which is
+release A of the three described in `romwbw_disks/docs/CLIENT_MIGRATION.md`.
+The two halves are separate on purpose: a build that both renamed every stored
+file and changed where files come from would, when it went wrong, give no way to
+tell which half did it.
+
+Four stores name a disk by its bare filename and all four move together, because
+three out of four is worse than none.  `start()` refuses to boot when a selected
+disk is neither on disk nor in the catalog — an alert, not a degraded boot — and
+`saveDownloadedDisks()` writes the running machine's image back over
+`Documents/Disks/<the slot's filename>` and skips *silently* when that file is
+missing, so a slot naming one thing and a file named another discards the user's
+CP/M work on every backgrounding with nothing shown anywhere.
+
+- `CatalogMigration.swift` is the whole decision, as values: no UIKit, no
+  FileManager, no UserDefaults, for the same reason `DiskLedger` and
+  `EmulatorProfile` are.  `Tests/CatalogMigrationTests.swift` drives it,
+  including the file half, which goes through `renames(in:)` — a directory
+  listing in, a list of moves out.
+- The pass **renames, never copies**.  `DiskLedger.measurementApplies` compares
+  a stored measurement against the file's current size and modification time and
+  `moveItem` preserves both, so nineteen of the twenty images stay `.current`
+  with no I/O at all.  A copy-then-delete changes mtime, invalidates every
+  record, and costs ~210 MB of re-hashing.
+- It **never deletes**.  Not a file, not a key, not a ledger record.  A stem the
+  catalog has never named — a user's own import, one `createNewDisk` made, and
+  `hd1k_infocom.img`, which was served and then dropped — is left exactly as it
+  is.  A file already present under the v0 name is kept and the old one is left
+  beside it rather than either being removed.
+- It **carries provenance across rather than re-deriving it**.  Dropping the
+  ledger and letting `measureDisks` rebuild it would adopt provenance only for
+  files that still hash to the catalog, which is precisely the disks the user has
+  never written to; every disk they actually use would be left at
+  `.unknownProvenance(matchesCatalog: false)` and acquire a standing "any files
+  you saved in it are lost" warning.
+- A file that could not be moved leaves its stored names alone as well, and
+  leaves the one-shot flag clear so the next launch tries again.  Renaming a slot
+  whose file did not move is the state that makes `start()` refuse to boot.
+- A `Documents/Disks` that cannot be **listed** defers the whole pass rather than
+  reading as empty.  A missing directory is a real answer — a device that has
+  downloaded nothing has nothing to rename — but a listing that throws is
+  "unknown", and swallowing it into `[]` would rename no file, rewrite every
+  stored name anyway, and then set the one-shot flag over it.  That is the
+  half-applied state, reached without a single failed `moveItem`.  Data
+  protection is the plausible cause: the container is unreadable until the
+  device has been unlocked once.
+
+### The wipe cannot fire, and it is this build that has to stop it
+
+`checkCatalogVersionAndInvalidate` read one `UserDefaults` key, `catalogVersion`,
+and deleted the images the catalog names when it changed.  That key holds `"13"`
+today, from `<disks version="13">`.  The interface-v0 catalogs start at
+`generation: 1`.  So the first fetch of a v0 catalog by an unprepared build sees
+13 ≠ 1, calls `deleteCatalogDisks(named:)` with the *v0* filenames, and deletes
+the entire library this build has just finished renaming into exactly those
+names — with an alert saying it was intentional.  Harmless before the rename,
+total after it, which is why it is fixed here and not in the release that
+changes the URLs.
+
+`checkCatalogGenerationAndInvalidate` replaces it.  It takes the catalog's
+`generation` and stores it under `catalogGeneration.v0.3.5.1` — one key per
+(interface, RomWBW release), because deletion is per release and a user
+switching 3.5.1 → 3.6.0 → 3.5.1 is not making three catalog changes.  `disks.xml`
+carries no generation, so it passes nil and this build deletes nothing on a
+catalog fetch at all.  The old `catalogVersion` value is deliberately **not**
+copied into the new key: an empty key takes the first-run branch, and that is the
+whole point.  It is left in place unread, so a downgrade finds it as it was.
+
+`selectedDisks` and `emulatorNvram` are scoped the same way, to
+`selectedDisks.v0.3.5.1` and `emulatorNvram.v0.3.5.1`.  The NVRAM one matters for
+a reason that is invisible until it bites: RomWBW's `NVSW_CHECKSUM` XORs the
+running release's version bytes into its seed, so a blob saved under 3.5.1 fails
+validation under a 3.6.0 ROM and resets to defaults without saying anything.
+`catalogCacheTag` is *not* moved, and that is deliberate — moving it now would
+make `loadCachedCatalog`'s salvage branch fire on an unstamped cache and leave an
+offline device with no catalog and nothing it can boot.  It moves in the release
+that replaces the parser.
+
+### A slot the catalog cannot resolve is remembered rather than blanked
+
+`restoreDiskSelections()` looked each stored name up in `availableDisks` and
+assigned the optional result, so a name it could not find became nil — and its
+`defer` then persisted that nil back over the key.  One fetch and a configured
+disk was gone for good.  `persistSelectedDisks(remembering:)` now keeps the
+remembered name for a slot that came back empty and is not bound to a local file.
+The slot still shows as empty and `start()` still skips it, so nothing can be
+bricked by a name that resolves to nothing; it simply comes back when the catalog
+names it again — which, for a slot naming a disk the user selected but never
+downloaded, is when release B lands.
+
+### Ordering, and the trap in it
+
+The migration is spelled as the initializer expression for `profileStore`, not
+as a call at the top of `init()`.  Swift runs stored-property initializers
+**before** the body of any initializer, and `profileStore` is decoded in one.  A
+migration first in `init()` gets the ledger and the disk slots right and has
+already lost the race for every saved profile — and looks like it worked,
+because the two halves that are easy to check are the two that were migrated.
+
+### What this looks like until release B lands, which is not pretty
+
+The catalog this build still fetches names `hd1k_combo.img`, and the file is now
+`hd1k_combo-v0-3.5.1.img`, so **the disk list shows all twenty catalog entries as
+"(download)" and shows the user's renamed images below them as user-added disks,
+under their raw filenames.**  Nothing is lost and nothing is re-fetched: the
+slots still resolve, because `refreshAvailableDisks()` scans the directory and
+offers what it finds; `start()` boots off a file it can see without consulting
+the catalog at all; `saveDownloadedDisks()` writes to the same path it reads; and
+`reassessDiskFreshness()` judges the *old* names, finds no files under them and
+plans nothing, so there is no measurement pass and no unattended transfer.  It is
+a cosmetic mismatch for one release, and a user who taps Download on one of those
+rows gets a second copy under the old name for their trouble.
+
+That is the price of separating the rename from the URL change, and the price is
+worth paying: combining them means a build that renames every stored file *and*
+changes where files come from, and when that goes wrong there is no way to tell
+which half did it.  Release B is where the two halves meet and the list reads
+correctly again.
+
+### What is not done here
+
+The URLs, the JSON parser, the two-level index and the RomWBW version picker are
+releases B and C.  `releaseTag = "v1.4.12"` is untouched, so
+`tools/check-disk-pins.sh` still finds a pin and still answers its question; it
+stops working in the release that removes the pin, and that is where it has to be
+rewritten or retired.  `MANUAL_CHECKS.md` §18 is what a person has to drive on a
+Mac before this ships, and none of it has been driven.
+
+One consequence is worth writing down now so it is not read as a bug later.
+Nineteen of the twenty published images are byte-identical between the pinned
+`disks.xml` and the v0 catalog; `hd1k_combo`'s are not (`89b8ae1a…` becomes
+`0ca4ec60…`).  Carrying its ledger record across — which is the correct thing to
+do — means that when release B points at the v0 catalog, that one disk is judged
+`.superseded(locallyModified: false)` for anyone who has not written to it, and
+`startAllowedRefreshes()` fetches 49 MB unattended on the first unmetered launch.
+Nothing fires in *this* build, because the catalog it fetches does not name the
+renamed file.  For anyone who *has* written to it, the record is what makes the
+app offer a button instead of overwriting their work, which is the whole reason
+the record is carried rather than rebuilt.
+
 ## Version 1.5.1 (Build 62)
 
 **NOT COMPILED.**  Written on a Linux machine with no Xcode: not built, not

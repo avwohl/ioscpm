@@ -1,5 +1,17 @@
 # iOS: pin the disk catalog to an explicit ioscpm release
 
+> **Superseded for the tree, not for the field (build 64, interface v0).**
+> `releaseTag`, `catalogURL` and `releaseBaseURL` are deleted. This app now
+> reads one compiled-in index URL from `avwohl/romwbw_disks` and takes every
+> asset URL from the catalog behind it; there is no tag to pin and no pin to
+> bump. See `docs/DISK_DISTRIBUTION.md` under "Interface v0".
+>
+> **Everything below still governs the builds users have.** They are hardwired
+> to `v1.4.12`'s asset URLs, GitHub release assets cannot be redirected, and
+> `v1.4.5` and `v1.4.12` must stay live and keep their prerelease flags exactly
+> as recorded here for as long as one of those builds is installed. Nothing in
+> this migration frees a tag; only the last uninstall does.
+
 **Status:** Done. Applied in `4be8a13` (2026-07-25, v1.5.1 build 42):
 `EmulatorViewModel.swift` builds both the catalog URL and the download base from
 a single `releaseTag`. **The pin is `v1.4.12` as of `0010591`; it read `v1.4.5`
@@ -45,7 +57,7 @@ release instead of `latest`:
 |---|---|---|
 | Windows (z80cpmw) | `DiskCatalog.cpp` → `RELEASE_TAG` | pinned `v1.4.12` |
 | Android (cpmdroid) | `DiskCatalogRepository.kt` → `RELEASE_TAG` | pinned `v1.4.12` |
-| iOS (this app) | `EmulatorViewModel.swift` → `releaseTag` | pinned `v1.4.12` |
+| iOS (this app) | `EmulatorViewModel.swift` → `releaseTag` | pinned `v1.4.12` up to build 63; build 64 reads the v0 index instead |
 
 `v1.4.12` (2026-09-01) is the pinned release: the same v3.5.1 disk set, with
 `hd1k_combo.img` respun to carry the current `r8.com` and `w8.com`. Nineteen of

@@ -207,6 +207,33 @@ run_suite EmulatorProfileTests \
     "$ROOT/iOSCPM/Views/EmulatorProfile.swift" \
     "$ROOT/Tests/EmulatorProfileTests.swift"
 
+# The two interface-v0 catalog documents: what a field is called, what may be
+# missing, and when a fetched catalog is the wrong one. Nothing here touches the
+# network - the fetch is in the view model and the decisions are in this file,
+# which is why the suite is one source file and a handful of JSON literals cut
+# from the real published documents.
+run_suite CatalogDocumentTests \
+    "$ROOT/iOSCPM/Views/CatalogDocument.swift" \
+    "$ROOT/Tests/CatalogDocumentTests.swift"
+
+# Renaming what the app remembers about a catalog disk when the catalog started
+# naming its images <id>-v0-<romwbw version>.img. Four stores have to move
+# together - the disk slots, the saved profiles, the ledger and the files - so
+# this suite drags in DiskLedger and EmulatorProfile (and everything
+# EmulatorProfile needs) to check the real types rather than stand-ins. The
+# FileManager half is driven through renames(in:), which takes a directory
+# listing and returns moves, for the same reason ExportPath takes a string.
+run_suite CatalogMigrationTests \
+    "$ROOT/iOSCPM/Views/CGAColor.swift" \
+    "$ROOT/iOSCPM/Views/TerminalRendition.swift" \
+    "$ROOT/iOSCPM/Views/TerminalDialect.swift" \
+    "$ROOT/iOSCPM/Views/TerminalScreen.swift" \
+    "$ROOT/iOSCPM/Views/DiskSize.swift" \
+    "$ROOT/iOSCPM/Views/EmulatorProfile.swift" \
+    "$ROOT/iOSCPM/Views/DiskLedger.swift" \
+    "$ROOT/iOSCPM/Views/CatalogMigration.swift" \
+    "$ROOT/Tests/CatalogMigrationTests.swift"
+
 run_core_suite CoreKeyboardTests \
     "$ROOT/Tests/CoreKeyboardTests.cc"
 

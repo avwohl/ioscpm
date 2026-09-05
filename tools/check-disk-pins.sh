@@ -20,6 +20,21 @@
 # just the one it is sitting in, so no repository can report "fixed" while its
 # neighbour's users are on an old pin.  Edit one, copy to the rest.
 #
+# INTERFACE V0.  A port that has migrated to the two-level romwbw_disks catalog
+# has no pin to find: it compiles in one index URL and takes every asset URL
+# from the documents behind it, which is the whole point - a disk fix reaches
+# users without an edit, a rebuild and a release.  This script cannot answer its
+# question for such a port yet (the question becomes "does the generation the
+# index publishes match what this build would download", against a different
+# repository), and the two ways it fails silently are worse than not answering:
+# pin_of() finds nothing and reports NO PIN FOUND for a tree that is correct,
+# while the artifact scan's /v1\.[0-9]+\.[0-9]+/ matches neither "v0" nor
+# "3.5.1" and lands in the "no evidence either way" case, so a migrated binary
+# is never checked and never complained about.  So a migrated port is detected
+# and reported as CANNOT VERIFY (exit 2), which is what this script already does
+# with every other question it cannot answer.  Rewriting it for v0 is its own
+# job, and it has to happen before the second port migrates.
+#
 #   sh check-disk-pins.sh              tree pins + any artifacts found
 #   sh check-disk-pins.sh --tree-only  skip artifact scanning
 #
@@ -93,6 +108,14 @@ pin_of() { # $1 = port dir, $2 = file, $3 = pattern -> prints vX.Y.Z
     grep -E "$3" "$f" 2>/dev/null |
         grep -v '^[[:space:]]*[/*#]' |
         sed -n 's/.*"\(v[0-9][0-9.]*\)".*/\1/p' | head -1
+}
+
+migrated_to_v0() { # $1 = port dir, $2 = file -> 0 when this port reads the v0 index
+    f="$1/$2"
+    [ -f "$f" ] || return 1
+    # The one URL a migrated port compiles in.  Matched on the index asset name
+    # rather than on "v0" alone, which appears in plenty of unrelated strings.
+    grep -q 'releases/download/catalog-v0/index-v0.json' "$f" 2>/dev/null
 }
 
 # --- artifacts: what users actually got ---------------------------------------
@@ -188,6 +211,14 @@ echo "$ports" | while IFS='|' read -r port file pat; do
     fi
 
     pin=$(pin_of "$dir" "$file" "$pat")
+    if [ -z "$pin" ] && migrated_to_v0 "$dir" "$file"; then
+        printf '%-10s MIGRATED to the interface-v0 catalog - no pin to check\n' "$port"
+        printf '%-10s   it fetches index-v0.json from romwbw_disks and takes every asset\n' ""
+        printf '%-10s   URL from the documents behind it.  This script cannot answer its\n' ""
+        printf '%-10s   question for that yet; see the note at the top.\n' ""
+        echo 1 > "$tmp/unverified"
+        continue
+    fi
     if [ -z "$pin" ]; then
         printf '%-10s NO PIN FOUND in %s\n' "$port" "$file"
         echo 1 > "$tmp/fail"
@@ -248,6 +279,16 @@ if [ -f "$tmp/fail" ]; then
     echo "Bumping a pin is not shipping it: the edit reaches users only in a release"
     echo "that carries it. Check this again after building, not only after editing."
     exit 1
+fi
+
+if [ -f "$tmp/unverified" ]; then
+    echo "CANNOT VERIFY: at least one port has migrated to the interface-v0 catalog"
+    echo "and this script has not.  Every port it could check is current."
+    echo
+    echo "A gate that cannot verify must not say yes - that is why this is 2 and not"
+    echo "0.  Teach it the v0 index before the next port migrates, or it will be"
+    echo "answering for none of them."
+    exit 2
 fi
 
 echo "Every port serves the current hd1k_combo.img, and every artifact found"

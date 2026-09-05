@@ -11,6 +11,18 @@ f570676). Clients fetch the manifest and download disks on-demand from a
 **pinned** release tag, not from the "latest" endpoint; only the help system
 still floats on `latest`.
 
+> **Build 64 moved this app off all of it.** iOSCPM no longer reads
+> `release_assets/disks.xml`, no longer downloads from an `avwohl/ioscpm`
+> release tag, and no longer has a `releaseTag` constant. It reads the
+> interface-v0 catalog published by `avwohl/romwbw_disks` — one compiled-in
+> index URL, one catalog per RomWBW release, and asset URLs taken from the
+> catalog's own `base_url`. See "Interface v0" below.
+>
+> Everything else in this document still describes what **builds already in
+> service** do, and those tags must stay live: an installed 1.4.9 or 1.5.x
+> binary is hardwired to its URLs and GitHub release assets cannot be
+> redirected. Read the rest as the record of a live system, not a plan.
+
 ## Repository Structure
 
 ```
@@ -55,11 +67,21 @@ The manifest is an XML file listing all available disk images:
 ### Version Attribute
 
 The `<disks version="N">` attribute tracks catalog changes, and changing it
-deletes files on every installed device. On each successful catalog fetch
-`checkCatalogVersionAndInvalidate` (`EmulatorViewModel.swift`) compares the
-attribute against the stored `catalogVersion` default, and on **any** difference
-clears downloaded images. No checksum is consulted — the comparison is on the
-version attribute alone — and it needs no tap and no download.
+deletes files on every installed device. On each successful catalog fetch the
+invalidation compared the attribute against the stored `catalogVersion` default,
+and on **any** difference cleared downloaded images. No checksum was consulted —
+the comparison was on the version attribute alone — and it needed no tap and no
+download.
+
+**Build 63 stopped consulting the attribute.** Its successor,
+`checkCatalogGenerationAndInvalidate` (`EmulatorViewModel.swift`), acts on the
+interface-v0 catalog's `generation` field, stored under a key scoped to the
+(interface, RomWBW release) pair; the XML carries no generation, so a build 63
+device deletes nothing on a catalog fetch at all. **This does not make the
+attribute safe to move.** Every build in service still reads it, and the two
+numbers are not interchangeable: the XML is at `version="13"` and the v0
+catalogs start at `generation: 1`, which is exactly why the old value is never
+copied into the new key.
 
 **Build 56 narrowed what "downloaded images" means**, and the narrowing is the
 whole safety property: `deleteCatalogDisks(named:)` deletes only the `.img` files
@@ -96,8 +118,10 @@ in `KNOWN_PROBLEMS.md`.
 
 ### Release URLs
 
-Clients read the catalog and the images from an explicit, pinned release tag —
-`releaseTag` in `EmulatorViewModel.swift`, currently `v1.4.12`:
+Clients up to build 63 read the catalog and the images from an explicit, pinned
+release tag — `releaseTag` in `EmulatorViewModel.swift`, `v1.4.12`. That
+constant is deleted in build 64; this is what every shipped build still does,
+and the tag has to stay live for as long as one of them is installed:
 ```
 Catalog:  https://github.com/avwohl/ioscpm/releases/download/v1.4.12/disks.xml
 Base URL: https://github.com/avwohl/ioscpm/releases/download/v1.4.12
@@ -132,9 +156,12 @@ When creating a new GitHub release:
      downloaded
 
 3. The disk catalog does not follow `/latest/` (only the help system does).
-   Clients from build 42 on read the pinned tag `v1.4.12`; a new release tag
-   reaches none of them until `releaseTag` in `EmulatorViewModel.swift` is bumped
-   and a new app build ships.
+   Clients from build 42 to build 63 read the pinned tag `v1.4.12`; a new
+   release tag reaches none of them until `releaseTag` in
+   `EmulatorViewModel.swift` is bumped and a new app build ships. **Build 64
+   onwards reads none of this** — a new disk reaches those builds by being
+   published in `romwbw_disks` and does not need an app release at all, which
+   is the point of the migration.
 
    **The builds actually in service are not among them.** The App Store serves
    1.4.9 (builds 36/37), which predates the pin and still fetches from
@@ -145,23 +172,89 @@ When creating a new GitHub release:
    `docs/DISK_W8FIX_RUNBOOK.md` under "2026-09-04" for why, and
    `docs/DISK_CATALOG_PINNING.md` for what it changed about the two layers.
 
+## Interface v0 (build 64 onwards)
+
+**This is what the current tree does.** The sections above describe the scheme
+every *shipped* build still uses.
+
+One URL is compiled in, and it is the only one:
+
+```
+https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json
+```
+
+That tag carries one small file and nothing else, which is what makes a floating
+entry point safe: re-cutting it costs a few kilobytes, and the assets clients
+cache never move.
+
+Two hops from there:
+
+1. **The index.** `romwbw_versions[]`, one entry per published RomWBW release,
+   each with `hbios.ver_byte`/`upd_byte` (hex *strings*), a `status`, a
+   `default` flag, a `generation`, and an absolute `catalog_url` with that
+   catalog's `catalog_sha256` and `catalog_size`.
+2. **That release's catalog**, verified against those two values *before* it is
+   parsed. It carries `base_url` (ending in `/`), `roms[]` and `disks[]`.
+
+An asset URL is `base_url + filename`, concatenated. The `"/"` this client used
+to insert is gone — under v0 the separator is in the document, and reproducing
+the fixup would double it.
+
+Which release is in play is a user choice, filtered by asking the emulator core
+about each entry's version bytes (`RomWBWEmulator.supportsRomWBW(ver:upd:)`,
+which wraps `emu_romwbw_release_supported`). Everything whose validity depends
+on the release is keyed per (interface, release): the disk slots, the NVRAM
+blob, the last-seen generation, the on-disk filenames, and the catalog cache.
+Switching releases deletes nothing.
+
+The documents are decoded by `CatalogDocument.swift` and the rules it has to
+obey are in `romwbw_disks/docs/CATALOG_SCHEMA.md` §6.1 — unknown fields ignored,
+entries keyed on `id`, `roms[]` neither assumed present nor assumed to contain
+`emu_avw`, optional fields absent, `generation` compared and never computed.
+
+ROMs are published in the catalog but are **not** downloaded: the app still
+boots `emu_avw.rom` from its bundle, because `docs/ROM_ATTESTATION.md` is an App
+Store filing naming that file and an app whose only ROM is a download cannot
+boot on a first offline launch. Selecting a release the bundle does not carry is
+allowed and is warned about in the picker: RomWBW prints
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***` when the disks and the ROM
+disagree.
+
 ## Client Implementation
 
 ### Fetching the Catalog
 
-Clients fetch `disks.xml` on app launch and cache it locally at:
+Builds up to 63 fetch `disks.xml` on app launch and cache it locally at:
 ```
 Documents/Disks/disks_catalog.xml
 ```
 
-If offline, the cached version is used as fallback.
+Build 64 fetches the two v0 documents instead and caches them per release:
+```
+Documents/Disks/index-v0.json
+Documents/Disks/catalog-v0-3.5.1.json
+```
+
+The filename carries the release rather than a `UserDefaults` stamp beside it: a
+stamp can drift from the file it describes, and two releases' caches have to
+coexist. The old `disks_catalog.xml` and the `catalogCacheTag` key are left in
+place, unread, so a downgrade finds them.
+
+If offline, the cached version is used as fallback — and under v0 a cached
+catalog is self-consistent, because it holds its own `base_url`. That is what
+retired the salvage branch that used to throw away every entry whose file was
+not already downloaded.
 
 ### Parsing (iOS/macOS)
 
-The `DiskCatalogXMLParser` class in `EmulatorViewModel.swift` parses the XML:
+Up to build 63, the `DiskCatalogXMLParser` class in `EmulatorViewModel.swift`
+parsed the XML:
 - Extracts the version attribute
 - Creates `DownloadableDisk` objects for each entry
 - Constructs full download URLs
+
+Build 64 deletes that class. `CatalogDocument.swift` decodes both v0 documents
+as `Codable` structs, and `Tests/CatalogDocumentTests.swift` covers them.
 
 ### Download Flow
 

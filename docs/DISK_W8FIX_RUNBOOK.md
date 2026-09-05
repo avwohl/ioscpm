@@ -227,6 +227,12 @@ The app downloads `disks.xml` from the pinned `releases/download/v1.4.12/`
 (`releaseTag` in `EmulatorViewModel.swift`; see `docs/DISK_CATALOG_PINNING.md`),
 so the image and catalog must be uploaded **together**.
 
+Build 64 deleted `releaseTag` and reads the `romwbw_disks` interface-v0 catalog
+instead, so a build-64 device fetches none of these assets. **Every build in
+service still does**, which is what this runbook is about: it governs what
+uploading to an `avwohl/ioscpm` tag does to the fleet, and the fleet does not
+move when the tree does.
+
 **Since 2026-09-01 it does verify.** `downloadDiskFromSettings` hashes the temp
 file against the catalog's `<sha256>` and refuses to install a mismatch, after
 three attempts; the dead `downloadDiskWithRetry` that used to hold the only
@@ -288,11 +294,15 @@ version they replaced said to `--clobber` `v1.4.5` and to bump the catalog
      at `13` and that is what kept the wipe from firing.
 
    > **Bumping that attribute deletes files on every installed device.** It is
-   > not a cache hint. On the next catalog fetch after the bump,
-   > `checkCatalogVersionAndInvalidate` clears downloaded images and tells the
-   > user afterwards. It needs no tap and no download, and it is not covered by
-   > romwbw_emu's `docs/RELEASE_ORDER_2026-08-25.md`, which reasons only about
-   > `W8` and `R8`.
+   > not a cache hint. On the next catalog fetch after the bump, the
+   > invalidation clears downloaded images and tells the user afterwards. It
+   > needs no tap and no download, and it is not covered by romwbw_emu's
+   > `docs/RELEASE_ORDER_2026-08-25.md`, which reasons only about `W8` and `R8`.
+   >
+   > Build 63 replaced that code with `checkCatalogGenerationAndInvalidate`,
+   > which reads the interface-v0 `generation` and never the XML attribute, so a
+   > build 63 device ignores a bump entirely. **That changes nothing about this
+   > rule.** Every build a user can install today still reads the attribute.
    >
    > Build 56 narrowed it to the images the **new** catalog names, so a disk the
    > user imported or created is kept — but **the builds in service still have
@@ -316,10 +326,14 @@ version they replaced said to `--clobber` `v1.4.5` and to bump the catalog
    prerelease, because the installed fleet predates the pin and follows
    `releases/latest`.
 
-   Bumping the *pin* is a separate, later decision: it means changing
+   Bumping the *pin* was a separate, later decision: it meant changing
    `releaseTag` in `EmulatorViewModel.swift` and shipping an app build, and it
    must not happen until that build carries the sanitiser. That is step 5 of
    `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` and it is currently blocked.
+   Build 64 removes the pin altogether — a disk fix now reaches a migrated build
+   by being published in `romwbw_disks`, with no app release at all. That is the
+   whole point of the migration, and it does nothing for the builds already
+   installed, which still need everything above.
 
    Then verify, and treat any failure as a reason to
    `gh release delete vX.Y.Z --cleanup-tag`:

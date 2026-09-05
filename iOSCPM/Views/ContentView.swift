@@ -610,6 +610,47 @@ struct SettingsView: View {
                     }
                 }
 
+                // RomWBW release.
+                //
+                // Which release's disks the catalog offers, which files they are
+                // (hd1k_combo-v0-3.5.1.img is not hd1k_combo-v0-3.6.0.img), and
+                // which slots, boot string and downloaded images are in play.
+                // Switching deletes nothing: everything is stored per release
+                // and comes back on switching back.
+                Section(header: Text("RomWBW Release")) {
+                    Picker("Release", selection: $viewModel.romwbwVersion) {
+                        ForEach(viewModel.romwbwVersions) { entry in
+                            // pickerLabel carries the status, so a preview
+                            // release says so where the choice is made rather
+                            // than in a note further down the screen.
+                            Text(entry.pickerLabel).tag(entry.romwbwVersion)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    // The switch empties the four slots, and saveDownloadedDisks()
+                    // writes the guest's live image back to the file the SLOT
+                    // names - so doing it under a running machine would discard
+                    // the user's work on the next flush. The view model refuses
+                    // it too; this is so the control does not look available.
+                    .disabled(viewModel.isRunning)
+
+                    if viewModel.isRunning {
+                        Text("Stop the emulator to change release.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let mismatch = viewModel.romReleaseMismatchNotice {
+                        HStack(alignment: .top) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text(mismatch)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
                 // Download Disk Images Section
                 Section(header: Text("Download Disk Images")) {
                     Text("Download CP/M disk images to use offline. Images are stored in the app's Documents folder.")
@@ -623,18 +664,40 @@ struct SettingsView: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
-                    } else if let error = viewModel.catalogError {
-                        HStack {
+                    } else if let failure = viewModel.catalogFailure, !failure.servedFromCache {
+                        // Nothing to show: say which of the two fetches failed.
+                        // "Could not fetch the release list" and "the list
+                        // loaded, 3.5.1's catalog did not" are different
+                        // problems with different fixes, and the old single
+                        // string could say neither.
+                        HStack(alignment: .top) {
                             Image(systemName: "exclamationmark.triangle")
                                 .foregroundColor(.orange)
-                            Text(error)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(failure.summary)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                if !failure.detail.isEmpty {
+                                    Text(failure.detail)
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
                         }
                         Button("Retry") {
                             viewModel.fetchDiskCatalog()
                         }
                     } else {
+                        // A cached document IS on screen, so this is a note and
+                        // not a failure: the disks below all work, and what the
+                        // user cannot see is whether the list behind them has
+                        // moved.
+                        if let failure = viewModel.catalogFailure, failure.servedFromCache {
+                            Text(failure.summary)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+
                         ForEach(viewModel.diskCatalog) { disk in
                             DiskDownloadRow(disk: disk, viewModel: viewModel)
                         }
