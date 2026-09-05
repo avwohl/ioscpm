@@ -1,20 +1,17 @@
-THE ROM IS FETCHED FROM THE CATALOG.  THE FILING THAT DESCRIBES IT IS NOT.
+THE ROM ATTESTATION NOW DESCRIBES THE DOWNLOAD.  A PERSON STILL HAS TO FILE IT.
 -------------------------------------------------------------------------------
 
-- [RELEASE] docs/ROM_ATTESTATION.md is an App Store filing.  It says this app
-INCLUDES emu_avw.rom and authorises Apple to use "the included ROM file" for
-review, and every word of that is still true - the ROM is still bundled, still
-a reviewed asset, still what a first offline launch boots.  What the filing does
-not say is that build 65 can also DOWNLOAD a ROM: emu_avw or emu_rcz80, from the
-romwbw_disks release for the RomWBW version the user picked, verified against
-the catalog's size and sha256.  Those images are the same GPLv3 material from
-the same source, but "included with the application" and "fetched at runtime"
-are different claims, and the corresponding-source URL in that document
-(github.com/avwohl/romwbw_emu) is the ROM's source, not romwbw_disks'.
-  This needs a person, not a session: it is a signed statement to Apple, dated,
-and rewriting one from a machine that cannot even build the app is not
-bookkeeping.  Decide before the next submission whether the filing gains a
-paragraph about downloaded ROMs.  Nothing in the tree is blocked on it.
+- [RELEASE] docs/ROM_ATTESTATION.md was rewritten on 2026-09-05 to cover both
+the ROM in the bundle and the four it can now fetch, with the corresponding-source
+URL pointed at romwbw_disks (which holds src/emu_hbios.asm, the build scripts and
+the SHA-256 pins for each upstream RomWBW package).  The document is correct as
+of build 65; what it is NOT is submitted.  It is an attestation to Apple, so a
+person has to read it, agree that it says what they are willing to affirm, and
+attach it to the next review.  Nothing here can do that step.
+  Worth a second read before it goes: the claim that changed is not a licence
+claim - every ROM is the same GPLv3 material from the same two authors, bundled
+or downloaded - it is that "included with the application" is no longer the whole
+description of how a ROM reaches a device.
 
 WHICH RELEASE A FRESH INSTALL STARTS ON
 -------------------------------------------------------------------------------
