@@ -1,27 +1,40 @@
-FETCH THE ROM FROM THE CATALOG - THE LAST VERSION-COUPLED THING IN THIS APP
+THE ROM IS FETCHED FROM THE CATALOG.  THE FILING THAT DESCRIBES IT IS NOT.
 -------------------------------------------------------------------------------
 
-- [ANY] this app bundles a 3.5.1 ROM (iOSCPM/Resources/emu_avw.rom, via
-availableROMs/bundledROMFilename) and downloads no ROM at all.
-  romwbw_disks published RomWBW 3.6.0 as stable and
-default on 2026-09-05, so a build shipped as it stands would preselect 3.6.0
-disks and boot them against a 3.5.1 ROM -> *** WARNING: HBIOS/CBIOS Version
-Mismatch ***.  Nothing is broken today: no released build reads that index, and a
-pre-v1.39 core filters 3.6.0 out by hbios.ver_byte before default is ever read.
-  The fix is to fetch the ROM from the catalog the way disks are fetched.  It is
-NOT to bundle a 3.6.0 ROM instead: that would put a store release for this app on
-the critical path for every RomWBW version, which is the whole cost romwbw_disks
-was created to remove.  Every catalog already carries roms[] with emu_avw flagged
-default, a sha256 and a size, under the same base_url as the disks.
-  Most of it already exists here.  CatalogDocument decodes roms[] as romEntries
-and defaultROM and correctly does not assume emu_avw is present, and the bridge
-exposes loadROMFromPath: and loadROMFromData: already on the live path
-(loadROM(fromBundle:) reaches them).  What is missing is the caller that hands
-them a DOWNLOADED path.  Keep the bundled ROM as the first-launch fallback:
-docs/ROM_ATTESTATION.md is an App Store filing naming emu_avw.rom as a reviewed
-asset, and the app should boot offline out of the box.
-  romwbw_disks/docs/ROMWBW_VERSIONS.md "Why 3.6.0 is stable and default" has the
-same gate written down at the publishing end.
+- [RELEASE] docs/ROM_ATTESTATION.md is an App Store filing.  It says this app
+INCLUDES emu_avw.rom and authorises Apple to use "the included ROM file" for
+review, and every word of that is still true - the ROM is still bundled, still
+a reviewed asset, still what a first offline launch boots.  What the filing does
+not say is that build 65 can also DOWNLOAD a ROM: emu_avw or emu_rcz80, from the
+romwbw_disks release for the RomWBW version the user picked, verified against
+the catalog's size and sha256.  Those images are the same GPLv3 material from
+the same source, but "included with the application" and "fetched at runtime"
+are different claims, and the corresponding-source URL in that document
+(github.com/avwohl/romwbw_emu) is the ROM's source, not romwbw_disks'.
+  This needs a person, not a session: it is a signed statement to Apple, dated,
+and rewriting one from a machine that cannot even build the app is not
+bookkeeping.  Decide before the next submission whether the filing gains a
+paragraph about downloaded ROMs.  Nothing in the tree is blocked on it.
+
+WHICH RELEASE A FRESH INSTALL STARTS ON
+-------------------------------------------------------------------------------
+
+- [ANY] index-v0.json publishes RomWBW 3.6.0 as `default: true` and both
+releases as `stable`.  A fresh install still starts on 3.5.1, because
+initialRomWBWVersion() falls back to the bundled ROM's release and
+RomWBWIndex.preferred then keeps whatever is already in play.  Until build 65
+that was forced: 3.5.1 was the only release this app had a ROM for.  It is not
+forced any more - the ROM for any release is fetched and verified - so the
+ordering is now a decision, and the code says so where it is made.
+  Arguments both ways, and neither is obvious.  Following `default` is what the
+index is FOR, it is how a new RomWBW version reaches people without a store
+release, and a fresh install has to download disks anyway so the extra 512 KB
+costs nothing.  Against: it moves every new user onto a release the app carries
+no ROM for, so a first launch on a bad connection gets further from a booting
+machine, and 3.6.0's NVRAM and disks are not 3.5.1's.
+  Existing users are not affected either way - a stored choice wins over both.
+Whoever decides this should also decide whether the bundled ROM should become
+3.6.0 at the same time, which is a store release and a new ROM_ATTESTATION date.
 
 Todo list.  Open items only - finished work is in CHANGELOG.md and in the commit
 messages that made the changes, not kept here.  A closed item is DELETED; it

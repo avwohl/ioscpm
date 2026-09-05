@@ -1,5 +1,154 @@
 # Changelog
 
+## Version 1.5.1 (Build 65)
+
+**NOT COMPILED.**  Written on a Linux machine with no Xcode: not built, not
+launched, not driven, and no Swift suite was executed.  There is no `swiftc`,
+`swift`, `xcrun` or `xcodebuild` on it — checked, not assumed.
+`Tests/run_tests.sh` was run and reports `PASSED, 15 suite(s) SKIPPED - this was
+not a full run`; the three suites that do run are the C++ core and the symlink
+check, and none of them touches a ROM, a URL or a `UserDefaults` key.  The
+sixteen new checks added to `Tests/CatalogDocumentTests.swift` are among the
+skipped.
+**Nothing here has fetched a ROM, verified one, or booted one.**
+`MANUAL_CHECKS.md` section 20 is what has to happen on a real device.
+
+What *was* measured, because it can be: the C++ release API this feature leans
+on compiles on Linux out of the symlinks in `iOSCPM/Core/`, and was run over the
+bundled ROM and over all four ROMs `romwbw_disks` publishes.  Every one is
+524,288 bytes; `emu_romwbw_release_of_image` reads "3.5.1" out of the two 3.5.1
+images and "3.6.0" out of the two 3.6.0 ones, matching the catalogs'
+`romwbw_version` **exactly** — which is what the new HCB cross-check in
+`loadSelectedResources()` compares, so it will not refuse a correct 3.6.0 ROM
+over a spelling; `emu_romwbw_release_supported` says yes to both; and
+`emu_validate_rom_hcb` accepts all five.  The bundled `emu_avw.rom` is
+byte-identical to `emu_avw-v0-3.5.1.rom` (`cmp`, and `c7abc580…` on both), so
+the stand-in `bundledROMFacts` performs is true against what is published today.
+None of that is Swift, and none of it says this app builds.
+
+### The ROM comes from the catalog
+
+The last version-coupled thing in this app.  Disks, the catalog URL and the
+release choice already came from the published index; the ROM did not, so
+RomWBW 3.6.0 could be published stable and default and still not reach anybody
+without a store release of this app — which is the whole cost `romwbw_disks`
+exists to remove.  A build shipped as build 64 stood would have preselected
+3.6.0 disks and booted them against the bundled 3.5.1 ROM:
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***`.
+
+`availableROMs` was one hardcoded `emu_avw.rom`.  It is now the selected
+release's `roms[]`, and the rules are the ones all three clients follow:
+
+- **The ROM is the entry flagged `default: true`**, or the first entry when
+  none is.  Never `roms[0]` by position, never "the one called emu_avw", and
+  never assuming `roms[]` is there at all — `CatalogDocument.defaultROM`
+  already did this and is now what picks what loads.
+- **It lives beside the disks**, under its catalog filename, which carries the
+  release: `emu_avw-v0-3.6.0.rom` sits in `Documents/Disks` next to
+  `emu_avw-v0-3.5.1.rom` exactly as the two releases' images do.
+- **Its size AND its sha256 are checked every time it is used**, not only when
+  it is downloaded.  A ROM is 512 KB and hashing it is nothing next to a boot;
+  it is also the one file whose corruption gives a guest that boots to a blank
+  screen with no diagnosis, and a file that verified when it landed can be
+  truncated afterwards by a restore or a full volume.  A copy that fails is
+  fetched again **once per fault** and then reported — never deleted, never
+  looped on.  Once per fault and not once per launch: the mark is dropped as
+  soon as a copy verifies, so damage done to the file hours later still gets
+  the one re-fetch that would fix it.
+- **The bytes that were hashed are the bytes that load.**  `loadROMFromData:`,
+  not `loadROMFromPath:`: re-reading the file after checking it would leave a
+  window, however small, in which what was verified is not what runs.
+  `emu_validate_rom_hcb` still runs inside the bridge and is still the last
+  word on whether this build can execute the image at all.
+
+### The bundled ROM is the first-launch fallback, and it is proved by hash
+
+`iOSCPM/Resources/emu_avw.rom` stays, with all four of its `project.pbxproj`
+entries.  It is a reviewed App Store asset named in `docs/ROM_ATTESTATION.md`,
+and it is what makes a first launch with no connection boot at all.
+
+What changed is that the app no longer takes its own word for what it is.
+`bundledROMFacts` measures the file — 524,288 bytes, `c7abc580…` — and it
+stands in for the catalog's `emu_avw` entry only when those match the entry the
+release publishes.  Today they do, byte for byte, so a first launch on 3.5.1
+downloads no ROM at all.  If `romwbw_disks` ever republishes that ROM, the hash
+stops matching and the published image is fetched, which is the entire point;
+an arm that shrugged and booted the older copy would undo it.
+
+### Failure is not a fallback
+
+`start()` now waits on the ROM before it touches a disk, and `prepareROM` has
+exactly two answers.  If the release's ROM cannot be had, the machine **does
+not start on that release**: an alert names the release, names the file, says
+why, and offers the two honest choices — try again, or switch back to RomWBW
+3.5.1, which this app carries a ROM for.  Falling back to the bundled ROM
+would re-create precisely the mismatch above, and would do it where nobody is
+looking.
+
+The load path refuses one more pairing that a checksum cannot catch: the image
+is asked what release it is (`emu_romwbw_release_of_image` through the bridge)
+and a ROM whose HCB disagrees with the release in play is refused rather than
+booted.  A hash says the bytes are the published ones; it cannot say what the
+four bytes at 0x103 hold, and those are what the guest reports.
+
+`romReleaseMismatchNotice` is kept and rewritten.  It used to mean "the bundled
+ROM's release is not the release in play", which stopped being a mismatch the
+moment the release's own ROM could be fetched — leaving it saying so would have
+turned the one warning that matters into a line every 3.6.0 user learns to
+ignore.  It now means "the ROM on offer is for another release", which in
+normal operation is unreachable, and is kept for the launch where no catalog
+has been read yet.
+
+### One download path, not two
+
+The ROM is fetched through `downloadDiskFromSettings`, the same transfer the
+disks use, by describing it as a `DownloadableDisk`.  That path already refuses
+a catalog filename that is not a plain leaf, hashes the temp file **before**
+anything replaces what is on disk, stages into `<name>.incoming` and swaps,
+retries three times, and reports progress into the same overlay.  A second
+implementation of all that for a 512 KB file would have been a second thing to
+get wrong.  What it does that a ROM has no use for is inert rather than
+incorrect: `refreshAvailableDisks()` lists `.img` files only, so a `.rom` never
+appears as a disk.
+
+Settings gained a line under the ROM picker saying where the bytes come from —
+"this app already carries these exact bytes", "downloaded", or "512 KB to
+download" — and a Download button for the person who would rather not discover
+they have no signal at the moment they want to boot.
+
+### What a remembered ROM name means
+
+The choice is stored as the catalog `id` under `selectedROMID.v0`, not as a
+filename: `emu_rcz80` means the same ROM under every release, while
+`emu_rcz80-v0-3.5.1.rom` names one release's file.  The old `selectedROM` key
+is left in place, unread, as `catalogCacheTag` is.
+
+A saved profile still carries a filename, and `ROMOption.answersTo` resolves it
+by id, so a profile written by build 64 — `romFilename` `"emu_avw.rom"`, a name
+no catalog has ever published — applies cleanly instead of reporting the ROM
+unresolved for every profile a user has.
+
+`docs/DISK_DISTRIBUTION.md` is the live description of this scheme, so its
+"ROMs are published in the catalog but are **not** downloaded" paragraph is
+rewritten rather than left to contradict the code, and `fetchROM` is added to
+the list of what reaches the one verified download path.
+`docs/DISK_CATALOG_PINNING.md` is untouched: it carries its own superseded
+banner and describes the tags builds in the field are still hardwired to.
+
+### What was deliberately not changed
+
+`docs/ROM_ATTESTATION.md` is untouched.  It is a signed filing to Apple and it
+describes the bundled ROM accurately; whether it should gain a paragraph about
+ROMs fetched at runtime is a decision for a person before the next submission.
+
+Which release a FRESH install starts on is also unchanged: still 3.5.1, the
+bundled ROM's, although the index publishes 3.6.0 as `default: true`.  That was
+forced until now — 3.5.1 was the only release this app had a ROM for — and it
+is a choice from here on, so `RomWBWIndex.preferred` says at the ranking that it
+is one.  A user who picks 3.6.0 gets 3.6.0's ROM and no mismatch, which is what
+this build is for; moving every new install onto it is a separate decision with
+a store release attached.  Both are open items in `todo.txt`.
+
 ## Version 1.5.1 (Build 64)
 
 **NOT COMPILED.**  Written on a Linux machine with no Xcode: not built, not

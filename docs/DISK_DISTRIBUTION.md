@@ -212,13 +212,26 @@ obey are in `romwbw_disks/docs/CATALOG_SCHEMA.md` §6.1 — unknown fields ignor
 entries keyed on `id`, `roms[]` neither assumed present nor assumed to contain
 `emu_avw`, optional fields absent, `generation` compared and never computed.
 
-ROMs are published in the catalog but are **not** downloaded: the app still
-boots `emu_avw.rom` from its bundle, because `docs/ROM_ATTESTATION.md` is an App
-Store filing naming that file and an app whose only ROM is a download cannot
-boot on a first offline launch. Selecting a release the bundle does not carry is
-allowed and is warned about in the picker: RomWBW prints
-`*** WARNING: HBIOS/CBIOS Version Mismatch ***` when the disks and the ROM
-disagree.
+The ROM comes from the catalog too, from build 65. Which one is the `roms[]`
+entry flagged `default: true`, or the first entry when a catalog flags none —
+never by array position and never by looking for `emu_avw`. It is stored beside
+the disks under its catalog filename (`emu_avw-v0-3.6.0.rom`), so two releases'
+ROMs coexist as their disks do, and its `size` and `sha256` are checked against
+the catalog **every time it is used**, not only when it is downloaded. A copy
+that fails is fetched again once and then reported; nothing here deletes a ROM.
+
+`iOSCPM/Resources/emu_avw.rom` still ships, and still boots. It is a reviewed
+App Store asset named in `docs/ROM_ATTESTATION.md`, and it is what makes the
+release it declares work with no network at all: its bytes ARE
+`emu_avw-v0-3.5.1.rom`, which the app proves by hash rather than by assuming,
+so on 3.5.1 there is no ROM download.
+
+What the bundled ROM is not is a substitute. A release whose ROM cannot be
+fetched or cannot be verified **does not start**: the app names the release, the
+file and the reason, and offers either to try again or to switch back to the
+release it carries a ROM for. Booting the bundled ROM under another release
+would produce `*** WARNING: HBIOS/CBIOS Version Mismatch ***` part-way through a
+boot, which is the pairing this whole scheme exists to prevent.
 
 ## Client Implementation
 
@@ -270,10 +283,11 @@ as `Codable` structs, and `Tests/CatalogDocumentTests.swift` covers them.
 **Shipped 2026-09-01.** Every download is verified before it is installed.
 
 The only download path is `downloadDiskFromSettings` in
-`EmulatorViewModel.swift`, reached from `downloadDisk` (the Settings button) and
-from `downloadDiskWithCompletion` (the first-run fetch). It hashes the temp file
-and, on a mismatch, retries up to three times before failing with
-`Checksum mismatch - not saved`.
+`EmulatorViewModel.swift`, reached from `downloadDisk` (the Settings button),
+from `downloadDiskWithCompletion` (the first-run fetch), and from `fetchROM`
+(build 65, the ROM described above, which is handed to it as a
+`DownloadableDisk`). It hashes the temp file and, on a mismatch, retries up to
+three times before failing with `Checksum mismatch - not saved`.
 
 **The order is the point.** Verification happens on the temp file, before the
 destination is touched. A corrupt or truncated download therefore costs a retry

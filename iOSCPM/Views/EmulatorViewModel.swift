@@ -8,7 +8,7 @@ import AVFoundation
 import CryptoKit
 import Network
 
-// ROM option with name and filename
+// One ROM the app can load: the one in its bundle, or one the release publishes.
 struct ROMOption: Identifiable, Hashable, Equatable {
     /// The filename is the identity, exactly as it is for DiskOption below.
     ///
@@ -18,11 +18,36 @@ struct ROMOption: Identifiable, Hashable, Equatable {
     /// built once: the picker at ContentView tags its rows with
     /// `rom as ROMOption?` and SwiftUI matches the tag against selectedROM by
     /// ==, so a value rebuilt from a catalog would match no tag and the picker
-    /// would go blank on every refresh. Identity by filename is the same
-    /// convention every other keyed store in this file already uses.
+    /// would go blank on every refresh. `availableROMs` IS rebuilt from a
+    /// catalog now - on every fetch and on every release switch - so that trap
+    /// is no longer theoretical, and identity by filename is what defuses it.
     var id: String { filename }
     let name: String
     let filename: String
+
+    /// The catalog's own id - "emu_avw" - which is the same under every RomWBW
+    /// release while the filename carries the release. It is what the CHOICE is
+    /// remembered as: someone who picked EMU RCZ80 under 3.5.1 means EMU RCZ80
+    /// under 3.6.0 too. Keying a remembered ROM on the id rather than on a
+    /// parsed filename is what romwbw_disks docs/CATALOG_SCHEMA.md §6.1 asks
+    /// for.
+    let romID: String
+
+    /// The catalog entry these bytes have to match, or nil for the ROM in the
+    /// app bundle - which no catalog publishes and which is verified by being
+    /// what this build shipped.
+    let catalogEntry: CatalogROM?
+
+    /// The RomWBW release this ROM is for, where it can be known without
+    /// reading the image: the catalog's `romwbw_version` for a published ROM,
+    /// and what the bundled image's own HCB says for the bundled one.
+    let romwbwRelease: String?
+
+    /// Does this option answer to a ROM name something wrote down earlier - a
+    /// saved profile's `romFilename`, or the remembered choice?
+    func answersTo(_ storedName: String) -> Bool {
+        CatalogROM.refers(storedName, toID: romID, filename: filename)
+    }
 
     // Equatable and Hashable on the filename, for the reason above.
     static func == (lhs: ROMOption, rhs: ROMOption) -> Bool {
@@ -31,6 +56,18 @@ struct ROMOption: Identifiable, Hashable, Equatable {
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(filename)
+    }
+}
+
+extension ROMOption {
+
+    /// A ROM the release publishes, as the picker's row.
+    init(catalog entry: CatalogROM, release: String?) {
+        self.init(name: entry.displayName,
+                  filename: entry.filename,
+                  romID: entry.id,
+                  catalogEntry: entry,
+                  romwbwRelease: release)
     }
 }
 
@@ -171,6 +208,25 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var downloadingDiskName: String = ""
     @Published var downloadingProgress: Double = 0
 
+    /// The ROM for the release in play cannot be used, and the machine is not
+    /// starting. Its own alert rather than showError's, because this one offers
+    /// a way out - switching back to the release this app carries a ROM for -
+    /// and an OK button on its own would leave the user with a Play button that
+    /// refuses and no idea what to do about it.
+    @Published var showingROMProblem: Bool = false
+    @Published private(set) var romProblemMessage: String = ""
+
+    /// ROM files already fetched a second time because the copy on this device
+    /// did not match the catalog. A bad copy is re-downloaded ONCE; a second
+    /// failure is reported rather than retried for ever, since the fault is
+    /// then in the catalog or the server and no amount of data will fix it.
+    /// Cleared again by `fetchROM` the moment a copy verifies, so the budget is
+    /// one re-fetch per FAULT rather than one per launch. In memory only: a
+    /// relaunch is a fair second chance too, and the download path never
+    /// installs unverified bytes, so the worst a wrong entry can cost is one
+    /// more 512 KB transfer.
+    private var romRefetched: Set<String> = []
+
     // Host file transfer (R8/W8 utilities)
     @Published var showingHostFileImporter: Bool = false
     @Published var showingHostFileExporter: Bool = false
@@ -184,33 +240,81 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // the Imports folder (so a later R8 can read it). Not tied to any guest wait.
     @Published var showingImportToInbox: Bool = false
 
-    // ROM selection
+    // MARK: The ROM
+    //
+    // The last thing in this app that was pinned to one RomWBW release. Disks,
+    // the catalog URL and the release choice all come from the published index
+    // already; the ROM did not, so RomWBW 3.6.0 could be published stable and
+    // default and still not reach a user without a store release of this app -
+    // which is the cost romwbw_disks exists to remove.
+    //
+    // The rules, in full, and all three clients follow the same ones:
+    //
+    //   1. The ROM for a release is the entry in that release's catalog
+    //      `roms[]` flagged `default: true`, or the first entry when none is -
+    //      never roms[0] by position, and never "the one called emu_avw".
+    //   2. It lives beside the disks, under its catalog filename, which already
+    //      carries the release: emu_avw-v0-3.6.0.rom. Two releases' ROMs
+    //      coexist exactly as their disks do.
+    //   3. Its size AND its sha256 are checked before it is used, EVERY time,
+    //      not only when it is downloaded.
+    //   4. The bundled ROM stays, and is what a first offline launch boots. It
+    //      is not a substitute for another release's ROM.
+    //   5. It lands BEFORE the emulator starts, or the machine does not start.
+    //      Falling back to the bundled ROM would pair one release's disks with
+    //      another release's HBIOS - the mismatch this whole thing removes -
+    //      and would do it invisibly.
+
+    /// Which ROM the user picked. The picker binds straight to this.
     @Published var selectedROM: ROMOption? {
         didSet {
+            // The catalog id, not the filename: see selectedROMIDKey.
             if let rom = selectedROM {
-                UserDefaults.standard.set(rom.filename, forKey: "selectedROM")
+                UserDefaults.standard.set(rom.romID, forKey: Self.selectedROMIDKey)
             }
         }
     }
-    /// The ROMs this app can load: the one in its bundle.
+
+    /// Where the ROM choice is remembered.
     ///
-    /// Still one entry, and still a `let`. The v0 catalog does serve ROMs -
-    /// two per release, `emu_avw` flagged default - and `loadROMFromPath:`
-    /// already exists on the bridge, so turning this into catalog data is a
-    /// short step. It is deliberately not taken here: docs/ROM_ATTESTATION.md
-    /// is an App Store filing naming emu_avw.rom specifically, an app whose
-    /// only ROM is a download has nothing to boot on a first offline launch,
-    /// and a half-done version of it - offering a ROM the app cannot actually
-    /// load - would be worse than not offering one. What the release picker
-    /// does instead is SAY when the release in play is not the bundled ROM's;
-    /// see romReleaseMismatchNotice.
+    /// The catalog `id`, under one key for the interface rather than one per
+    /// release. "emu_rcz80" means the same ROM under every release, while
+    /// `emu_rcz80-v0-3.5.1.rom` names one release's file - and choosing between
+    /// the two published ROMs is a preference about which machine the user
+    /// wants, which should survive a release switch the way the terminal
+    /// settings do. It is also what the schema asks for: key on `id`.
     ///
-    /// ROMOption's identity is the filename, so this array can become computed
-    /// without the picker's tags going stale. That was the trap: `let id =
-    /// UUID()` made every rebuilt value compare unequal to the selection.
-    let availableROMs: [ROMOption] = [
-        ROMOption(name: "EMU AVW", filename: EmulatorViewModel.bundledROMFilename),
-    ]
+    /// The old "selectedROM" key held a bundle filename and is deliberately
+    /// left in place, unread, exactly as "catalogCacheTag" is. It costs
+    /// nothing, a user who downgrades this app finds their settings as they
+    /// left them, and nothing is lost by not reading it: it can only say
+    /// "emu_avw.rom", which resolves to the ROM the catalog flags default
+    /// anyway.
+    private static let selectedROMIDKey = "selectedROMID.\(CatalogMigration.interface)"
+
+    /// The ROMs this app can load for the release in play.
+    ///
+    /// Computed from the catalog now, not a one-element `let`. Each row is a
+    /// ROM the selected release publishes; where the bundled image IS one of
+    /// them - byte for byte, checked by hash in `resolveROM()` - that row costs
+    /// no download at all.
+    ///
+    /// With no catalog in hand - or with one that publishes no `roms[]` at
+    /// all, which §6.1 says to survive rather than assume away - the whole list
+    /// is the bundled ROM, and only when the release in play is the one it
+    /// declares. That is the first offline launch: no network, no index, and a
+    /// machine that still boots. Offering it under any OTHER release would be
+    /// the silent substitution this change exists to remove, so the list is
+    /// empty instead and `start()` says why.
+    var availableROMs: [ROMOption] {
+        if let document = catalogDocument, !document.romEntries.isEmpty {
+            let release = document.romwbwVersion ?? romwbwVersion
+            return document.romEntries.map { ROMOption(catalog: $0, release: release) }
+        }
+        guard let bundled = Self.bundledROMRelease, bundled == romwbwVersion,
+              Self.bundledROMURL != nil else { return [] }
+        return [Self.bundledROMOption]
+    }
 
     // Disk selection for slots 0-3 (OS slots) and data drives
     private var isRestoringSelections = false  // Flag to prevent didSet during restore
@@ -362,9 +466,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// The whole decoded catalog for the release in play, kept because the disk
     /// list is not all of it: `roms[]` is what says which ROM this release
-    /// publishes, and that is the difference between "your disks are for 3.6.0"
-    /// and "your disks are for 3.6.0 and the ROM booting them is not".
-    private var catalogDocument: RomWBWCatalogDocument?
+    /// publishes, which is now what the app loads rather than only what it
+    /// warns about.
+    ///
+    /// `@Published` although it is private: `availableROMs` is computed from
+    /// it, so a catalog arriving has to redraw the ROM picker. Everything else
+    /// this fetch assigns is published too, so the redraw would happen anyway -
+    /// which is exactly why it is stated here instead of being relied upon.
+    @Published private var catalogDocument: RomWBWCatalogDocument?
 
     // MARK: The RomWBW release in play
     //
@@ -434,6 +543,52 @@ class EmulatorViewModel: NSObject, ObservableObject {
     static let bundledROMFilename = "emu_avw.rom"
     static let bundledROMRelease: String? =
         RomWBWEmulator.romWBWRelease(ofBundledROM: bundledROMFilename)
+
+    /// The bundled ROM's file, or nil when this build was assembled without it.
+    /// Named with the type rather than bare, as `bundledROMFacts` below is: a
+    /// closure is a different lexical context from the property initializers
+    /// above it, and spelling the two the same way is one less thing for the
+    /// first Mac build of this file to argue about.
+    static let bundledROMURL: URL? = {
+        let name = (EmulatorViewModel.bundledROMFilename as NSString).deletingPathExtension
+        let ext = (EmulatorViewModel.bundledROMFilename as NSString).pathExtension
+        return Bundle.main.url(forResource: name, withExtension: ext)
+    }()
+
+    /// Its size and SHA-256, measured once.
+    ///
+    /// Measured rather than declared, for the same reason `bundledROMRelease`
+    /// is read out of the image: it is what lets the bundled file STAND IN for
+    /// a catalog ROM instead of merely resembling one. The v0 3.5.1 catalog's
+    /// emu_avw entry names 524,288 bytes hashing to c7abc580…, and the file in
+    /// this bundle is those exact bytes - so a first launch on 3.5.1 downloads
+    /// no ROM at all, and the claim that it need not is CHECKED rather than
+    /// asserted. Bundle a differently-built image one day and the hash simply
+    /// stops matching: the release's ROM is then fetched, which is right,
+    /// rather than quietly substituted, which is the bug.
+    ///
+    /// Mapped, and lazy like every `static let`, so the 512 KB is read the
+    /// first time a ROM is resolved and not at launch.
+    static let bundledROMFacts: (size: Int64, sha256: String)? = {
+        guard let url = EmulatorViewModel.bundledROMURL,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        return (size: Int64(data.count), sha256: EmulatorViewModel.sha256Hex(data))
+    }()
+
+    /// The bundled ROM as a picker row.
+    ///
+    /// Only ever offered when no catalog has been read, so it is the offline
+    /// first launch and nothing else; where a catalog IS in hand the bundle
+    /// gets no row of its own but stands in for the entry whose bytes it
+    /// already is. Its `romID` is its own stem, which is also the catalog id of
+    /// the ROM it is a copy of - that is what makes a remembered "emu_avw"
+    /// resolve to the same ROM either way.
+    static let bundledROMOption = ROMOption(
+        name: "EMU AVW",
+        filename: bundledROMFilename,
+        romID: (bundledROMFilename as NSString).deletingPathExtension,
+        catalogEntry: nil,
+        romwbwRelease: bundledROMRelease)
 
     /// The release to start on when the user has never chosen one.
     ///
@@ -942,7 +1097,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
         var unresolved: [String] = []
 
         if !profile.romFilename.isEmpty {
-            if let rom = availableROMs.first(where: { $0.filename == profile.romFilename }) {
+            // By filename first, then by catalog id. A profile saved before the
+            // ROM came from the catalog carries "emu_avw.rom", and one saved
+            // under another release carries that release's filename; both mean
+            // "the emu_avw ROM", which every release publishes. Matching on the
+            // exact filename alone would report the ROM unresolved for every
+            // profile a user already has.
+            if let rom = availableROMs.first(where: { $0.answersTo(profile.romFilename) }) {
                 selectedROM = rom
             } else {
                 unresolved.append("ROM \(profile.romFilename)")
@@ -1264,15 +1425,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // MARK: - Resource Loading
 
     func loadBundledResources() {
-        // Restore saved ROM selection (sync - ROMs are bundled)
-        if let savedROM = UserDefaults.standard.string(forKey: "selectedROM") {
-            selectedROM = availableROMs.first { $0.filename == savedROM }
-        }
-        if selectedROM == nil {
-            selectedROM = availableROMs.first
-        }
+        // The ROM choice, against what this release offers. With no catalog yet
+        // that is the app's own ROM and only when the release in play is the
+        // one it declares - which is the offline first launch. The catalog
+        // fetch below re-resolves it against `roms[]` the moment it lands.
+        restoreROMSelection()
 
-        // Fetch disk catalog from remote XML (async - will call restoreDiskSelections when done)
+        // Fetch the disk catalog (async - calls restoreDiskSelections when done)
         fetchDiskCatalog()
     }
 
@@ -1357,28 +1516,67 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // This prevents old disks from persisting when user reduces disk count
         emulator?.closeAllDisks()
 
-        // Load selected ROM
-        let romFile = selectedROM?.filename ?? Self.bundledROMFilename
-        debugPrint("[EmulatorVM] Loading ROM: \(romFile)")
-        guard emulator?.loadROM(fromBundle: romFile) == true else {
-            // The bridge records why: missing from the bundle, unreadable, or
-            // rejected by the core's HCB validation (a corrupt or wrong-version
-            // image). Saying "not found" for all three sends people hunting for
-            // a file that is right there.
-            let reason = emulator?.lastROMError ?? "\(romFile) could not be loaded"
-            debugPrint("[EmulatorVM] ERROR: Failed to load ROM: \(romFile) - \(reason)")
-            showError("Failed to load ROM: \(romFile)\n\(reason)")
+        // The ROM, from wherever this release's copy actually is: the app
+        // bundle when the bundled image is what the catalog publishes, and
+        // Documents/Disks when it is not.
+        //
+        // Checked here rather than trusted from start(). This is the moment the
+        // bytes reach the core, and it is reached again from every later Play,
+        // by which time the file can have been replaced by a restore or a sync.
+        // loadROMFromData: takes the exact bytes that were hashed, so there is
+        // no window between the check and the load in which the file could
+        // change - which loadROMFromPath: would have left open.
+        let resolution = resolveROM()
+        guard case .ready(let romImage, let romOption) = resolution else {
+            // No fallback to the bundled ROM. See resolveROM: substituting it
+            // is the mismatch this whole path exists to prevent, and it would
+            // happen where nobody is looking.
+            switch resolution {
+            case .ready:
+                break
+            case .needsDownload(_, let asset, _):
+                reportROMProblem(romProblemText(file: asset.filename,
+                                                reason: "it is not on this device yet"))
+            case .unavailable(let reason):
+                reportROMProblem(reason)
+            }
+            return false
+        }
+
+        // What the IMAGE says it is, now that its bytes are in hand. The hash
+        // says these are the bytes the catalog named; it cannot say what the
+        // four HCB bytes at 0x103 hold, and those are what the guest reports
+        // and what the disks have to agree with. A ROM that verifies against
+        // the wrong release's catalog entry is a publishing mistake upstream,
+        // and starting on it is exactly the pairing this refuses to make.
+        if let declared = RomWBWEmulator.romWBWRelease(ofImageData: romImage),
+           declared != romwbwVersion {
+            reportROMProblem(romProblemText(
+                file: romOption.filename,
+                reason: "the image says it is RomWBW \(declared), not \(romwbwVersion)"))
+            return false
+        }
+
+        debugPrint("[EmulatorVM] Loading ROM: \(romOption.filename)")
+        guard emulator?.loadROM(fromData: romImage) == true else {
+            // The bridge records why: unreadable, or rejected by the core's HCB
+            // validation. That check stays the last line of defence - verifying
+            // a hash says the bytes are the published ones, not that this build
+            // can run them.
+            let reason = emulator?.lastROMError ?? "\(romOption.filename) could not be loaded"
+            debugPrint("[EmulatorVM] ERROR: Failed to load ROM: \(romOption.filename) - \(reason)")
+            showError("Failed to load ROM: \(romOption.filename)\n\(reason)")
             statusText = "Error: \(reason)"
             return false
         }
-        debugPrint("[EmulatorVM] ROM loaded successfully: \(romFile)")
-        statusText = "ROM loaded: \(selectedROM?.name ?? romFile)"
+        debugPrint("[EmulatorVM] ROM loaded successfully: \(romOption.filename)")
+        statusText = "ROM loaded: \(romOption.name)"
 
-        // The disks about to be mounted may be for another RomWBW release than
-        // the ROM that just loaded. RomWBW itself prints
-        // *** WARNING: HBIOS/CBIOS Version Mismatch *** when that happens, in
-        // the middle of a boot; this puts the same fact where someone reading a
-        // log will find it, naming both releases.
+        // Should be nil from here on: the ROM that just loaded is this
+        // release's own. Kept because it is the safety net for a user whose
+        // picker is still showing the bundled ROM under another release, and
+        // because a log that says so is cheaper than a bug report about a
+        // warning in the middle of a boot.
         if let mismatch = romReleaseMismatchNotice {
             debugPrint("[EmulatorVM] \(mismatch)")
         }
@@ -1706,18 +1904,33 @@ class EmulatorViewModel: NSObject, ObservableObject {
             return
         }
 
-        // Download if needed, otherwise start
-        if !neededDownloads.isEmpty {
-            statusText = "Downloading \(neededDownloads.count) disk(s)..."
-            downloadDisksAndStart(neededDownloads)
-        } else if alreadyDownloaded.isEmpty {
-            // Nothing selected or all slots empty
-            showError("No disks available to load. Please download disks in Settings first.")
-            statusText = "Error: No disks"
-        } else {
-            // All disks ready
-            debugPrint("[Start] All disks ready, starting emulator")
-            startEmulator()
+        // The ROM first, and everything below waits on it.
+        //
+        // This is the one resource with no degraded mode. A disk that will not
+        // download leaves an empty drive; a ROM that will not download leaves
+        // either nothing to execute or - if the bundled one were substituted -
+        // a guest whose CBIOS and HBIOS disagree, which RomWBW announces in the
+        // middle of a boot and most people scroll past. So it is fetched before
+        // the disks (512 KB against tens of megabytes, and it is the blocking
+        // one), verified, and a failure stops the start rather than softening
+        // it. prepareROM has already told the user what is wrong and offered
+        // the way out by the time it answers false.
+        prepareROM { [weak self] romReady in
+            guard let self = self, romReady else { return }
+
+            // Download if needed, otherwise start
+            if !neededDownloads.isEmpty {
+                self.statusText = "Downloading \(neededDownloads.count) disk(s)..."
+                self.downloadDisksAndStart(neededDownloads)
+            } else if alreadyDownloaded.isEmpty {
+                // Nothing selected or all slots empty
+                self.showError("No disks available to load. Please download disks in Settings first.")
+                self.statusText = "Error: No disks"
+            } else {
+                // All disks ready
+                self.debugPrint("[Start] All disks ready, starting emulator")
+                self.startEmulator()
+            }
         }
     }
 
@@ -2477,6 +2690,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
         diskCatalog = []
         availableDisks = [DiskOption(name: "None", filename: "")]
 
+        // The ROM belongs to the release that is leaving too: its filename
+        // carries the release, and the file it names boots that release and no
+        // other. Re-resolved here against an empty catalog, so the picker shows
+        // this app's own ROM if this is its release and nothing at all if it is
+        // not - and then again when the new catalog lands.
+        restoreROMSelection()
+
         // Under a per-release key the boot string cannot simply be kept: it is
         // the other release's, and RomWBW would fail its checksum and silently
         // reset. Read this release's own.
@@ -2486,28 +2706,406 @@ class EmulatorViewModel: NSObject, ObservableObject {
         if refetch { fetchDiskCatalog() }
     }
 
-    /// What to say when the disks in play are not for the ROM that will boot
-    /// them, or nil when they agree.
+    // MARK: - The release's ROM
+
+    /// The release's own choice of ROM, as a row.
     ///
-    /// This app still boots the ROM in its own bundle - docs/ROM_ATTESTATION.md
-    /// is an App Store filing naming emu_avw.rom, and an app whose only ROM is
-    /// a download has nothing to boot on a first offline launch - so selecting
-    /// a release the bundle does not carry gives a machine whose CBIOS and
-    /// HBIOS disagree. RomWBW says so itself, at boot, with
-    /// *** WARNING: HBIOS/CBIOS Version Mismatch ***. Saying it here, where the
-    /// choice is made, is the difference between a warning and a surprise.
+    /// The entry flagged `default: true`, and the first entry when a catalog
+    /// flags none - `RomWBWCatalogDocument.defaultROM` decides that, so it is
+    /// decided once and in the place that can be tested. Never `roms[0]` by
+    /// position, and never "the one called emu_avw": the schema promises
+    /// neither.
+    private var defaultROMOption: ROMOption? {
+        let options = availableROMs
+        if let flagged = catalogDocument?.defaultROM,
+           let match = options.first(where: { $0.romID == flagged.id }) {
+            return match
+        }
+        return options.first
+    }
+
+    /// The ROM row the app would actually use: the selection while it is still
+    /// one of this release's, and the release's default otherwise.
     ///
-    /// The ROM this release publishes is named from the catalog's `roms[]` by
-    /// its `default` flag - not by position and not by looking for "emu_avw",
-    /// neither of which the schema promises - and is simply left out of the
-    /// sentence when the catalog carries no ROMs at all.
-    var romReleaseMismatchNotice: String? {
+    /// The fallback is not politeness. `availableROMs` is rebuilt by every
+    /// catalog fetch and every release switch and `selectedROM` is re-resolved
+    /// on both, but a fetch answering late - or a view read in between - can
+    /// see a selection belonging to the release that just left. Falling back to
+    /// this release's default is how that shows as the right ROM instead of
+    /// resolving to another release's file.
+    private var romInPlay: ROMOption? {
+        availableROMs.first(where: { $0 == selectedROM }) ?? defaultROMOption
+    }
+
+    /// Where the ROM for the release in play is, or what has to happen first.
+    enum ROMResolution {
+        /// Present and checked. These exact bytes, from this option - the
+        /// caller loads what was hashed rather than re-reading the file, so
+        /// nothing can change between the check and the load.
+        case ready(Data, ROMOption)
+        /// Not usable yet, but the catalog says where it is and what it must
+        /// hash to. `replacing` is why the copy already on this device was
+        /// rejected, and nil when there simply is no copy.
+        case needsDownload(ROMOption, DownloadableDisk, replacing: String?)
+        /// Nothing to load and nothing to fetch. The text is a finished
+        /// sentence naming the release, the file where there is one, and why.
+        case unavailable(String)
+    }
+
+    /// Find the release's ROM and check it, every time, before it is used.
+    ///
+    /// Not cached, deliberately: 512 KB of SHA-256 is nothing next to a boot,
+    /// and a ROM that verified when it landed can be truncated afterwards by a
+    /// full volume, a restore from a backup or a container edited by hand. A
+    /// corrupt ROM is the one file whose damage gives a guest that boots to
+    /// nothing at all, with no message to work from.
+    ///
+    /// There is no arm that returns the bundled ROM for another release. That
+    /// is the whole point of the exercise: it would pair 3.6.0 disks with a
+    /// 3.5.1 HBIOS, print *** WARNING: HBIOS/CBIOS Version Mismatch *** in the
+    /// middle of a boot, and do it invisibly.
+    private func resolveROM() -> ROMResolution {
+        guard let option = romInPlay else {
+            return .unavailable(romProblemText(
+                file: nil,
+                reason: "its catalog has not been read yet,"
+                    + " or it publishes no ROM this app can load"))
+        }
+
+        // The bundled ROM, when it is the whole list - no catalog has been read
+        // yet, or the one that has been read publishes no roms[]. It boots the
+        // release it declares and no other.
+        guard let entry = option.catalogEntry else {
+            guard let release = Self.bundledROMRelease, release == romwbwVersion,
+                  let url = Self.bundledROMURL,
+                  let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+                return .unavailable(romProblemText(
+                    file: option.filename,
+                    reason: "the ROM this app carries is RomWBW"
+                        + " \(Self.bundledROMRelease ?? "an unreadable release"), not"
+                        + " \(romwbwVersion), and no catalog has been fetched to get one from"))
+            }
+            return .ready(data, option)
+        }
+
+        guard let document = catalogDocument else {
+            // The catalog went away between building the row and resolving it.
+            // Nothing to fetch from: base_url lives in the document.
+            return .unavailable(romProblemText(
+                file: entry.filename,
+                reason: "the catalog it comes from is no longer loaded"))
+        }
+
+        // The bundled image standing in for a published ROM, by hash. Same
+        // check a downloaded copy gets, against the same catalog fields: the
+        // bundled 3.5.1 emu_avw IS emu_avw-v0-3.5.1.rom, byte for byte
+        // (524,288 bytes, c7abc580…), so the release this app ships with needs
+        // no network on a first launch.
+        //
+        // By hash and not by "same release, same id", deliberately. If
+        // romwbw_disks ever republishes 3.5.1's emu_avw with different bytes,
+        // this stops matching and the published image is FETCHED - which is the
+        // entire point of reading the ROM from the catalog, and it would be
+        // undone by an arm that shrugged and booted the older copy. What that
+        // costs is the offline first launch of a device that has never fetched
+        // it, on a release whose ROM has been rebuilt. Nothing published today
+        // is in that state, and a rebuild is a decision someone makes upstream
+        // rather than something that drifts.
+        if let facts = Self.bundledROMFacts,
+           entry.problem(byteCount: facts.size, sha256: facts.sha256) == nil,
+           let url = Self.bundledROMURL,
+           let data = try? Data(contentsOf: url, options: .mappedIfSafe) {
+            return .ready(data, option)
+        }
+
+        let asset = Self.romAsset(entry, from: document)
+        let url = downloadsDirectory.appendingPathComponent(entry.filename)
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+            return .needsDownload(option, asset, replacing: nil)
+        }
+
+        if let problem = entry.problem(byteCount: Int64(data.count),
+                                       sha256: Self.sha256Hex(data)) {
+            // Fetched again ONCE, and then reported. The file is not deleted
+            // and cannot be: the download path stages into `<name>.incoming`
+            // and only replaces the destination with bytes that already
+            // verified, so a failed re-fetch leaves the user's copy exactly
+            // where it was. Retrying for ever instead would spend a metered
+            // connection on a catalog entry that is simply wrong.
+            if romRefetched.contains(CatalogMigration.fold(entry.filename)) {
+                return .unavailable(romProblemText(
+                    file: entry.filename,
+                    reason: "it is still wrong after being fetched again - \(problem)."
+                        + " The copy on this device has been left exactly where it is"))
+            }
+            return .needsDownload(option, asset, replacing: problem)
+        }
+
+        return .ready(data, option)
+    }
+
+    /// The ROM as the download path's own type.
+    ///
+    /// `downloadDiskFromSettings` is the one verified transfer in this app. It
+    /// refuses a catalog filename that is not a plain leaf, hashes the temp
+    /// file against the catalog's sha256 BEFORE anything replaces what is on
+    /// disk, stages into `<name>.incoming` and swaps, retries three times, and
+    /// reports progress the way every other download does. Writing a second
+    /// copy of all that for a 512 KB file would be a second thing to get wrong.
+    ///
+    /// What it does that a ROM has no use for is inert rather than incorrect:
+    /// `refreshAvailableDisks()` lists `.img` files only, so a `.rom` never
+    /// appears as a disk, and the ledger record it writes is provenance for a
+    /// file nothing ever asks the ledger about.
+    private static func romAsset(_ entry: CatalogROM,
+                                 from document: RomWBWCatalogDocument) -> DownloadableDisk {
+        DownloadableDisk(
+            catalogID: entry.id,
+            filename: entry.filename,
+            name: entry.displayName,
+            description: "RomWBW \(document.romwbwVersion ?? "") ROM",
+            url: document.assetURL(for: entry.filename),
+            sizeBytes: entry.size ?? 0,
+            // The catalog carries no license field for a ROM, and this one is
+            // never displayed - the ROM rows are not disk rows. "Unknown" is
+            // what the disk path already puts when a document does not say;
+            // what the ROM actually is licensed under is in
+            // docs/ROM_ATTESTATION.md.
+            license: "Unknown",
+            sha256: entry.sha256,
+            defaultSlot: nil)
+    }
+
+    /// Re-resolve the ROM choice against the release in play.
+    ///
+    /// Called wherever `availableROMs` can have changed underneath it: at
+    /// launch, on every adopted catalog, and after a release switch. A picker
+    /// whose selection matches no row renders blank, and the rows are catalog
+    /// data now - they arrive over the network and they change with the
+    /// release.
+    private func restoreROMSelection() {
+        let options = availableROMs
+        guard !options.isEmpty else {
+            // Nothing to offer. Deliberately not left pointing at the previous
+            // release's ROM: `start()` decides from this selection, and a stale
+            // one is a ROM for a machine that is no longer selected.
+            selectedROM = nil
+            return
+        }
+        if let remembered = UserDefaults.standard.string(forKey: Self.selectedROMIDKey),
+           let match = options.first(where: { $0.answersTo(remembered) }) {
+            selectedROM = match
+            return
+        }
+        selectedROM = defaultROMOption
+    }
+
+    /// Put the release's ROM in place, then say whether the machine may start.
+    ///
+    /// `true` means the ROM for the release in play is on this device and its
+    /// bytes have been checked against the catalog. `false` means the machine
+    /// does not start: the user has been told which release, which file and
+    /// why, and offered the release this app carries a ROM for. There is
+    /// deliberately no third answer.
+    ///
+    /// This is the part that differs from a disk. A missing disk is an empty
+    /// drive; a missing ROM is either nothing to execute or - if the bundled
+    /// one were quietly substituted - a guest that misbehaves and says so in a
+    /// warning most people will scroll past.
+    private func prepareROM(then completion: @escaping (Bool) -> Void) {
+        switch resolveROM() {
+        case .ready(_, let option):
+            debugPrint("[ROM] \(option.filename) is here and verified")
+            completion(true)
+
+        case .needsDownload(let option, let asset, let replacing):
+            // The same overlay a disk download puts up. 512 KB is quick, but on
+            // a bad connection it is the one thing standing between the user
+            // and a booting machine, so it must not look like a hang.
+            isDownloading = true
+            downloadingDiskName = "\(option.name) ROM for RomWBW \(romwbwVersion)"
+            downloadingProgress = 0
+            fetchROM(option: option, asset: asset, replacing: replacing) { [weak self] ok in
+                self?.isDownloading = false
+                self?.downloadingDiskName = ""
+                completion(ok)
+            }
+
+        case .unavailable(let reason):
+            reportROMProblem(reason)
+            completion(false)
+        }
+    }
+
+    /// Fetch one ROM and check what landed.
+    private func fetchROM(option: ROMOption, asset: DownloadableDisk, replacing: String?,
+                          then completion: @escaping (Bool) -> Void) {
+        if let rejected = replacing {
+            // Once. See resolveROM.
+            romRefetched.insert(CatalogMigration.fold(asset.filename))
+            debugPrint("[ROM] \(asset.filename) rejected (\(rejected)); fetching it again")
+        }
+        debugPrint("[ROM] Fetching \(asset.url)")
+        statusText = "Downloading \(asset.name) ROM..."
+
+        downloadDiskFromSettings(asset, attemptsRemaining: 3, session: downloadSession,
+                                 expectedFacts: nil)
+        waitForDownloadCompletion(asset.filename) { [weak self] transferred in
+            guard let self = self else { completion(false); return }
+            guard transferred else {
+                var detail = "the download did not finish"
+                if case .error(let message)? = self.downloadStates[asset.filename] {
+                    detail = message
+                }
+                self.reportROMProblem(self.romProblemText(file: asset.filename, reason: detail))
+                completion(false)
+                return
+            }
+            // What landed is checked before it runs, by the same path that
+            // checks a copy that was already here. A transfer that reports
+            // success and a file that verifies are two different facts.
+            switch self.resolveROM() {
+            case .ready:
+                // The one re-fetch is spent per fault, not per launch. These
+                // bytes verify, so the fault that provoked the re-fetch is
+                // over; leaving the mark standing would make the NEXT damage to
+                // this file - a restore, a full volume, hours later in the same
+                // session - report itself as "still wrong after being fetched
+                // again", which it would not be, and refuse the fetch that
+                // would have fixed it.
+                self.romRefetched.remove(CatalogMigration.fold(asset.filename))
+                self.statusText = "ROM ready: \(asset.name)"
+                completion(true)
+            case .unavailable(let reason):
+                self.reportROMProblem(reason)
+                completion(false)
+            case .needsDownload(_, _, let stillWrong):
+                self.reportROMProblem(self.romProblemText(
+                    file: asset.filename,
+                    reason: stillWrong ?? "it did not arrive"))
+                completion(false)
+            }
+        }
+    }
+
+    /// Fetch the release's ROM now, from Settings, rather than when Play is
+    /// pressed. Same transfer, same verification, same messages.
+    func downloadSelectedROM() {
+        switch resolveROM() {
+        case .ready(_, let option):
+            statusText = "ROM ready: \(option.name)"
+        case .needsDownload(let option, let asset, let replacing):
+            fetchROM(option: option, asset: asset, replacing: replacing) { _ in }
+        case .unavailable(let reason):
+            reportROMProblem(reason)
+        }
+    }
+
+    /// The sentence a ROM failure gets: the release, the file, the reason, and
+    /// the honest way out.
+    ///
+    /// Never "starting anyway" and never "using the bundled one instead": if
+    /// the ROM cannot be had, the machine does not start on that release.
+    private func romProblemText(file: String?, reason: String) -> String {
+        let named = file.map { "\($0) " } ?? ""
+        var text = "The RomWBW \(romwbwVersion) ROM \(named)cannot be used: "
+            + CatalogTransfer.sentence(reason)
+        if let fallback = bundledROMFallbackRelease {
+            text += " Try again when you have a connection, or switch back to RomWBW"
+                + " \(fallback), which this app carries its own ROM for."
+        } else {
+            text += " Try again when you have a connection, or choose another ROM in Settings."
+        }
+        return text
+    }
+
+    private func reportROMProblem(_ reason: String) {
+        romProblemMessage = reason
+        showingROMProblem = true
+        statusText = "Error: no ROM for RomWBW \(romwbwVersion)"
+        debugPrint("[ROM] \(reason)")
+    }
+
+    /// The release this app carries its own ROM for, offered as the way out of
+    /// a ROM that cannot be fetched. Nil when that IS the release in play.
+    var bundledROMFallbackRelease: String? {
         guard let bundled = Self.bundledROMRelease, bundled != romwbwVersion else { return nil }
-        let published = catalogDocument?.defaultROM?.filename
-        let itWants = published.map { " (it publishes \($0))" } ?? ""
-        return "This build boots the bundled RomWBW \(bundled) ROM. "
-            + "RomWBW \(romwbwVersion) disks\(itWants) will boot under it with an "
-            + "HBIOS/CBIOS version mismatch warning until ROM downloads arrive."
+        return bundled
+    }
+
+    /// Take that offer.
+    func switchToBundledROMRelease() {
+        guard let bundled = bundledROMFallbackRelease else { return }
+        guard !isRunning else {
+            showError("Stop the emulator before changing the RomWBW release.")
+            return
+        }
+        adoptRomWBWVersion(bundled, refetch: true)
+    }
+
+    /// One line for Settings about where the selected ROM's bytes come from.
+    ///
+    /// Cheap on purpose - file existence, not a hash. It is read on every
+    /// redraw of that Form, and a wrong-looking line here costs a glance while
+    /// a corrupt file costs a boot: the hash is what `start()` does.
+    var romStatusDescription: String {
+        guard let option = romInPlay else {
+            return "No ROM for RomWBW \(romwbwVersion) yet - the catalog has not been read."
+        }
+        guard let entry = option.catalogEntry else {
+            return "\(option.filename) - the ROM in this app,"
+                + " for RomWBW \(option.romwbwRelease ?? "an unreadable release")."
+        }
+        if let facts = Self.bundledROMFacts,
+           entry.problem(byteCount: facts.size, sha256: facts.sha256) == nil {
+            return "\(entry.filename) - this app already carries these exact bytes,"
+                + " so there is nothing to download."
+        }
+        if isDiskDownloaded(entry.filename) {
+            return "\(entry.filename) - downloaded, and checked again every time it is used."
+        }
+        let size = entry.size.map { "\($0 / 1024) KB" } ?? "a ROM"
+        return "\(entry.filename) - \(size) to download."
+            + " Press Play and it is fetched before the machine starts."
+    }
+
+    /// Whether Settings should offer to fetch it now. Same cheap test.
+    var romNeedsDownload: Bool {
+        guard let entry = romInPlay?.catalogEntry else { return false }
+        if let facts = Self.bundledROMFacts,
+           entry.problem(byteCount: facts.size, sha256: facts.sha256) == nil { return false }
+        return !isDiskDownloaded(entry.filename)
+    }
+
+    /// How far the ROM download has got, or nil when none is running.
+    var romDownloadProgress: Double? {
+        guard let entry = romInPlay?.catalogEntry,
+              case .downloading(let progress)? = downloadStates[entry.filename] else { return nil }
+        return progress
+    }
+
+    /// What to say when the ROM that would boot is not the release's own, or
+    /// nil when they agree.
+    ///
+    /// It should be unreachable in normal operation now, and it is kept for the
+    /// case where it is not: someone whose picker is showing the bundled ROM
+    /// while another release is selected, because no catalog has been read yet.
+    /// Deleting it would take away the only warning such a user gets before
+    /// RomWBW prints *** WARNING: HBIOS/CBIOS Version Mismatch *** in the
+    /// middle of a boot.
+    ///
+    /// It no longer means "the bundled ROM's release is not the release in
+    /// play". That stopped being a mismatch the moment this app could fetch the
+    /// release's own ROM, and leaving it saying so would have turned the one
+    /// warning that matters into a line every 3.6.0 user learns to ignore.
+    var romReleaseMismatchNotice: String? {
+        guard let option = romInPlay,
+              let release = option.romwbwRelease,
+              release != romwbwVersion else { return nil }
+        return "The ROM on offer (\(option.filename)) is RomWBW \(release), and the disks "
+            + "in play are RomWBW \(romwbwVersion)'s. That pair boots with "
+            + "*** WARNING: HBIOS/CBIOS Version Mismatch ***, so the machine will not be "
+            + "started on it."
     }
 
     // MARK: - Disk catalog: the two-hop fetch
@@ -2762,6 +3360,10 @@ class EmulatorViewModel: NSObject, ObservableObject {
         catalogDocument = document
         diskCatalog = disks
         saveCatalogToCache(data, for: version)
+        // The ROM list is this document's `roms[]`, so the remembered choice
+        // has to be resolved against it - before restoreDiskSelections(), which
+        // ends by claiming the machine is ready to play.
+        restoreROMSelection()
         refreshAvailableDisks()
         restoreDiskSelections()
         // AFTER restoreDiskSelections, which ends by setting statusText to
@@ -3005,6 +3607,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
         debugPrint("[Catalog] Using the cached RomWBW \(romwbwVersion) catalog, \(disks.count) disks")
         catalogDocument = document
         diskCatalog = disks
+        // The saved catalog names the release's ROMs as well as its disks, so
+        // the ROM picker is right offline too - and, on the release this app
+        // bundles a ROM for, the bundled bytes still satisfy that entry and
+        // nothing has to be fetched.
+        restoreROMSelection()
         refreshAvailableDisks()
         restoreDiskSelections()
         // Safe here, unlike in the old salvage branch: these are the sha256

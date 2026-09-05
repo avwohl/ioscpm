@@ -379,6 +379,85 @@ func runAllTests() {
 
     // MARK: -
 
+    section("A ROM is checked before it is used, every time")
+
+    guard let avw = catalog.defaultROM else {
+        print("FAIL: the catalog's default ROM is missing - the checks below cannot run")
+        exit(1)
+    }
+    let goodHash = "c7abc580b3285a33e439c0d6724a9d64dd3e93733a4fc2c1b80b0bfd91f9c580"
+
+    check(catalog.assetURL(for: avw.filename)
+            == "https://example.invalid/v0-romwbw-3.5.1/emu_avw-v0-3.5.1.rom",
+          "a ROM's URL is base_url + filename, the same concatenation a disk gets")
+
+    check(avw.problem(byteCount: 524288, sha256: goodHash) == nil,
+          "the size and the checksum the catalog published, and nothing to say")
+    check(avw.problem(byteCount: 524288, sha256: goodHash.uppercased()) == nil,
+          "hex case is not a difference - the catalog writes lower case and CryptoKit "
+            + "could be formatted either way")
+    check(avw.problem(byteCount: 262144, sha256: goodHash)?.contains("524288") == true,
+          "a truncated file is caught on its size, which is the cheap half and names "
+            + "the likeliest fault - a download that stopped early")
+    check(avw.problem(byteCount: 524288,
+                      sha256: String(repeating: "0", count: 64)) != nil,
+          "and a file of the right length whose bytes are not the published ones is "
+            + "refused: this is the check that catches a ROM corrupted after it landed, "
+            + "which verifying only on download would never look at again")
+
+    let unhashed = try? decoder.decode(RomWBWCatalogDocument.self, from: Data("""
+    { "base_url": "https://example.invalid/tag/",
+      "roms": [{ "id": "nohash", "filename": "nohash.rom", "size": 524288 }] }
+    """.utf8))
+    check(unhashed?.defaultROM?.problem(byteCount: 524288, sha256: goodHash) != nil,
+          "an entry with no sha256 fails rather than being waved through - a gate that "
+            + "cannot verify must not say yes, and the disk path refuses one for the "
+            + "same reason")
+
+    let unsized = try? decoder.decode(RomWBWCatalogDocument.self, from: Data("""
+    { "base_url": "https://example.invalid/tag/",
+      "roms": [{ "id": "nosize", "filename": "nosize.rom",
+                 "sha256": "\(goodHash)" }] }
+    """.utf8))
+    // Asserted separately because the check below reads `== nil`, and every
+    // step of `unsized?.defaultROM?.problem(...)` answers nil when the one
+    // before it did. A document that failed to decode would satisfy it without
+    // the gate ever running - a green line for a test that tested nothing.
+    check(unsized?.defaultROM?.filename == "nosize.rom",
+          "the sizeless entry decoded and was found, so the check below is about the "
+            + "gate rather than about an optional chain giving up early")
+    check(unsized?.defaultROM?.problem(byteCount: 999, sha256: goodHash) == nil,
+          "an entry with no size is judged on its checksum alone: nothing in the schema "
+            + "promises a size, and upstream 3.6.0 already ships ROMs that are not 512KB")
+
+    // MARK: -
+
+    section("A remembered ROM name is matched by catalog id")
+
+    check(avw.answersTo("emu_avw-v0-3.5.1.rom"),
+          "its own filename, which is what a profile saved under this release carries")
+    check(avw.answersTo("EMU_AVW-V0-3.5.1.ROM"),
+          "case-folded, like every other name comparison in this app")
+    check(avw.answersTo("emu_avw.rom"),
+          "the BUNDLE name a build before catalog ROMs wrote down - it means emu_avw, "
+            + "and reporting every existing profile's ROM as unresolved would be the "
+            + "cost of insisting on an exact filename")
+    check(avw.answersTo("emu_avw-v0-3.6.0.rom"),
+          "and the same ROM under another release: a profile is not per release, so "
+            + "what it names is the ROM and not one release's file")
+    check(avw.answersTo("emu_avw"),
+          "the bare id, which is what the remembered choice is stored as")
+    check(!avw.answersTo("emu_rcz80-v0-3.5.1.rom"),
+          "but never the OTHER published ROM - the two ids differ, which is the whole "
+            + "reason to key on the id")
+    check(!avw.answersTo("emu_avwx"),
+          "and not a name that merely starts with the id: the boundary is the '-' the "
+            + "filename convention puts there")
+    check(!avw.answersTo(""),
+          "an empty name matches nothing, so a profile that carries no ROM is left alone")
+
+    // MARK: -
+
     section("What to say when a fetch does not produce a document")
 
     check(CatalogTransfer.problem(errorDescription: nil, statusCode: 200,

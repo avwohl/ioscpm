@@ -131,22 +131,25 @@ The reason it is keyed on provenance and not on the file's own hash is this entr
 
 ## Interface v0
 
-### The release picker offers a release this build has no ROM for
+### Only one release boots with nothing downloaded
 
-Build 64 offers every RomWBW release the emulator core can run — 3.5.1 and
-3.6.0 today. The app still boots the ROM in its **bundle**, which is 3.5.1's, so
-choosing 3.6.0 gives a machine whose disks and ROM disagree and whose guest
-prints `*** WARNING: HBIOS/CBIOS Version Mismatch ***` at boot. The picker says
-so, naming the ROM the selected release publishes, and nothing is lost by trying
-it: every store is per release and switching back restores everything.
+Build 65 fetches the selected release's ROM from the catalog, so the
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***` that choosing 3.6.0 used to
+produce is closed — that entry is gone rather than still open. What replaces it
+is a standing fact, not a bug: **the app bundles one release's ROM**, 3.5.1's,
+and any other release needs a 512 KB download once before it can start.
 
-The fix is downloading the release's own ROM, and it is deliberately not in this
-build. `loadROMFromPath:` and `loadROMFromData:` already exist on the bridge and
-are already on the live path, so what is missing is a caller that hands them a
-downloaded path, the UI to fetch one, and a decision about
-`docs/ROM_ATTESTATION.md` — an App Store filing that names `emu_avw.rom`
-specifically. Removing the bundled ROM is not an option on its own: an app whose
-only ROM is a download cannot boot on a first offline launch.
+So a device that has never fetched 3.6.0's ROM and has no connection cannot
+start 3.6.0. It says so, names the file, and offers to move back to 3.5.1; it
+does **not** start on the bundled ROM, because that is precisely the mismatch
+above and it would be invisible. Downloaded ROMs live beside the disks
+(`emu_avw-v0-3.6.0.rom`), are verified on every use, and are never deleted by
+the app.
+
+Removing the bundled ROM would not simplify this and is not on the table: an app
+whose only ROM is a download has nothing at all to boot on a first offline
+launch, and `docs/ROM_ATTESTATION.md` is an App Store filing that names
+`emu_avw.rom` specifically.
 
 ### `tools/check-disk-pins.sh` no longer answers for this port
 

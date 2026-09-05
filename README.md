@@ -75,9 +75,12 @@ carry the release — `hd1k_combo-v0-3.5.1.img` — so two RomWBW releases' disk
 side, and so can the slot selections and boot settings that go with them. Switching release
 deletes nothing.
 
-The app boots the RomWBW ROM in its own bundle. Selecting a release that ROM was not built for
-is allowed and is warned about: RomWBW prints an HBIOS/CBIOS version mismatch at boot when the
-disks and the ROM disagree.
+The ROM comes from the same catalog. The app ships one — RomWBW 3.5.1's `emu_avw.rom`, which
+is what a first launch boots with no connection — and fetches the selected release's own ROM
+when that is a different one, verifying its size and SHA-256 against the catalog every time it
+is used. A release whose ROM cannot be fetched does not start: it says what it needs and offers
+to switch back, rather than booting the bundled ROM and leaving RomWBW to print an HBIOS/CBIOS
+version mismatch part-way through a boot.
 
 ## Technical Details
 

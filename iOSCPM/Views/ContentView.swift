@@ -37,7 +37,8 @@ struct ContentView: View {
     /// instead of dismissing the dialog. Sheets are not listed: they cover the
     /// terminal entirely and present their own responder.
     private var modalHasKeyboard: Bool {
-        viewModel.showingManifestWriteWarning || viewModel.showingError || showingResetConfirm
+        viewModel.showingManifestWriteWarning || viewModel.showingError
+            || viewModel.showingROMProblem || showingResetConfirm
     }
 
     var body: some View {
@@ -324,6 +325,20 @@ struct ContentView: View {
             } message: {
                 Text(viewModel.errorMessage)
             }
+            .alert("ROM Not Available", isPresented: $viewModel.showingROMProblem) {
+                // Two honest choices, which is why this is not showError's
+                // alert: the machine does not start on this release without its
+                // ROM, and an OK button on its own would leave a Play button
+                // that refuses with nothing to do about it.
+                if let fallback = viewModel.bundledROMFallbackRelease {
+                    Button("Use RomWBW \(fallback)") {
+                        viewModel.switchToBundledROMRelease()
+                    }
+                }
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(viewModel.romProblemMessage)
+            }
             .alert("Disk May Be Overwritten", isPresented: $viewModel.showingManifestWriteWarning) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -526,15 +541,13 @@ struct SettingsView: View {
                 }
                 .listRowBackground(Color.clear)
 
-                // ROM Section
-                Section(header: Text("ROM Image")) {
-                    Picker("ROM", selection: $viewModel.selectedROM) {
-                        ForEach(viewModel.availableROMs) { rom in
-                            Text(rom.name).tag(rom as ROMOption?)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                }
+                // The ROM.
+                //
+                // Its own view, for the reason ProfileSection is: this Form is
+                // already large enough to be worth keeping out of one
+                // type-check, and this section grew a status line, a progress
+                // bar and a button.
+                ROMSection(viewModel: viewModel)
 
                 // Disk Section
                 Section(header: Text("Disk Images")) {
@@ -899,6 +912,19 @@ struct SettingsView: View {
             } message: {
                 Text(viewModel.errorMessage)
             }
+            .alert("ROM Not Available", isPresented: $viewModel.showingROMProblem) {
+                // The same alert the terminal screen carries, for the same
+                // reason showingError is on both: whichever view is on top has
+                // to be the one that can present it.
+                if let fallback = viewModel.bundledROMFallbackRelease {
+                    Button("Use RomWBW \(fallback)") {
+                        viewModel.switchToBundledROMRelease()
+                    }
+                }
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(viewModel.romProblemMessage)
+            }
             .alert("Disk May Be Overwritten", isPresented: $viewModel.showingManifestWriteWarning) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -1225,6 +1251,51 @@ extension View {
             ) { result in
                 viewModel.handleImportToInbox(result)
             }
+    }
+}
+
+
+// MARK: - The ROM
+
+/// Which ROM boots, where its bytes come from, and how to get them.
+///
+/// The rows are the selected release's `roms[]` now rather than one bundled
+/// file: the ROM has to match the release the disks come from, and which of the
+/// two published ROMs to use is a choice. The line under the picker says where
+/// the bytes actually are, because "this app already carries them" and "512 KB
+/// to download" are the difference between a machine that starts offline and
+/// one that does not.
+struct ROMSection: View {
+    @ObservedObject var viewModel: EmulatorViewModel
+
+    var body: some View {
+        Section(header: Text("ROM Image")) {
+            Picker("ROM", selection: $viewModel.selectedROM) {
+                ForEach(viewModel.availableROMs) { rom in
+                    Text(rom.name).tag(rom as ROMOption?)
+                }
+            }
+            .pickerStyle(.menu)
+
+            Text(viewModel.romStatusDescription)
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            if let progress = viewModel.romDownloadProgress {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+            } else if viewModel.romNeedsDownload {
+                // Offered rather than required: pressing Play fetches it too.
+                // This is for the person who would rather not discover they
+                // have no signal at the moment they want to boot.
+                Button {
+                    viewModel.downloadSelectedROM()
+                } label: {
+                    Label("Download ROM", systemImage: "arrow.down.circle")
+                }
+                .font(.caption)
+            }
+        }
     }
 }
 

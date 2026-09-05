@@ -42,7 +42,10 @@ struct EmulatorProfile: Codable, Equatable, Identifiable {
     static let maxNameLength = 40
 
     var name: String
-    /// The ROM's bundle filename, e.g. "emu_avw.rom".
+    /// The ROM's filename: a catalog one, e.g. "emu_avw-v0-3.6.0.rom", or the
+    /// bundle's "emu_avw.rom" in a profile saved before ROMs came from the
+    /// catalog. Resolved by catalog id rather than by exact name, so a profile
+    /// saved under one release still finds the same ROM under another.
     var romFilename: String
     /// Four entries, one per disk unit. A catalog filename, or "" for none.
     var diskFilenames: [String]

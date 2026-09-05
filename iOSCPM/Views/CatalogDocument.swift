@@ -259,10 +259,14 @@ extension RomWBWIndex {
     ///
     ///   1. the one already in play, if it is still offered. A user who chose
     ///      3.6.0 does not get moved off it because the index changed.
-    ///   2. the release the BUNDLED ROM declares. This app ships one ROM and
-    ///      cannot download another yet, so the release it can actually boot
-    ///      outranks the index's own `default` - which is a hint for a client
-    ///      that can fetch any ROM, and this one is not that client.
+    ///   2. the release the BUNDLED ROM declares. The app CAN fetch another
+    ///      release's ROM now, so this is no longer "the only one it can
+    ///      boot" - it is the only one it can boot with nothing downloaded,
+    ///      which is what a fresh install has. Ranking it above the index's
+    ///      `default` is therefore a choice rather than a limitation, and one
+    ///      worth revisiting: `default` is romwbw_disks' recommendation, it is
+    ///      3.6.0 today, and a fresh install has to download disks in any case.
+    ///      See todo.txt.
     ///   3. `default: true`. The index promises exactly one, and
     ///      romwbw_disks' release check enforces it, but this still picks the
     ///      first if it ever saw two.
@@ -290,11 +294,11 @@ extension RomWBWIndex {
 
 /// One ROM the release publishes.
 ///
-/// Read for what to SAY about a release, not yet for what to load: this build
-/// still boots the ROM in its own bundle (docs/ROM_ATTESTATION.md is an App
-/// Store filing naming `emu_avw.rom`, and an app whose only ROM is a download
-/// has nothing to boot on a first offline launch). Offering these for download
-/// is the next release's job.
+/// This is what the app loads. The ROM in the bundle is still shipped and is
+/// still what a first offline launch boots (docs/ROM_ATTESTATION.md is an App
+/// Store filing naming `emu_avw.rom`), but it is one release's ROM and the
+/// release is a choice - so the ROM for any other release comes from here,
+/// under this `filename`, checked against this `size` and this `sha256`.
 struct CatalogROM: Decodable, Equatable {
     let id: String
     let filename: String
@@ -306,6 +310,85 @@ struct CatalogROM: Decodable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id, filename, name, size, sha256
         case isDefault = "default"
+    }
+}
+
+extension CatalogROM {
+
+    /// What to call it in a picker. `name` is a display string the catalog
+    /// provides ("EMU AVW"); the id stands in for a document that omits it,
+    /// because a blank row is worse than a terse one.
+    var displayName: String {
+        if let name = name,
+           !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return name
+        }
+        return id
+    }
+
+    /// What is wrong with a copy of this ROM, or nil when its bytes are exactly
+    /// what the catalog promised.
+    ///
+    /// Asked EVERY time the ROM is about to be used, not only after a download.
+    /// A ROM is 512 KB and hashing it is nothing; it is also the one file whose
+    /// corruption produces a guest that boots to a blank screen with no
+    /// diagnosis, so a file that verified when it landed and was truncated
+    /// afterwards - a full volume, a restore from a backup, a container edited
+    /// by hand - must not go on loading for ever on the strength of that first
+    /// check.
+    ///
+    /// A catalog entry with no `sha256` fails here rather than being waved
+    /// through, exactly as a disk without one is refused by the download path:
+    /// a gate that cannot verify must not say yes. `size` is checked first
+    /// because it is the cheap half and it names the likeliest fault.
+    func problem(byteCount: Int64, sha256 measured: String) -> String? {
+        if let expected = size, expected != byteCount {
+            return "it is \(byteCount) bytes, and the catalog says \(expected)"
+        }
+        guard let expected = self.sha256?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !expected.isEmpty else {
+            return "the catalog carries no checksum for it, so it cannot be verified"
+        }
+        guard expected.lowercased() == measured.lowercased() else {
+            return "its checksum is \(String(measured.prefix(16)))…,"
+                + " and the catalog says \(String(expected.prefix(16)))…"
+        }
+        return nil
+    }
+
+    /// Does this entry answer to a ROM name something wrote down earlier?
+    func answersTo(_ storedName: String) -> Bool {
+        CatalogROM.refers(storedName, toID: id, filename: filename)
+    }
+
+    /// Does `storedName` mean the ROM with this catalog id?
+    ///
+    /// The filename first, then the id. A ROM filename carries the release -
+    /// `emu_avw-v0-3.6.0.rom` - while what a remembered choice or a saved
+    /// profile is really naming is "the emu_avw ROM", which exists under every
+    /// release. §6.1 of the schema says to key on `id` for precisely this
+    /// reason: not on array position, and not by parsing a filename.
+    ///
+    /// Static because the bundled `emu_avw.rom` has no catalog entry and has to
+    /// be matched by the same rule - and because it is what makes a build that
+    /// stored `"emu_avw.rom"` before ROMs came from the catalog resolve to
+    /// `emu_avw-v0-3.5.1.rom` now instead of to nothing.
+    static func refers(_ storedName: String, toID romID: String,
+                       filename: String) -> Bool {
+        let stored = storedName.lowercased()
+        guard !stored.isEmpty else { return false }
+        if stored == filename.lowercased() { return true }
+
+        let key = romID.lowercased()
+        guard !key.isEmpty else { return false }
+        // The part before the LAST dot, so a name with no extension is its own
+        // stem and `emu_avw.rom` is `emu_avw`.
+        let stem = stored.lastIndex(of: ".").map { String(stored[stored.startIndex..<$0]) }
+            ?? stored
+        // `<id>` and `<id>-<anything>`: the suffix is the interface and the
+        // release, and this deliberately does not parse them. It only has to
+        // tell one published ROM from another, and their ids differ.
+        return stem == key || stem.hasPrefix(key + "-")
     }
 }
 

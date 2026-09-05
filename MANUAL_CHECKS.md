@@ -641,11 +641,12 @@ rename is not the interesting case for most of what follows.
       of those files is still there — hidden from a menu is not the same as
       gone, and only one of those is acceptable.  A disk you imported yourself
       must still be listed.
-- [ ] **The ROM mismatch is stated, not discovered.**  On 3.6.0 the picker must
-      carry the warning that this build boots the bundled 3.5.1 ROM.  Boot a
-      3.6.0 disk under it and confirm RomWBW prints
-      `*** WARNING: HBIOS/CBIOS Version Mismatch ***` — that is the behaviour the
-      warning is promising, and it is why ROM downloads are the next release.
+- [ ] **The ROM mismatch warning stays unreachable.**  Build 65 fetches the
+      release's own ROM, so on 3.6.0 the Settings warning about booting a 3.5.1
+      ROM must NOT appear once the catalog has loaded — see §20.  If it does,
+      the ROM picker is showing the bundled ROM under a release that is not its
+      own, which is the state the warning exists for and a bug in the
+      resolution, not in the warning.
 - [ ] **The picker is unavailable while running.**  Start the emulator, open
       Settings, and confirm the picker is disabled.  Then try it from a second
       window on Catalyst if you can: the model must refuse and say so rather
@@ -660,9 +661,75 @@ rename is not the interesting case for most of what follows.
       Both releases are at generation 1 today, so a bug here is invisible until
       one of them moves — read the key, do not trust the absence of an alert.
 - [ ] **The ROM picker still shows its selection.**  `ROMOption`'s identity
-      changed from a per-construction UUID to the filename.  Open Settings and
-      confirm the ROM row reads `EMU AVW` and not a blank.
+      changed from a per-construction UUID to the filename, and the rows are
+      rebuilt from every catalog fetch now.  Open Settings and confirm the ROM
+      row reads `EMU AVW` and not a blank, before and after a release switch.
 - [ ] **A profile still applies.**  Profiles are not per release: save one on
       3.5.1, apply it on 3.5.1, and confirm every slot resolves.  Applying it
       while on 3.6.0 should report its disks as unresolved and change nothing —
       not blank the slots.
+
+---
+
+## 20. The ROM comes from the catalog
+
+Build 65 loads the ROM the selected release publishes, verified against the
+catalog's `size` and `sha256` every time it is used, and refuses to start a
+release whose ROM it cannot get.  **None of it has run.**  Written on a machine
+with no Xcode and no network access to GitHub; the document rules are in
+`Tests/CatalogDocumentTests.swift`, which cannot execute there.
+
+Do §19 first — a device that has never fetched a catalog cannot exercise any of
+this.
+
+- [ ] **3.5.1 boots with the network off and no ROM download, ever.**  Not "out
+      of the box": a fresh install has no disk images and no catalog either, so
+      it cannot boot anything until it has been online once — that is the disk
+      story, not the ROM story, and conflating the two makes this check fail for
+      the wrong reason.  So: fresh install, network ON, stay on 3.5.1, let the
+      catalog land and download the disks you want.  Then turn the network OFF,
+      relaunch, and press Play.  It must boot, and there must be no `.rom`
+      request at all: the bundled `emu_avw.rom` is byte-for-byte
+      `emu_avw-v0-3.5.1.rom`, and `resolveROM()` proves that by hash rather than
+      assuming it.  Settings must read "this app already carries these exact
+      bytes".  **If this one fails, nothing else here matters** — it is the
+      guarantee the bundled ROM exists for.
+- [ ] **3.6.0 fetches its own ROM before the machine starts.**  Switch to 3.6.0,
+      press Play, and watch: `[ROM] Fetching …/v0-romwbw-3.6.0/emu_avw-v0-3.6.0.rom`,
+      the download overlay, then the boot.  `Documents/Disks` must then hold
+      `emu_avw-v0-3.6.0.rom` **beside** the 3.5.1 images you already had
+      (`hd1k_combo-v0-3.5.1.img` and the rest) — two releases' assets coexisting
+      is what the naming scheme is for.  Note that there is normally NO
+      `emu_avw-v0-3.5.1.rom` on the device: 3.5.1's ROM is the one in the app.
+- [ ] **And it boots without the mismatch warning.**  The whole point.  RomWBW
+      must NOT print `*** WARNING: HBIOS/CBIOS Version Mismatch ***` on a 3.6.0
+      disk under a 3.6.0 ROM.  Seeing it means the ROM that loaded was not the
+      one that was fetched.
+- [ ] **A ROM that will not download stops the machine, and says what to do.**
+      Turn the network off with 3.6.0 selected and the ROM not yet fetched, then
+      press Play.  There must be no boot: an alert naming RomWBW 3.6.0, naming
+      `emu_avw-v0-3.6.0.rom`, saying why, and offering **Use RomWBW 3.5.1**.
+      Take that offer and confirm it lands back on 3.5.1 with its slots intact.
+      **A boot that happens anyway is the bug this release exists to remove** —
+      it would be the bundled 3.5.1 ROM under 3.6.0 disks.
+- [ ] **A corrupt ROM is caught before it is used, and the file is not
+      deleted.**  With a 3.6.0 ROM downloaded, truncate it in the container
+      (`xcrun simctl get_app_container booted com.awohl.cpm data`) and press
+      Play: the log must say it was rejected on its SIZE, fetch it once more,
+      and boot.  Do it again corrupting bytes in the middle instead, so the
+      length still matches, and confirm the CHECKSUM arm is the one that speaks.
+      Then corrupt it once more with the network off: that one must report and
+      not boot — and after all three the file must still be in
+      `Documents/Disks`.  Nothing here may delete a user's file.
+- [ ] **The second ROM is real.**  Pick EMU RCZ80 in Settings, fetch it, boot,
+      and confirm the ROM-resident applications are the RC2014 set rather than
+      the SBC one.  Then switch release: the choice must stay EMU RCZ80 rather
+      than reverting to EMU AVW, because it is remembered by catalog `id`.
+- [ ] **A profile saved before this build still applies.**  A profile from build
+      64 carries `romFilename` `"emu_avw.rom"`, which no catalog names.  Apply
+      it and confirm the ROM resolves rather than being reported unresolved —
+      that is `ROMOption.answersTo` matching on the catalog id.
+- [ ] **Nothing fetches a ROM without being asked.**  Watch a whole launch on
+      3.5.1 with Charles or the console: there must be no request for a `.rom`
+      at all.  The bundled bytes satisfy the catalog entry, and a ROM fetch on
+      every launch would be 512 KB of somebody's data for nothing.

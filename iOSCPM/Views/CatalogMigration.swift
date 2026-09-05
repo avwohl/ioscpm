@@ -243,13 +243,16 @@ enum CatalogMigration {
 
     /// Every saved profile's disk slots.
     ///
-    /// `romFilename` is deliberately NOT migrated. It names a file in the app
-    /// BUNDLE - `availableROMs` is one hardcoded entry, `emu_avw.rom`, and
-    /// `loadSelectedResources()` passes it to `loadROM(fromBundle:)` - and the
-    /// bundle still ships that exact name. Rewriting it to
-    /// `emu_avw-v0-3.5.1.rom` would make `applyProfile` report the ROM
-    /// unresolved for every profile the user has, to rename a file that did not
-    /// move.
+    /// `romFilename` is deliberately NOT migrated, and it stopped needing to be
+    /// migrated for a better reason than the one written here before. A profile
+    /// saved by an older build names `emu_avw.rom`, the file in the app bundle;
+    /// the ROM now comes from the catalog under `emu_avw-v0-<release>.rom`, and
+    /// which release that is depends on which one the user is on when they
+    /// apply the profile - so there is no single name to rewrite it to.
+    /// `applyProfile` matches it by catalog `id` instead (`ROMOption.answersTo`),
+    /// which resolves `emu_avw.rom` to whatever `emu_avw` is under the release
+    /// in play. Rewriting the stored string would fix one release and break the
+    /// other.
     ///
     /// Round-tripping through `ProfileStore` sorts and de-duplicates, so the
     /// encoded bytes differ even when no name changed. That is correct and it
