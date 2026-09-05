@@ -3,7 +3,7 @@ FETCH THE ROM FROM THE CATALOG - THE LAST VERSION-COUPLED THING IN THIS APP
 
 - [ANY] this app bundles a 3.5.1 ROM (iOSCPM/Resources/emu_avw.rom, via
 availableROMs/bundledROMFilename) and downloads no ROM at all.
-downloads no ROM at all.  romwbw_disks published RomWBW 3.6.0 as stable and
+  romwbw_disks published RomWBW 3.6.0 as stable and
 default on 2026-09-05, so a build shipped as it stands would preselect 3.6.0
 disks and boot them against a 3.5.1 ROM -> *** WARNING: HBIOS/CBIOS Version
 Mismatch ***.  Nothing is broken today: no released build reads that index, and a
