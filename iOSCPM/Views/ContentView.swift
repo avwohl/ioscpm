@@ -426,10 +426,11 @@ struct AboutView: View {
                 Text("Version \(appVersion) (\(appBuild))")
                     .foregroundColor(.secondary)
 
-                // The RomWBW release the core emulates. A disk slice built by a
-                // different release prints an HBIOS/CBIOS version mismatch, so
-                // this is the first thing to ask for in a bug report.
-                Text("RomWBW \(RomWBWEmulator.romWBWPin()) core")
+                // The RomWBW releases this core can run. A disk slice built by
+                // a release other than the loaded ROM's prints an HBIOS/CBIOS
+                // version mismatch, so this is the first thing to ask for in a
+                // bug report.
+                Text("RomWBW \(RomWBWEmulator.romWBWReleases()) core")
                     .font(.caption)
                     .foregroundColor(.secondary)
 

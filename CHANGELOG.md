@@ -1,5 +1,45 @@
 # Changelog
 
+## Version 1.5.1 (Build 62)
+
+**NOT COMPILED.**  Written on a Linux machine with no Xcode: not built, not
+launched, not driven, and `Tests/run_tests.sh` was not run.  Build 61 is in
+review and frozen, so this opens a new build rather than editing that entry.
+Everything below is marked with what was and was not checked, because for three
+builds this file claimed a machine had no Xcode when it did, and an unmarked
+entry written blind is the false `DONE` that mistake produced.
+
+### The core has no pinned RomWBW release to show, so show the list instead
+
+**NOT COMPILED** - no Xcode on the machine this was written on. The change is
+mechanical (one symbol renamed, one header dropped, one call site), and
+`emu_romwbw_supported_list()` is declared in the `emu_init.h` this target
+already compiles, but nothing here has been built or run.
+
+`romwbw_emu` v1.39 deleted `ROMWBW_PIN_STR`, so `+[RomWBWEmulator romWBWPin]`
+stopped compiling: `Core/romwbw_pin.h` no longer defines a version at all. That
+is not a rename to route around - the core stopped having a single answer. It
+reads the RomWBW version out of whichever ROM it loads, and one binary now boots
+any release on its supported list.
+
+`+[RomWBWEmulator romWBWReleases]` replaces it and returns
+`emu_romwbw_supported_list()` - `"3.5.1, 3.6.0"` today. The About box shows that
+list, which is the honest thing to show there: it may be read before any ROM is
+loaded, when there is no loaded release to name.
+
+The mismatch banner this display exists to explain has not changed, but what it
+means has. `*** WARNING: HBIOS/CBIOS Version Mismatch ***` used to mean "your
+disk was built by a release other than the one this binary is pinned to"; it now
+means "your disk was built by a release other than the ROM you loaded". Since
+the core no longer refuses a ROM for being the wrong release, that warning is
+the only thing left enforcing the ROM/disk pairing - worth knowing when reading
+a bug report.
+
+Nothing else here changes. This app still bundles one ROM and one release's disk
+images, and still fetches its catalog from a pinned `releaseTag`. Offering the
+user a choice of RomWBW version is a separate piece of work, described in
+`romwbw_disks/docs/CLIENT_MIGRATION.md`.
+
 ## Version 1.5.1 (Build 61)
 
 `Tests/run_tests.sh`: 14 suites, 1051 checks, all passing — up from 7 suites and

@@ -8,7 +8,6 @@
 #include "hbios_core.h"
 #include "emu_io.h"
 #include "emu_init.h"
-#include "romwbw_pin.h"
 #include <memory>
 
 // Forward declare the delegate setter from emu_io_ios.mm
@@ -104,8 +103,12 @@ extern "C" void emu_io_set_delegate(id delegate);
   BOOL _debug;
 }
 
-+ (NSString*)romWBWPin {
-  return @ROMWBW_PIN_STR;
++ (NSString*)romWBWReleases {
+  // emu_romwbw_supported_list() rather than a compile-time string: the core
+  // stopped having one when the RomWBW version became runtime state read from
+  // the loaded ROM. This is the honest answer for an About screen, which may
+  // be shown before any ROM is loaded.
+  return [NSString stringWithUTF8String:emu_romwbw_supported_list()];
 }
 
 - (instancetype)init {

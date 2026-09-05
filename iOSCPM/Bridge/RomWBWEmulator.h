@@ -54,10 +54,12 @@ typedef NS_ENUM(NSInteger, RWBControlifyMode) {
 // Initialization
 - (instancetype)init;
 
-/// The RomWBW release the emulator core is pinned to (romwbw_pin.h). Disk
-/// slices built by a different release print an HBIOS/CBIOS version mismatch,
-/// so this is worth showing to anyone reporting one.
-+ (NSString*)romWBWPin;
+/// The RomWBW releases this build of the emulator core can run, as
+/// "3.5.1, 3.6.0". There is no single pinned release any more: the core reads
+/// the version out of whichever ROM it loads. Disk slices built by a release
+/// OTHER than the loaded ROM's still print an HBIOS/CBIOS version mismatch, so
+/// this is worth showing to anyone reporting one.
++ (NSString*)romWBWReleases;
 
 // ROM loading
 - (BOOL)loadROMFromBundle:(NSString*)filename;
