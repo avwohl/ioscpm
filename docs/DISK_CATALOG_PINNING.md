@@ -39,7 +39,7 @@ disk catalog to an explicit release tag; iOS was the last port floating on
 
 ## Background
 
-All three clients embed the **same** `emu_avw.rom` (sha256 `c7abc580…`, which
+All three clients embed the **same** `emu_avw.rom` (sha256 `4b11402a…`, which
 identifies as **RomWBW HBIOS v3.5.1**). That hash changed in `8cb26f9`
 (shipped in build 45), which refreshed the bundled ROM from `romwbw_emu` v1.35
 so it reproduces from `src/emu_hbios.asm`; the RomWBW version it reports did

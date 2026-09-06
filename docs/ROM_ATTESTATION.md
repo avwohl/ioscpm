@@ -43,7 +43,7 @@ hash does not match. The files it can fetch today are:
 
 `emu_avw-v0-3.5.1.rom` is byte-identical to the `emu_avw.rom` included in the
 bundle (both 512 KB, SHA-256
-`c7abc580b3285a33e439c0d6724a9d64dd3e93733a4fc2c1b80b0bfd91f9c580`).
+`4b11402a29fad22de304775b7c415eb6a74600df06bd57828b9931a7e9693258`).
 
 Further RomWBW releases may be published to that same catalog later. They are
 built by the same scripts, from the same two sources, under the same licence;

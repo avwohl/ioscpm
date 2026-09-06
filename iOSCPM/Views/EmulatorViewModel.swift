@@ -560,7 +560,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// Measured rather than declared, for the same reason `bundledROMRelease`
     /// is read out of the image: it is what lets the bundled file STAND IN for
     /// a catalog ROM instead of merely resembling one. The v0 3.5.1 catalog's
-    /// emu_avw entry names 524,288 bytes hashing to c7abc580…, and the file in
+    /// emu_avw entry names 524,288 bytes hashing to 4b11402a…, and the file in
     /// this bundle is those exact bytes - so a first launch on 3.5.1 downloads
     /// no ROM at all, and the claim that it need not is CHECKED rather than
     /// asserted. Bundle a differently-built image one day and the hash simply
@@ -2799,7 +2799,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // The bundled image standing in for a published ROM, by hash. Same
         // check a downloaded copy gets, against the same catalog fields: the
         // bundled 3.5.1 emu_avw IS emu_avw-v0-3.5.1.rom, byte for byte
-        // (524,288 bytes, c7abc580…), so the release this app ships with needs
+        // (524,288 bytes, 4b11402a…), so the release this app ships with needs
         // no network on a first launch.
         //
         // By hash and not by "same release, same id", deliberately. If
