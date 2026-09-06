@@ -10,7 +10,7 @@
 # about the product.  The gap is normal; asserting it away is not.  This
 # measures the gap instead of inferring it.
 #
-# It is the companion to check-disk-pins.sh, which asks the same question one
+# It is the companion to check-shipped-disks.sh, which asks the same question one
 # layer down: that one checks the image users download, this one checks the app
 # users run.  Neither is answerable from inside the tree, which is why both go
 # out to the network and why both exit 2 rather than 0 when they cannot.

@@ -163,7 +163,7 @@ to leave a zero-byte CP/M file behind.
 
     ./Tests/run_tests.sh                       # 14 suites, 1051 checks
     sh tools/check-store-version.sh            # needs the network
-    sh tools/check-disk-pins.sh                # needs the network
+    sh tools/check-shipped-disks.sh                # needs the network
     xcrun --sdk macosx swiftc -parse iOSCPM/Views/*.swift iOSCPM/iOSCPMApp.swift
     plutil -lint iOSCPM.xcodeproj/project.pbxproj
 

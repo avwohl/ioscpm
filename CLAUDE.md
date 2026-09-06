@@ -55,7 +55,7 @@ Three rules follow from it, and each has been broken here at least once:
   precisely because no tree knows what a store is serving.
 - **Bumping a pin is not shipping it.**  Editing `releaseTag` in
   `EmulatorViewModel.swift` reaches users only through a build that carries the
-  edit *and* that Apple has actually released.  `tools/check-disk-pins.sh`
+  edit *and* that Apple has actually released.  `tools/check-shipped-disks.sh`
   inspects the built artifact as well as the tree for exactly this reason.
 - **Archiving is not uploading.**  Do not report a build as submitted, shipped
   or released on the strength of a clean archive.  See "Releasing" in

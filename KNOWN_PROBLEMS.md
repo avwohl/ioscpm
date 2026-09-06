@@ -151,7 +151,7 @@ whose only ROM is a download has nothing at all to boot on a first offline
 launch, and `docs/ROM_ATTESTATION.md` is an App Store filing that names
 `emu_avw.rom` specifically.
 
-### `tools/check-disk-pins.sh` no longer answers for this port
+### `tools/check-shipped-disks.sh` no longer answers for this port
 
 Its question — does the disk image users download carry the current R8/W8 — was
 asked by finding a `vX.Y.Z` pin in each client's source and fetching that tag's
