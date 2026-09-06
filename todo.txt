@@ -4,7 +4,11 @@ THE ROM ATTESTATION NOW DESCRIBES THE DOWNLOAD.  A PERSON STILL HAS TO FILE IT.
 - [RELEASE] docs/ROM_ATTESTATION.md was rewritten on 2026-09-05 to cover both
 the ROM in the bundle and the four it can now fetch, with the corresponding-source
 URL pointed at romwbw_disks (which holds src/emu_hbios.asm, the build scripts and
-the SHA-256 pins for each upstream RomWBW package).  The document is correct as
+the SHA-256 pins for each upstream RomWBW package).  It was amended again on
+2026-09-06 when the ROM was rebuilt: the hash it now gives, for the bundled ROM
+and for emu_avw-v0-3.5.1.rom alike, is 4b11402a - this tree's bytes and the
+published catalog's, and not the c7abc580 that the released 1.5.1 bundles, so it
+has to go up with a build made from this tree.  The document is correct as
 of build 65; what it is NOT is submitted.  It is an attestation to Apple, so a
 person has to read it, agree that it says what they are willing to affirm, and
 attach it to the next review.  Nothing here can do that step.
@@ -46,38 +50,63 @@ build.  Tag each item with what it needs, so a session on another machine can
 see at a glance what that machine can take.
 
 
-It is submitted.  It is not released.
--------------------------------------
+It is released.  The tree is four builds past it.
+-------------------------------------------------
 
 - [RELEASE] 1.5.1 build 61 was submitted on 2026-09-04 for **both iOS and Mac**
-  and is IN REVIEW.  That is not a release.  A submission in review can be
-  approved, rejected, or held, and can sit there for days; until it is actually
-  serving, nothing in this tree or its siblings may record build 61 as what
-  users have.
+  and was APPROVED.  The Store has served 1.5.1 since 2026-09-05 - measured with
+  tools/check-store-version.sh, and the iTunes lookup's release notes are build
+  61's: scrollback, select text, copy and paste.  Build 61 is what users have,
+  and it is the only build of 1.5.1 that exists as a binary at all: 62 through
+  65 have never been compiled.
 
-  The App Store still serves 1.4.9, builds 36/37, from 2026-03-19.  Do not take
-  that from this line either - re-measure with tools/check-store-version.sh,
-  which exits 0 only while nothing recorded here claims a build the Store does
-  not serve, and exit 2 means it could not check, which is not a pass.
+  The App Store served 1.4.9, builds 36/37, from 2026-03-19 until 2026-09-05.
+  Do not take the new reading from this line either - re-measure with
+  tools/check-store-version.sh.  That script USED to be unable to tell one build
+  of 1.5.1 from another: it mapped the Store's version string to a build through
+  CHANGELOG.md's headings and took the first that matched, and since every
+  heading from build 43 to 65 says 1.5.1 it read build 65 as shipped, printed
+  "The tree and the Store agree on what users have" and exited 0 - certifying
+  z80cpmw's shipped: field along the way.  FIXED 2026-09-06.  It now collects
+  every heading carrying the served version and narrows by the "**NOT COMPILED"
+  markers, because a build that never reached a compiler cannot be what Apple
+  serves, so it reports "at most build 61  (1.5.1 heads builds 43-65; 62, 63,
+  64, 65 NOT COMPILED, so none of those can be it)" and says the tree is four
+  builds ahead.  A version naming exactly one build still gets the exact answer,
+  and 1.4.9, which names none, still gets the old bracket.  Exit 2 still means
+  it could not check, which is not a pass.
 
-  What may move ONLY once the script says 1.5.1 is being served:
+  DONE 2026-09-06: z80cpmw/FEATURE_PARITY.md's sibling-readings block now reads
+  `ioscpm     e33beea  2026-09-02  shipped:61`.  Two other fields in that block
+  were wrong and were corrected in the same pass - cpmdroid's said 25, which is
+  a versionName where check-sibling-drift.sh compares versionCodes (Play's 1.25
+  is versionCode 27, and the row passed only because versionCode at e9436a5 is
+  also 25), and z80cpmw's said 1.0.22 where its own CHANGELOG has said 1.0.23
+  since 2026-09-04.  check-sibling-drift.sh had the same one-directional flaw as
+  the script above and was fixed with them: it printed "every tick in this column
+  describes software no user has" for both directions, which is only true when
+  the reading is AHEAD of what ships.
 
-    z80cpmw/FEATURE_PARITY.md's sibling-readings block, which carries
-    `ioscpm ... shipped:37`.  z80cpmw/tools/check-sibling-drift.sh fails the
-    whole ioscpm column until that number and the tree agree, and it is RIGHT
-    to keep failing now: setting it on the strength of a submission certifies
-    every tick in the column against software nobody can install.
+  STILL OPEN, and setting the field did not clear it: check-sibling-drift.sh
+  compares the shipped build against the build in the tree at the recorded sha,
+  and e33beea is build 58, so the ioscpm column has to be re-read at a build-61
+  commit.  The gate now names the fault correctly - "READ AT BUILD 58, SHIPS 61
+  - the reading is BEHIND what ships, so this column's GAPS are stale" - which
+  is the opposite of what it used to say about the same row.
 
   The upload was done by a person, not from here.  This machine still cannot do
   it - see KNOWN_PROBLEMS.md "Releasing" - so a re-submission is a person with
   credentials, not a session.
 
-  What is waiting on that submission:
+  What that submission carried, and what is still waiting on the next one:
 
-    releaseTag WAS "v1.4.12" and no installed copy carries it.  Since 2026-09-04
-    releases/latest IS v1.4.12, so a floating 1.4.9 device gets the fixed R8 on a
-    FRESH download - but start() only fetches a disk that is absent, so a device
-    already holding hd1k_combo.img keeps the old R8 until a build ships.
+    releaseTag WAS "v1.4.12" and an installed copy carries it at last - 0010591
+    is an ancestor of build 61, which pins v1.4.12 outright.  Since 2026-09-04
+    releases/latest IS v1.4.12 as well, so a device still floating on 1.4.9 gets
+    the fixed R8 on a FRESH download - but start() only fetches a disk that is
+    absent, so a 1.4.9 device already holding hd1k_combo.img keeps the old R8
+    until it takes the 1.5.1 update.  On 1.5.1 the disk ledger is what replaces
+    it, and the ledger has been driven on the simulator and never on a device.
 
     Build 64 deleted releaseTag: the tree now reads the romwbw_disks
     interface-v0 catalog and has no pin at all.  That changes nothing above -
@@ -116,8 +145,12 @@ It is submitted.  It is not released.
     Imports folder - MANUAL_CHECKS.md sections 14 and 15.
 
   MANUAL_CHECKS.md section 1 still has all six boxes unticked, and sections 8
-  through 16 want a person driving the app.  Nothing there needs a machine this
-  one is not.
+  through 16 want a person driving the app.  Sections 18, 19 and 20 came in with
+  builds 63, 64 and 65 and say in as many words what they are: the storage
+  migration has never executed a moveItem, the interface-v0 fetch has never made
+  a network request, and nothing has fetched or verified a ROM.  Those three
+  want Xcode, a real container and a network before they want a person; the rest
+  want only a person.
 
   Use Xcode with DEVELOPER_DIR rather than xcode-select: bare `xcodebuild` fails
   with a message that reads like "Xcode is not installed" and only means
@@ -126,6 +159,25 @@ It is submitted.  It is not released.
 
     DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild ...
 
+
+- [RELEASE] builds 62, 63, 64 and 65 have never been compiled.  Each one says
+  **NOT COMPILED** at the head of its CHANGELOG entry - written on a Linux
+  machine with no swiftc, swift, xcrun or xcodebuild - so no Swift added since
+  build 61 has been through a compiler and every Swift suite in Tests/ has been
+  skipped rather than run.  That is the whole interface-v0 migration, the
+  release picker and the ROM fetch: four builds, and a syntax error in any of
+  them would still be undiscovered.  The first thing a machine with Xcode owes
+  this tree is a build.  MANUAL_CHECKS.md sections 18, 19 and 20 say the same
+  from the other end.
+
+- [RELEASE] the bundled ROM in this tree is not the bundled ROM users have.
+  5834d92 refreshed iOSCPM/Resources/emu_avw.rom to 4b11402a, the generation-2
+  bytes with a working HB_BNKCALL that romwbw_disks now publishes as
+  emu_avw-v0-3.5.1.rom; the released 1.5.1 carries c7abc580, the bytes whose
+  0xFFF9 proxy did a real bank call for one target address and nothing for every
+  other.  It is data rather than code, and it was verified where it was built,
+  but it reaches a device only through a build - so it is waiting on the same
+  compiler as everything above it.
 
 - [RELEASE] the rewritten copy/paste section of help_quick_start.md is in this
   tree and in no user's app.  Help is fetched at runtime from

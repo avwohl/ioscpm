@@ -149,6 +149,57 @@ is one.  A user who picks 3.6.0 gets 3.6.0's ROM and no mismatch, which is what
 this build is for; moving every new install onto it is a separate decision with
 a store release attached.  Both are open items in `todo.txt`.
 
+### `check-store-version.sh` was answering a different question
+
+**This one WAS executed** — it is `/bin/sh`, not Swift, and it was run against
+the live iTunes lookup before and after.  It is the only change in this entry
+that reached a machine.
+
+The script exists to stop the tree asserting things about the product.  It was
+doing the opposite.  The iTunes lookup returns a marketing version and no build
+number, so the script mapped version to build through `CHANGELOG.md` headings —
+by taking the FIRST heading that matched.  A marketing version does not name one
+build: every heading from build 43 to build 65 here reads `Version 1.5.1`, so
+"first match" returns the newest build WRITTEN, which is the opposite of the
+question asked.  On 2026-09-06 it printed
+
+    which is         build 65  (CHANGELOG.md names it)
+    The tree and the Store agree on what users have.
+
+with build 65 being this entry, never compiled, never submitted.  Every
+downstream check took that inflated ceiling: the "tree is ahead" warning could
+not fire, and the sibling check scored `FEATURE_PARITY.md` against a build that
+does not exist outside this repository.  A gate that cannot be wrong in the
+direction it was built to catch is not a gate.
+
+It now collects every heading carrying the shipped version and narrows the range
+with the one piece of evidence this file does carry about what could have been
+submitted: the `**NOT COMPILED` marker.  These builds are written on a Linux
+machine with no Xcode, and a build that never reached a compiler cannot be the
+one Apple is serving.  That marker is matched only at the START of a line —
+entries further down QUOTE the phrase while discussing an older build, and a
+substring match would credit it to the wrong entry.  It now prints
+
+    which is         at most build 61  (1.5.1 heads builds 43-65;
+                     62, 63, 64, 65 NOT COMPILED, so none of those can be it)
+    The tree is ahead of the Store by roughly 4 build(s). That is normal.
+
+A version that names exactly one build still gets the old exact answer, and one
+that names none at all — 1.4.9 — still gets the existing bracket.
+
+**A second error, in the opposite direction, was invisible until this fix.**
+The sibling check could only catch `FEATURE_PARITY.md` claiming a build NEWER
+than the Store could be serving.  Having a range gives a floor as well as a
+ceiling, and the floor catches the stale direction: that file claims
+`shipped:37` while the Store serves 1.5.1, which starts at build 43.  Users are
+running something newer than the claim, so every tick the ioscpm column
+withholds is being withheld from software they already have.  The script now
+says so and exits 1.  **That failure is correct and is not fixed by editing the
+script** — `CLAUDE.md` says that field is hand-maintained and set from this
+measurement, and the measurement is now available to set it from.
+
+`shipped_build` was assigned in three branches and read nowhere; it is gone.
+
 ## Version 1.5.1 (Build 64)
 
 **NOT COMPILED.**  Written on a Linux machine with no Xcode: not built, not

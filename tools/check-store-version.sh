@@ -144,17 +144,49 @@ fi
 echo "  this tree        $mkv (build $cpv)"
 
 # --- which build is the shipped version? ---------------------------------------
-# The lookup returns a marketing version and no build number, so the mapping
-# comes from CHANGELOG.md's headings.  Exact when one names the shipped version;
-# otherwise the two headings it falls between, which is an honest bracket rather
-# than a guess.  1.4.9 has no heading at all - it is bracketed by 1.4.8 (35) and
-# 1.4.10 (39), i.e. builds 36-38.
-exact=$(awk -v v="$live" '
-    $0 ~ "^## Version " v " \\(Build [0-9]+\\)" {
-        match($0, /Build [0-9]+/); print substr($0, RSTART + 6, RLENGTH - 6); exit }' "$CHANGELOG" 2>/dev/null)
+# The lookup returns a marketing version and no build number, so the mapping has
+# to come out of CHANGELOG.md's headings - and a marketing version does not name
+# one build.  1.5.1 has headed every build from 42 to 65.  Taking the first
+# heading that matches therefore answers "the newest build I have WRITTEN", which
+# is the opposite of the question asked: on 2026-09-06 it returned build 65, and
+# the gap check below then printed "the tree and the Store agree on what users
+# have" with four never-compiled builds sitting between them.
+#
+# So collect EVERY heading carrying the shipped version, then narrow with the one
+# piece of evidence the CHANGELOG does hold about what could have been submitted.
+# These clients are written on a Linux machine with no Xcode, and each such entry
+# opens with a literal "**NOT COMPILED" line; a build that never reached a
+# compiler cannot be the one Apple is serving.  Match that marker only at the
+# START of a line - later entries QUOTE the phrase while discussing an older
+# build, and a substring match would credit it to the wrong entry.
+#
+#   floor    the oldest build the shipped version heads - it cannot be older
+#   ceiling  the newest build heading it that is NOT marked NOT COMPILED
+#
+# A version naming exactly one build still gets the old exact answer.  A version
+# naming several gets a range, which is honest, rather than a number, which was
+# not.  1.4.9 names none at all and still gets the bracket below.
+builds=$(awk -v v="$live" '
+    /^## Version [0-9]/ {
+        if (b != "" && ver == v) print b, nc
+        ver = $3; b = ""; nc = 0
+        if (match($0, /Build [0-9]+/)) b = substr($0, RSTART + 6, RLENGTH - 6)
+        next
+    }
+    /^\*\*NOT COMPILED/ { nc = 1 }
+    END { if (b != "" && ver == v) print b, nc }' "$CHANGELOG" 2>/dev/null)
+
+floor=; newest=; ceiling=; uncompiled=
+if [ -n "$builds" ]; then
+    floor=$(echo   "$builds" | awk '{print $1}'          | sort -n | head -1)
+    newest=$(echo  "$builds" | awk '{print $1}'          | sort -n | tail -1)
+    ceiling=$(echo "$builds" | awk '$2 == 0 {print $1}'  | sort -n | tail -1)
+    uncompiled=$(echo "$builds" | awk '$2 == 1 {print $1}' | sort -n |
+                 tr '\n' ' ' | sed 's/ *$//; s/ /, /g')
+fi
 
 lo=; hi=
-if [ -z "$exact" ]; then
+if [ -z "$builds" ]; then
     lv=$(vnum "$live")
     while read -r hv hb; do
         [ -n "$hb" ] || continue
@@ -172,16 +204,26 @@ $(awk '/^## Version [0-9]/ {
 EOF
 fi
 
-if [ -n "$exact" ]; then
-    shipped_build=$exact
-    echo "  which is         build $exact  (CHANGELOG.md names it)"
-    ceiling=$exact
+if [ -n "$builds" ] && [ -z "$ceiling" ]; then
+    echo "  which is         unknown - every heading for $live says NOT COMPILED"
+    echo
+    echo "CHANGELOG CONTRADICTS THE STORE: $live heads builds $floor-$newest and"
+    echo "  every one of them says it was never built.  Either one of those"
+    echo "  markers is wrong, or the Store is serving a build from another"
+    echo "  checkout.  Until that is resolved nothing here knows what shipped."
+    status=1
+elif [ -n "$builds" ] && [ "$floor" = "$newest" ]; then
+    echo "  which is         build $ceiling  (CHANGELOG.md names it)"
+elif [ -n "$builds" ] && [ -n "$uncompiled" ]; then
+    echo "  which is         at most build $ceiling  ($live heads builds $floor-$newest;"
+    echo "                   $uncompiled NOT COMPILED, so none of those can be it)"
+elif [ -n "$builds" ]; then
+    echo "  which is         at most build $ceiling  ($live heads builds $floor-$newest,"
+    echo "                   all compiled, and the lookup does not say which)"
 elif [ -n "$lo" ] && [ -n "$hi" ]; then
-    shipped_build=
     echo "  which is         after build $lo, before build $hi  (no CHANGELOG heading for $live)"
     ceiling=$((hi - 1))
 else
-    shipped_build=
     ceiling=
     echo "  which is         unknown - no CHANGELOG heading brackets $live"
 fi
@@ -224,6 +266,14 @@ if [ -f "$fp" ]; then
         echo "z80cpmw/FEATURE_PARITY.md  CLAIMS shipped:$claim, BUT $live cannot be past build $ceiling"
         echo "  Every tick in the ioscpm column is being scored against software"
         echo "  no user has.  Set it back to what this script measured."
+        status=1
+    elif [ -n "$floor" ] && [ "$claim" -lt "$floor" ] 2>/dev/null; then
+        echo "z80cpmw/FEATURE_PARITY.md  CLAIMS shipped:$claim, BUT $live starts at build $floor"
+        echo "  This is the stale direction of the same error, and the ceiling"
+        echo "  check above cannot see it.  Users are running something NEWER"
+        echo "  than the claim, so every tick the ioscpm column withholds is"
+        echo "  being withheld from software they already have.  Set it to what"
+        echo "  this script measured."
         status=1
     else
         echo "z80cpmw/FEATURE_PARITY.md  shipped:$claim agrees with what the Store serves"
