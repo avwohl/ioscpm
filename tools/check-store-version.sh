@@ -189,8 +189,22 @@ builds=$(awk -v v="$live" '
 # committed after the Store published this version cannot be either.  Both are
 # facts about this repository rather than guesses about App Store Connect.
 #
-# Silent when git is unavailable or this is not a checkout: an exported tree
-# gets the old, wider answer, which is honest rather than wrong.
+# Silent when git is unavailable, when this is not a checkout, or when the
+# checkout is SHALLOW: each gets the old, wider answer, which is honest rather
+# than wrong.
+#
+# The shallow case is the one that bit, and it bit in CI rather than here.  A
+# `git clone --depth 1` is a real work tree, so `rev-parse --is-inside-work-tree`
+# says yes, but its root commit has no parent: `log -S` diffs it against the
+# empty tree and attributes EVERY heading to the tip commit's date.  So every
+# compiled build looks "first committed today", every one fails the date test,
+# `ceiling` comes back empty, and the script exits 1 announcing that every
+# heading for the served version says NOT COMPILED - which is false, and sends
+# a reader to audit two dozen markers that are all correct.  Measured
+# 2026-09-07: `git clone --depth 1` of this repository, then this script, exits
+# 1 where the same script in the full checkout exits 0 and says "at most build
+# 61".  `.github/workflows/store-version.yml` now asks for full history, and
+# this guard means the script is right even where something does not.
 # `git -C "$root"`, not a bare `git`: every other path in this script is
 # deliberately independent of the working directory ($root comes from the
 # script's own location, and $PBX/$CHANGELOG are absolute), and a bare `git` here
@@ -201,6 +215,7 @@ builds=$(awk -v v="$live" '
 # the reader to audit markers that are correct.
 heading_committed_before() { # $1 = build number, $2 = YYYY-MM-DD -> 0 if it could have shipped
     git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+    [ "$(git -C "$root" rev-parse --is-shallow-repository 2>/dev/null)" = "true" ] && return 0
     first=$(git -C "$root" log --reverse --format=%ad --date=short \
                 -S"## Version $live (Build $1)" -- "$CHANGELOG" 2>/dev/null | head -1)
     [ -n "$first" ] || return 1          # never committed

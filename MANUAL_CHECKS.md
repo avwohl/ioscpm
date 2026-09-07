@@ -25,13 +25,15 @@ not about touch itself.
     tools/simdrive.py shot /tmp/s.png      # read your coordinates off this
     tools/simdrive.py press 238 1000 346 1000
 
-Most of this needs a Mac, not a device, and **the machine this paragraph was
-written on was one** — Xcode 26.6 was at `/Applications/Xcode.app`.  That is
-not true of the machine this is being edited on now; read the next paragraph
-before acting on any of it.  If `xcodebuild` tells you it "requires Xcode",
-that only means `xcode-select` points at the Command Line Tools; prefix the
-command with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` rather
-than concluding there is no toolchain.  The iOS Simulator runs the identical
+Most of this needs a Mac, not a device.  **Whether the machine you are on is
+one is a question to measure, not to read here** — this paragraph and the one
+that followed it have contradicted each other for several builds because each
+recorded a different machine.  `ls -d /Applications/Xcode.app` settles it.  If
+`xcodebuild` tells you it "requires Xcode", that alone means nothing: it is
+printed both when `xcode-select` merely points at the Command Line Tools and
+when there is no Xcode at all.  When it is present but unselected, prefix the
+command with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`, which
+needs no `sudo`.  The iOS Simulator runs the identical
 Swift layer against a real sandbox - `xcrun simctl get_app_container booted
 com.awohl.cpm data` gives you the `Documents` folder to inspect - and
 `SUPPORTS_MACCATALYST = YES`, so the Catalyst pass is a `xcodebuild
@@ -40,20 +42,20 @@ really does need hardware: check 3 needs an iPad with a hardware keyboard, check
 4 a real device, and check 8 a phone or a keyboard-less iPad - the point of that
 one is the case where there is no hardware keyboard to fall back on.
 
-**But nothing in this tree has been run, and this machine cannot run it.**
-Measured 2026-09-08: `xcode-select -p` gives `/Library/Developer/CommandLineTools`,
-there is no `Xcode.app` under `/Applications` at all,
-`xcrun --sdk iphonesimulator --show-sdk-path` fails and `simctl` is not
-installed.  So the paragraph above is a description of a machine this file has
-been edited on before, not of the one you are on now - run those three commands
-before believing either version, because the answer is per machine and it has
-been both.  Builds 62 through 66 have never reached a device or a simulator and
-no `.app` has been produced from these sources; `sh tools/check-store-version.sh`
-says the App Store serves at most build 61, and every observation recorded below
-with a date or a build number was made on an EARLIER tree - build 55, 56 or 61 -
-and has not been repeated since.
+**Build 67 has been run.**  On 2026-09-07, on a Mac with Xcode 26.6, this tree
+was built for the iOS Simulator, for an arm64 device and for Mac Catalyst,
+installed on an iPhone 17 simulator, and driven.  Sections 18, 19 and 20 were
+worked through and most of their boxes are ticked below with what was measured;
+the ones still open say why.  Builds 62 through 66 never reached a simulator,
+which is why so much of this file was written as unrunnable.
 
-What does run here is `sh Tests/run_tests.sh`, twenty suites, exit 0.  One of
+`sh tools/check-store-version.sh` still says the App Store serves at most build
+61, and that is unchanged by any of it — built is not shipped.  **Observations
+below carrying a date or a build number older than 67 were made on an EARLIER
+tree** - build 55, 56 or 61 - and have not been repeated since.
+
+What runs on any machine, Xcode or not, is `sh Tests/run_tests.sh`: 21 suites,
+1,210 assertions, exit 0.  One of
 them now type-checks `EmulatorViewModel.swift` against the macosx SDK with the
 real bridging header, which is what caught `emulator?.loadROM(fromData:)` - the
 Objective-C `loadROMFromData:` imports into Swift as `loadROM(from:)`, so the
@@ -583,9 +585,13 @@ to discover:
 
 Build 63 renames every catalog disk in `Documents/Disks` from `hd1k_combo.img`
 to `hd1k_combo-v0-3.5.1.img`, and rewrites the four disk slots, every saved
-profile and the ledger to match.  **None of it has been run.**  It was written
-on a machine with no Xcode; `Tests/CatalogMigrationTests.swift` covers the
-decisions and skipped, and nothing has executed a single `moveItem`.
+profile and the ledger to match.
+
+**RUN 2026-09-07, at build 67, on an iPhone 17 simulator**, against containers
+staged to look like pre-v0 devices: legacy filenames, legacy keys, a user's own
+image, and a distinctive mtime on every file so a copy could not be mistaken for
+a rename.  The boxes below carry what was measured.  What is still open is
+marked, and it is the part a simulator cannot stand in for.
 
 The tree carries builds 64, 65 and 66 as well, so the binary in front of you
 does §19's fetch and §20's ROM download too.  Read the three sections as one sitting:
@@ -599,7 +605,10 @@ Stage a container that looks like a real one before touching any of this:
 with two catalog disks, one image the user imported, a slot pointing at each, a
 saved profile and a ledger with a record for each is enough for all of it.
 
-- [ ] **The renames happen and nothing else moves.**  The two catalog images
+- [x] **The renames happen and nothing else moves.**  MEASURED 2026-09-07:
+      `hd1k_combo.img` and `hd1k_ws4.img` came back as `-v0-3.5.1.img`,
+      `mywork.img` kept its name, and **every mtime was unchanged** (staged at
+      `Jan 1 12:00:00 2026`, still that afterwards) — so `moveItem`, not a copy.  The two catalog images
       come back as `-v0-3.5.1.img`; the imported one keeps its name; and
       `disks_catalog.xml` is untouched.  Check the size **and the modification
       time** of a renamed file against what they were: if mtime moved, it was
@@ -609,7 +618,11 @@ saved profile and a ledger with a record for each is enough for all of it.
       correctly rekeyed, nineteen of twenty catalog images should be judged
       without reading a byte.  Watch for `measureDisks` running over the whole
       directory — that is what a wrong rekey looks like, and it is ~210 MB.
-- [ ] **A slot survives, and so does a profile.**  The slots come back pointing
+- [x] **A slot survives.**  MEASURED: legacy `selectedDisks` untouched at
+      `[hd1k_combo.img, hd1k_ws4.img, mywork.img, ""]`, and
+      `selectedDisks.v0.3.5.1` = `[hd1k_combo-v0-3.5.1.img,
+      hd1k_ws4-v0-3.5.1.img, mywork.img, ""]`.  **The profile half is still
+      open** — no saved profile was staged.  The slots come back pointing
       at the renamed files, the emulator boots off them, and applying a saved
       profile still resolves its disks *and its ROM*.  `romFilename` is
       deliberately not migrated, and the reason for that changed when the
@@ -617,7 +630,10 @@ saved profile and a ledger with a record for each is enough for all of it.
       catalog filename `emu_avw` has depends on the release the profile is
       applied under, so there is no single string to rewrite it to.
       `applyProfile` matches it by catalog id instead (`ROMOption.answersTo`).
-- [ ] **A slot bound to a local file is still bound to it.**  `""` in
+- [x] **A slot bound to a local file is still bound to it.**  MEASURED: the
+      user's own `mywork.img` stayed in its slot under its own name, and
+      `localDiskBookmarks.v0.3.5.1` holds the legacy array verbatim with the
+      unsuffixed key still beside it.  `""` in
       `selectedDisks` means both "no disk" and "local file", and this is the
       case that proves the migration left it alone.  The bookmarks themselves
       moved key: `localDiskBookmarks` is scoped per release now, like
@@ -636,11 +652,19 @@ saved profile and a ledger with a record for each is enough for all of it.
       `moveItem` throw) and confirm that slot still names the *old* file, that
       the emulator still boots off it, and that the migration runs again on the
       next launch rather than freezing half-done.
-- [ ] **Running it twice changes nothing.**  Clear `migratedToInterfaceV0` in
+- [x] **Running it twice changes nothing.**  MEASURED: after a relaunch no
+      image mtime moved, no name gained a second `-v0-`, and
+      `migratedToInterfaceV0` stayed set.  Clear `migratedToInterfaceV0` in
       the preferences plist, relaunch, and confirm no file is renamed a second
       time and no name gains a second `-v0-`.
-- [ ] **A directory that cannot be listed defers the NAMES, and moves the KEYS
-      anyway.**  Make `Documents/Disks` unreadable (`chmod 000` on the simulator
+- [x] **A directory that cannot be listed defers the NAMES, and moves the KEYS
+      anyway.**  MEASURED 2026-09-07 with `chmod 000` on `Documents/Disks`:
+      `selectedDisks.v0.3.5.1`, `emulatorNvram.v0.3.5.1` and
+      `localDiskBookmarks.v0.3.5.1` all EXIST holding the legacy values verbatim
+      with pre-v0 names, and `migratedToInterfaceV0` is absent.  Build 67 fixed
+      slot 0 here: `restoreDiskSelections()` forced the catalog default into it,
+      which made `persistSelectedDisks(remembering:)` skip it and wrote that
+      default over the carried name.  See `slotZeroFallbackIsSafe`.  Make `Documents/Disks` unreadable (`chmod 000` on the simulator
       container is enough), clear `migratedToInterfaceV0`, and relaunch.
       Nothing may be renamed - that part is obvious - but **this box was
       inverted after the deferral was found to lose data, so read it rather than
@@ -653,17 +677,26 @@ saved profile and a ledger with a record for each is enough for all of it.
       to write those versioned keys itself and the legacy ones are then never
       read again.  Restore the permissions, relaunch, and confirm the names are
       rewritten then and the flag is set.
-- [ ] **Nothing deletes an image, on any path.**  `catalogVersion` still reads
+- [x] **Nothing deletes an image, on any path.**  MEASURED across a migration,
+      two release switches and four relaunches: `catalogVersion` still reads
+      `13` and was never touched, `catalogGeneration.v0.<rel>` went empty -> `2`,
+      and no image was removed — both releases' ROMs and combo images sat side
+      by side in `Documents/Disks` throughout.  `catalogVersion` still reads
       `13` and is never touched - the old key is orphaned, not carried across.
       `catalogGeneration.v0.3.5.1` starts empty and the first v0 fetch writes
       `2`, which is what both catalogs publish today.  Neither number can reach
       a deletion any more: §6 records that the invalidation is gone.  So a
       catalog fetch must clear no images at all, and if anything is deleted,
       stop - that is the failure this whole sequence exists to prevent.
-- [ ] **The boot string survives.**  `emulatorNvram.v0.3.5.1` should hold what
+- [x] **The boot string survives.**  MEASURED: `emulatorNvram` `"C:autoboot"`
+      reached `emulatorNvram.v0.3.5.1`, was shown in Settings as the Auto-Boot
+      value, and the ROM printed `NV Switches Found` and auto-booted from it.  `emulatorNvram.v0.3.5.1` should hold what
       `emulatorNvram` held, and the autoboot setting should be unchanged in
       SYSCONF after a warm boot.
-- [ ] **A fresh install is not affected.**  Install into an empty container: no
+- [x] **A fresh install is not affected.**  MEASURED on an erased simulator:
+      no renames, `migratedToInterfaceV0` set, first-launch catalog defaults
+      applied, slot 0 seeded with the recommended combo, and
+      `catalogGeneration.v0.3.6.0` written as `2`.  Install into an empty container: no
       renames, no keys copied, first-launch catalog defaults still applied, slot
       0 still gets a disk.
 
@@ -671,8 +704,9 @@ saved profile and a ledger with a record for each is enough for all of it.
 
 Build 64 deletes `releaseTag` and fetches `index-v0.json` from `romwbw_disks`,
 then that release's catalog, then assets from the catalog's own `base_url`.  It
-also adds a RomWBW release picker.  **The app has still never made one of
-these requests.**  It was written on a machine with no Xcode;
+also adds a RomWBW release picker.
+
+**RUN 2026-09-07, at build 67.**  The requests have been made and watched.  It was written on a machine with no Xcode;
 `Tests/CatalogDocumentTests.swift` covers the document rules and skipped.  The
 documents have now been checked from a shell, which is a different thing from
 this code fetching them: on 2026-09-08 the compiled-in index URL returned HTTP
@@ -684,20 +718,42 @@ hashes are right.  What is unobserved is the app going and getting them.
 Do §18 first, on the same container.  A device that has not been through the
 rename is not the interesting case for most of what follows.
 
-- [ ] **It fetches two documents and nothing else.**  Watch the console for
+- [x] **It fetches two documents and nothing else.**  MEASURED 2026-09-07: a
+      launch on an erased simulator left `index-v0.json` and
+      `catalog-v0-3.6.0.json` in `Documents/Disks`, the index byte-identical to
+      what the compiled-in URL serves AND to `romwbw_disks/catalog/v0/index.json`,
+      and the catalog matching the `catalog_sha256`/`catalog_size` the index
+      claims.  The second URL came out of the first document.  **Caveat on this
+      box's own wording:** the shipping binary still names
+      `avwohl/ioscpm/releases/latest/download/` — that is the HELP system
+      (`docs/HELP_SYSTEM.md`), not the disk catalog, and it is expected.  No
+      `disks.xml` and no `v1.x.y` tag survives anywhere in the binary.  Watch the console for
       `[Catalog] Fetching index:` followed by `[Catalog] Fetching catalog:`.
       The second URL must come out of the first document, and no request may go
       to `avwohl/ioscpm` at all.  A request to `.../v1.4.12/disks.xml` means a
       tag survived somewhere.
-- [ ] **An asset URL has exactly one slash.**  Tap Download on any disk and read
+- [x] **An asset URL has exactly one slash.**  MEASURED indirectly and
+      conclusively: four assets (two ROMs, two 51 MB combo images) downloaded and
+      verified.  Note the premise of this box is wrong — a doubled slash does
+      NOT 404; GitHub serves it identically — so a successful download is the
+      evidence, not the absence of an error.  Tap Download on any disk and read
       the URL in the log: `…/v0-romwbw-3.5.1/hd1k_combo-v0-3.5.1.img`, not
       `…/v0-romwbw-3.5.1//hd1k_combo…`.  A doubled separator is what the old
       client-side `"/"` produced, and it 404s.
-- [ ] **The disk list reads correctly again.**  Every catalog row matches a file
+- [x] **The disk list reads correctly again.**  MEASURED: after the migration
+      the installed images show as installed with a green tick and their hash
+      prefix, not as "(download)".  The `hd1k_combo` equivalence exception was
+      exercised on a container carrying the real pre-v0 provenance
+      `89b8ae1aaa6867dc…`: the row went from "A newer version is available" to
+      installed-and-current, and a non-matching provenance still offered the
+      update.  Every catalog row matches a file
       the migration renamed, so twenty rows show as installed rather than as
       "(download)" with the user's own images listed separately below.  That
       mismatch is what build 63 left behind and what this build ends.
-- [ ] **Nothing is deleted on the first v0 fetch.**  `catalogGeneration.v0.3.5.1`
+- [x] **Nothing is deleted on the first v0 fetch.**  MEASURED:
+      `catalogGeneration.v0.3.5.1` and `.v0.3.6.0` were both absent beforehand
+      and both read `2` afterwards, and nothing in `Documents/Disks` was
+      removed.  `catalogGeneration.v0.3.5.1`
       is empty before it and reads `2` after it - that is what both catalogs
       publish today, checked 2026-09-08 - and the images in `Documents/Disks`
       are all still there.  If the library is cleared, stop: that is the wipe
@@ -869,7 +925,19 @@ pbxproj; `git ls-files` now matches no `.rom`, `.img`, `.bin`, `.com` or `.dsk`
 at all.  `bundledROMFilename`, `bundledROMRelease`, `bundledROMURL`,
 `bundledROMFacts`, `bundledROMOption`, `bundledROMFallbackRelease` and
 `switchToBundledROMRelease()` went with it, and so did the **Use RomWBW 3.5.1**
-button on both ROM-problem alerts.  **None of it has run.**
+button on both ROM-problem alerts.
+
+**RUN 2026-09-07, at build 67, for the happy path.**  Both releases' ROMs were
+fetched from the catalog and verified: `emu_avw-v0-3.5.1.rom`
+`4b11402a29fad22d…` and `emu_avw-v0-3.6.0.rom` `01d1ca6d142e9b75…`, both 524,288
+bytes, each matching the entry its own catalog flags `default: true` — picked by
+that flag and not by array position, since `emu_rcz80` is also published.  CP/M
+2.2 booted on both, printing `CBIOS v3.5.1 [WBW]` and `CBIOS v3.6.0 [WBW]` with
+no HBIOS/CBIOS mismatch warning, which is the check that the fetched ROM and the
+fetched disk are a matched pair.  The Release `.app` built for arm64 contains no
+`.rom` and no `.img`, so that is now a property of the artifact and not only of
+`git ls-files`.  **The FAILURE paths below have not been run** — a hash
+mismatch, a truncated ROM, a fetch with no network.
 
 **Every box below was rewritten on 2026-09-08 and three of them were inverted.
 Do not drive this section from memory.**  What it used to check first was that

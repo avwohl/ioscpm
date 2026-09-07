@@ -582,7 +582,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 return
             }
 
-            applyRomWBWVersionSwitch(from: oldValue, refetch: true)
+            applyRomWBWVersionSwitch(from: oldValue, refetch: true, chosenByUser: true)
         }
     }
 
@@ -600,6 +600,20 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// release - it names the release, so it cannot be per release.
     private static let romwbwVersionKey =
         "selectedRomWBWVersion.\(CatalogMigration.interface)"
+
+    /// Whether the release above was PICKED, as opposed to adopted by the app.
+    ///
+    /// `romwbwVersionKey` records which release is in play and is written on
+    /// every switch, automatic ones included, because the next launch has to
+    /// scope its keys and resolve its filenames before an index can arrive.
+    /// That makes it useless as an answer to "did somebody choose this", and
+    /// reading it as one is what pinned a device to the first release it ever
+    /// adopted: the index's `default: true` moved a device once, wrote itself
+    /// here, and could never move it again.
+    ///
+    /// Absent means no. Only the picker sets it.
+    private static let romwbwVersionChosenKey =
+        "selectedRomWBWVersionIsUserChoice.\(CatalogMigration.interface)"
 
     // This app bundles no ROM.
     //
@@ -637,11 +651,18 @@ class EmulatorViewModel: NSObject, ObservableObject {
         storedRomWBWVersion() ?? CatalogMigration.legacyRomWBWVersion
     }
 
-    /// The release the user has actually chosen, or nil if they never have.
+    /// The release in play as of the last launch, chosen or adopted. Used to
+    /// seed `romwbwVersion`, NOT to answer "did the user choose".
     private static func storedRomWBWVersion() -> String? {
         guard let stored = UserDefaults.standard.string(forKey: romwbwVersionKey),
               !stored.isEmpty else { return nil }
         return stored
+    }
+
+    /// The release the user actually picked, or nil if they never have.
+    private static func userChosenRomWBWVersion() -> String? {
+        guard UserDefaults.standard.bool(forKey: romwbwVersionChosenKey) else { return nil }
+        return storedRomWBWVersion()
     }
 
     /// What to hand `RomWBWIndex.preferred` as "the release already in play",
@@ -655,30 +676,35 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// matched rule 1 of `preferred` on every launch, and the index's
     /// `default: true` was unreachable by construction.
     ///
-    /// Three cases, in order:
+    /// Two cases, in order:
     ///
     ///   1. The user chose. Keep it. A choice outranks the index's
     ///      recommendation, which is what the picker is for.
-    ///   2. Nobody chose, but this device carries disks from before the picker
-    ///      existed. Keep the legacy release. Those images were renamed to
-    ///      `-v0-3.5.1` names by the storage migration and are the only ones on
-    ///      the device, so adopting 3.6.0 would show an upgrading user four
-    ///      empty drives and a 24-image download.
-    ///   3. Nobody chose and there is nothing to carry - a fresh install. nil,
-    ///      so `preferred` takes `default: true`, which is romwbw_disks'
-    ///      recommendation and 3.6.0 today.
+    ///   2. Nobody chose. nil, so `preferred` takes `default: true`, which is
+    ///      romwbw_disks' recommendation and 3.6.0 today. This applies to a
+    ///      fresh install AND to a device upgrading with a library of pre-v0
+    ///      disks.
     ///
-    /// Case 2 reads the slots the migration writes, and the migration runs in
-    /// `init()` before any fetch, so the key is already in place by the time an
-    /// index can land. An upgrading device with no disk configured falls to
-    /// case 3, which is right: it has nothing to lose by starting on 3.6.0.
+    /// DECIDED 2026-09-07: an upgraded device gets the latest release, even
+    /// when it already has disks. There used to be a third case between these
+    /// two - a device carrying pre-v0 images kept 3.5.1, on the grounds that
+    /// those images were renamed to `-v0-3.5.1` names by the storage migration
+    /// and adopting 3.6.0 shows four empty drives and asks for a download. That
+    /// is a real cost and it is now accepted deliberately, because the opposite
+    /// cost is worse: every existing user was pinned to the older RomWBW for as
+    /// long as they never opened the picker, which is most of them, and a
+    /// release nobody is moved onto may as well not be published.
+    ///
+    /// What makes it affordable is that the move is cheap to undo and destroys
+    /// nothing. Switching release deletes no image on any path: the 3.5.1 files
+    /// stay under their `-v0-3.5.1` names, `selectedDisks.v0.3.5.1`,
+    /// `emulatorNvram.v0.3.5.1` and the rest stay beside the 3.6.0 keys, and
+    /// picking 3.5.1 in the picker brings the whole library and the boot string
+    /// back with no download at all. The storage migration still runs and still
+    /// renames to `-v0-3.5.1`, which is what makes that return trip work - this
+    /// changes only which release is selected afterwards, never what is on disk.
     private var romWBWVersionToKeep: String? {
-        if let chosen = Self.storedRomWBWVersion() { return chosen }
-        let legacy = CatalogMigration.legacyRomWBWVersion
-        let slots = UserDefaults.standard.stringArray(
-            forKey: CatalogMigration.versionedKey("selectedDisks", romwbwVersion: legacy))
-        if let slots = slots, slots.contains(where: { !$0.isEmpty }) { return legacy }
-        return nil
+        Self.userChosenRomWBWVersion()
     }
 
     // MARK: Disk freshness
@@ -688,6 +714,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // DiskLedger.swift, including why this is decided from provenance and not by
     // hashing the file against the catalog - that comparison would classify every
     // disk a user has saved work into as stale and overwrite it.
+
+    /// Did the last `refreshAvailableDisks()` manage to LIST Documents/Disks?
+    ///
+    /// Starts true so that nothing reads a "could not list" into the state
+    /// before a listing has been attempted. An unreadable directory and an
+    /// empty one are indistinguishable in `availableDisks`, and
+    /// `restoreDiskSelections()` has to tell them apart.
+    private var downloadsDirectoryWasListable = true
 
     /// Per-filename provenance and cached measurements. Keyed by lowercased name.
     private var diskLedger = DiskLedger()
@@ -1242,6 +1276,17 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// neither the old profile nor the new one is what comes back.
     @discardableResult
     func applyProfile(_ profile: EmulatorProfile) -> [String] {
+        // Not under a running machine, for the same reason the release picker
+        // refuses: this reassigns up to four disk slots, nothing reloads the
+        // core, and `saveDownloadedDisks()` writes the drive's live image to the
+        // file the SLOT names - so applying a profile mid-run would overwrite
+        // each newly named file with the contents of whatever is still mounted.
+        // The UI keeps this unreachable; the guard is here so that it stays
+        // true of the model whatever calls it.
+        guard !isRunning else {
+            refuseWhileRunning("applying a profile")
+            return []
+        }
         var unresolved: [String] = []
 
         if !profile.romFilename.isEmpty {
@@ -1655,12 +1700,39 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
 
         // Ensure disk 0 has something selected (fallback if no catalog defaults)
-        if selectedDisks[0] == nil || selectedDisks[0]?.filename.isEmpty == true {
+        //
+        // NOT when the user has a name in slot 0 that this launch merely failed
+        // to RESOLVE. Forcing the catalog's default here makes slot 0 non-empty,
+        // which makes persistSelectedDisks(remembering:) skip it - its guard is
+        // `filenames[i].isEmpty` - and the defer at the top of this function
+        // then writes the default over the user's choice. Their name is gone
+        // from the versioned key, and the unsuffixed pre-v0 key that still holds
+        // it is never read again once the versioned one exists.
+        //
+        // The case that produces it is the storage migration's deferred pass:
+        // Documents/Disks unreadable (MANUAL_CHECKS §18's chmod 000 box, or a
+        // container still locked before first unlock), so the migration
+        // deliberately carries the pre-v0 NAMES across without renaming any
+        // file, and this function then cannot match one of them against a
+        // listing it also could not read. §18 promises those values are carried
+        // "verbatim with their pre-v0 names untouched"; slot 0 was the one that
+        // was not.
+        //
+        // Leaving slot 0 empty for this launch is right: there is nothing
+        // mountable to put in it either way, and the name survives to be
+        // resolved on the launch after the directory can be read.
+        let slotZeroFallbackIsSafe = downloadsDirectoryWasListable
+            || !(savedSelections?.first.map { !$0.isEmpty } ?? false)
+        if slotZeroFallbackIsSafe,
+           selectedDisks[0] == nil || selectedDisks[0]?.filename.isEmpty == true {
             // Try to find a disk with defaultSlot=0, then fall back to first available
             let defaultDisk = diskCatalog.first { $0.defaultSlot == 0 }
             selectedDisks[0] = availableDisks.first { $0.filename == defaultDisk?.filename }
                 ?? availableDisks.first { !$0.filename.isEmpty }
                 ?? availableDisks.first
+        } else if !slotZeroFallbackIsSafe {
+            debugPrint("[RestoreDisks] Documents/Disks was not listable; "
+                       + "leaving slot 0 empty so the saved name is remembered")
         }
 
         debugPrint("[RestoreDisks] Final selections:")
@@ -2524,6 +2596,20 @@ class EmulatorViewModel: NSObject, ObservableObject {
         showingError = true
     }
 
+    /// Refuse something that would reassign disk slots under a running machine,
+    /// in one wording.
+    ///
+    /// Three places need it now - the release picker, `applyProfile`, and the
+    /// Cmd-, route into Settings - and they all refuse for one reason:
+    /// reassigning a slot does not reload the core, and `saveDownloadedDisks()`
+    /// writes the drive's live image to the file the SLOT names. `showError` is
+    /// private and stays that way; this is the single message a view has any
+    /// business raising, so the reason lives here rather than being retyped.
+    func refuseWhileRunning(_ what: String) {
+        showError("Stop the emulator before \(what). "
+                  + "The disks in the drives belong to the running machine.")
+    }
+
     /// Show warning when writing to a manifest-managed disk
     private func showManifestWriteWarning() {
         showingManifestWriteWarning = true
@@ -2866,7 +2952,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
         isSwitchingRomWBWVersion = true
         romwbwVersion = version
         isSwitchingRomWBWVersion = false
-        applyRomWBWVersionSwitch(from: previous, refetch: refetch)
+        // The app decided, not the user. Recording this as a choice is what
+        // let `default: true` move a device exactly once, ever.
+        applyRomWBWVersionSwitch(from: previous, refetch: refetch, chosenByUser: false)
     }
 
     /// Everything that has to change when the release does.
@@ -2887,8 +2975,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// `selectedDisks`'s didSet is already writing to the NEW release's key,
     /// and blanking that would destroy the slots the user set the last time
     /// they were on it.
-    private func applyRomWBWVersionSwitch(from previous: String, refetch: Bool) {
+    private func applyRomWBWVersionSwitch(from previous: String,
+                                         refetch: Bool,
+                                         chosenByUser: Bool) {
         UserDefaults.standard.set(romwbwVersion, forKey: Self.romwbwVersionKey)
+        // Only ever set, never cleared: a release the user picked stays picked
+        // until they pick another one. An automatic adoption leaves this alone
+        // rather than writing false, so it cannot demote an earlier choice.
+        if chosenByUser {
+            UserDefaults.standard.set(true, forKey: Self.romwbwVersionChosenKey)
+        }
         debugPrint("[Release] RomWBW \(previous) -> \(romwbwVersion)")
 
         // Any move the index asked for is answered by this one, whoever asked.
@@ -3169,6 +3265,15 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 if case .error(let message)? = self.downloadStates[asset.filename] {
                     detail = message
                 }
+                // Nothing arrived, so nothing was re-fetched, so the budget was
+                // not spent. Leaving the mark standing here is what turned a
+                // dropped connection into a release that could not boot for the
+                // rest of the session: the next Play short-circuited to "it is
+                // still wrong after being fetched again", which was false - it
+                // had never been fetched at all - and refused to make the
+                // request that would have fixed it. Settings offered no way out
+                // either, because its ROM controls key on the file EXISTING.
+                self.romRefetched.remove(CatalogMigration.fold(asset.filename))
                 self.reportROMProblem(self.romProblemText(file: asset.filename, reason: detail))
                 completion(false)
                 return
@@ -3892,10 +3997,17 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
 
         // Check for any other .img files in downloads directory (user-added disks)
-        if let contents = try? FileManager.default.contentsOfDirectory(
+        //
+        // Whether this LISTING worked is recorded, because "the directory holds
+        // no user disks" and "the directory could not be read" produce the same
+        // empty result here and must not produce the same decision in
+        // restoreDiskSelections(). See slotZeroFallbackIsSafe.
+        let listing = try? FileManager.default.contentsOfDirectory(
             at: downloadsDirectory,
             includingPropertiesForKeys: nil
-        ) {
+        )
+        downloadsDirectoryWasListable = (listing != nil)
+        if let contents = listing {
             for url in contents where url.pathExtension == "img" {
                 let filename = url.lastPathComponent
                 // Another release's catalog image is not a user-added disk.

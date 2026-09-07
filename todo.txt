@@ -129,18 +129,15 @@ It is released.  The tree is five builds past it, and compiled at last.
   release boots, so a check that used to cover a second-release convenience now
   covers the boot path for every user of the next build.
 
-  There is no Xcode on this machine.  Measured 2026-09-08: /Applications holds
-  no Xcode.app at all, xcode-select -p is /Library/Developer/CommandLineTools,
-  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild fails with
-  "missing DEVELOPER_DIR path", there is no iPhoneOS SDK, and xcrun cannot find
-  simctl.  What is here is the Command Line Tools swiftc and clang++ against the
-  macOS SDK, which is everything Tests/run_tests.sh needs and nothing that makes
-  an .app.  Do not take the DEVELOPER_DIR advice these notes used to carry as a
-  fact about the machine you are on: bare `xcodebuild` prints the same "requires
-  Xcode, but active developer directory ... is a command line tools instance"
-  whether Xcode is merely unselected or absent, and this repository has drawn the
-  wrong conclusion from that message in both directions.  `ls -d
-  /Applications/Xcode.app` settles it and costs nothing.
+  Whether Xcode is on the machine you are reading this on is not something this
+  file can tell you, and it has been written down wrongly here in both
+  directions.  Measure it: `ls -d /Applications/Xcode.app` settles it and costs
+  nothing, because bare `xcodebuild` prints the same "requires Xcode, but active
+  developer directory ... is a command line tools instance" whether Xcode is
+  merely unselected or absent.  If it is present but unselected, DEVELOPER_DIR
+  works and needs no sudo.  On 2026-09-07 it was present (Xcode 26.6) and builds
+  62 to 67 were built there; on 2026-09-08's reading it was absent.  Both were
+  true of the machine that measured them.  CLAUDE.md carries the commands.
 
 
 - [DONE 2026-09-08] the bracket tools/check-store-version.sh prints got looser
@@ -156,26 +153,24 @@ It is released.  The tree is five builds past it, and compiled at last.
   one.  It reports "at most build 61" again and names 66 as compiled-but-not-
   committed-in-time, so the reason is on screen rather than in this file.
 
-- [MAC] this tree has been compiled and it has never been BUILT.  Build 66 put
-  builds 62 through 65 in front of a compiler for the first time and found one
-  hard error in the app target - loadROM(fromData:) for loadROM(from:), on the
-  line that hands a fetched ROM to the core - and another in the test runner, so
-  sh Tests/run_tests.sh now exits 0 at 20 suites and 1,208 assertions,
-  EmulatorViewModelTypechecks type-checks all of EmulatorViewModel.swift against
-  the real bridging header, and ViewBindings checks every viewModel.<member>
-  ContentView.swift asks for.  None of that is xcodebuild: no .app has been
-  produced from any commit after build 61, nothing after build 61 has launched on
-  a simulator, and no build of this app has ever run on physical iOS hardware -
-  every measurement in this repository was made on a simulator or on a Mac.
-    Five files are outside every check here, because nothing on this machine can
-  compile them.  ContentView.swift, TerminalView.swift and CatalystWindow.swift
-  import UIKit; HelpView.swift and iOSCPMApp.swift use SwiftUI macros, and the
-  Command Line Tools swiftc cannot expand one - measured, it answers "external
-  macro implementation type 'SwiftUIMacros.StateMacro' could not be found for
-  macro 'State()'".  ViewBindings covers two of the five by spelling and that is
-  all it claims to do.  A build on a Mac with Xcode installed is owed before
-  anything is submitted, and MANUAL_CHECKS.md sections 18, 19 and 20 say the
-  same from the other end.
+- [DONE 2026-09-07] this tree has been BUILT, and run.  Build 67 was made with
+  Xcode 26.6 and xcodebuild succeeded for all three destinations that matter -
+  iOS Simulator Debug, generic/platform=iOS Release for arm64, and Mac Catalyst -
+  with no errors and one benign AppIntents note.  The five files that no host
+  swiftc can reach (ContentView.swift, TerminalView.swift, CatalystWindow.swift,
+  HelpView.swift, iOSCPMApp.swift) compiled for the first time and needed no
+  change.  The Release .app for arm64 contains no .rom and no .img, so that
+  property is now a fact about the artifact and not only about git ls-files.
+  MANUAL_CHECKS.md sections 18, 19 and 20 were driven on a simulator; see the
+  build 67 CHANGELOG entry for what was measured.
+
+- [DEVICE] no build of this app has ever run on physical iOS hardware.  Every
+  measurement in this repository was made on a simulator or on a Mac, and that
+  is unchanged by build 67 having been built and driven: a simulator is not a
+  device.  MANUAL_CHECKS.md section 17 and the [DEVICE] items there are what is
+  left, and they are the ones a synthetic event cannot answer - a hand that does
+  not hold still, a haptic, real cellular data, and a real APFS container under
+  memory pressure.
 
 - [RELEASE] this tree bundles no ROM at all now, and the ROM users have is the
   broken one.  Build 66 deleted iOSCPM/Resources/emu_avw.rom with its four
@@ -215,6 +210,69 @@ It is released.  The tree is five builds past it, and compiled at last.
   make the scroll-versus-press arbitration a close call, and the haptic, which
   no simulator fires.
 
+
+- [MAC] found by the build-67 audit and NOT fixed, in severity order.  Each was
+  raised by a reviewer and survived three adversarial verifiers; each names a
+  symbol rather than a line.  Four siblings of these WERE fixed in build 67 and
+  are in the CHANGELOG, so this is the remainder, not the whole list.
+
+  * loadCachedCatalog adopts a cached catalog with NONE of the parser's
+    verification gates.  The cache lives in Documents/Disks, which is
+    user-visible over iTunes file sharing and the Files app, so an edited
+    catalog-v0-<rel>.json is trusted on the offline path where a fetched one
+    would be rejected.  Verify the cache the way a download is verified, or say
+    in the file why a cache is different.
+
+  * applyRomWBWVersionSwitch blanks the four slots in memory and nothing
+    restores them when the new release's catalog cannot be loaded, so the next
+    slot edit persists four blanks over the saved configuration.  Reachable by
+    switching release with no network.
+
+  * start() has no re-entrancy guard and Play stays live through the whole
+    ROM-and-disk download window, so a second press starts a second fetch/boot
+    sequence over the first.
+
+  * waitForDownloadCompletion polls for ever on .notDownloaded, so cancelling a
+    download started from the Play path leaves the overlay up permanently.
+
+  * CatalogMigration.renames(in:) does not record a rename skipped because the
+    destination already exists, so notMoved misses it and the stored names are
+    rewritten to a file that was never created.  MANUAL_CHECKS 18's "a
+    destination that already exists is kept" box covers the file half of this
+    and passes; it is the KEY half that is wrong.
+
+  * HelpView.fetchContent prefers the copy at releases/latest over the bundled
+    one, and the served copy is still the pre-build-61 text - it tells iOS users
+    to press Cmd+C.  Either upload the asset (docs/DISK_W8FIX_RUNBOOK.md governs
+    it) or prefer the bundle when it is newer.
+
+  * installedChecksumStatus(for:) paints the migrated combo's checksum red while
+    the row correctly calls it up to date, because it does not consult
+    CatalogMigration.isEquivalentPriorImage the way DiskLedger.freshness does.
+    Cosmetic, and it contradicts the row beside it.
+
+  * CatalogDocument.isPreview's docstring says 3.6.0 is published as a preview.
+    The live index has said "status": "stable" and "default": true since
+    2026-09-05.  Docstring only; the code reads the field.
+
+  * Tests/CatalogDocumentTests.swift asserts that an empty `keeping:` is treated
+    as "no choice".  RomWBWIndex.preferred does not implement that - an empty
+    string simply matches no release and falls through - so the test passes for
+    a reason it does not state.
+
+- [ANY] 58 measurement claims across 14 files are dated 2026-09-08, which is one
+  day AFTER the commit that wrote them.  docs/ROM_ATTESTATION.md is the one that
+  matters: it is a document to be filed with Apple and it is dated in the
+  future.  Re-date it to the day it is actually filed, and treat the rest as a
+  reminder that a date written by a session is the session's idea of the date.
+
+- [ANY] check-store-version.sh sets status=2 for "could not verify" in the
+  "WHICH BUILD USERS HAVE COULD NOT BE ESTABLISHED" arm, but the trailing
+  `if [ "$status" != 0 ]` collapses every non-zero status to `exit 1`.  So a
+  could-not-verify is reported to CI as a contradicted shipped state - red,
+  where the workflow's own documented contract says exit 2 is a yellow NOT
+  VERIFIED that does not fail the job.  The shallow-checkout false RED fixed in
+  build 67 reached CI through this same arm.
 
 Open questions
 --------------

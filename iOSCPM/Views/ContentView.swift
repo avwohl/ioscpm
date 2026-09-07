@@ -402,6 +402,19 @@ struct ContentView: View {
         case .openExports:
             viewModel.openExportsFolder()
         case .settings:
+            // The toolbar gear carries `.disabled(viewModel.isRunning)`; this
+            // route did not, and the menu item it serves has a Cmd-, shortcut,
+            // so on Mac Catalyst and on an iPad with a keyboard Settings opened
+            // over a running machine. That matters because the disk-slot pickers
+            // inside it mutate `selectedDisks` WITHOUT reloading the core, and
+            // `saveDownloadedDisks()` writes the guest's live image back to the
+            // file the SLOT names - so re-pointing slot 0 under a running
+            // machine wrote 51 MB of the disk in the drive over whichever file
+            // was picked instead. Same guard, same reason as the gear.
+            guard !viewModel.isRunning else {
+                viewModel.refuseWhileRunning("opening Settings")
+                return
+            }
             showingSettings = true
         }
     }
@@ -568,6 +581,14 @@ struct SettingsView: View {
                             }
                             .pickerStyle(.menu)
                             .labelsHidden()
+                            // Re-pointing a slot does not reload the core, and
+                            // saveDownloadedDisks() writes the drive's live
+                            // image to the file the slot names. Under a running
+                            // machine that overwrites the newly picked file with
+                            // the old one's contents. Settings should not be
+                            // reachable while running at all now; this is here so
+                            // that a third way in cannot reopen the hole.
+                            .disabled(viewModel.isRunning)
 
                             HStack(spacing: 12) {
                                 Button("Open File...") {

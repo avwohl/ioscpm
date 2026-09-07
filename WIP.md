@@ -68,22 +68,36 @@ end to end against a real sandbox. CP/M 2.2 booted there and took
 software-keyboard input (`c`⏎, then `dir`), scrollback moved `sb 0/12` ->
 `sb 12/12` on a swipe, and the Catalyst app returned real text from a pointer
 drag plus Cmd+C. That closed `MANUAL_CHECKS.md` section 7, which is now a hole in
-the numbering on purpose. `~/Library/Developer/Xcode/Archives/2026-09-02/` still
-holds the two `.xcarchive`s made here, and they are what is left of that
-toolchain. Read on 2026-09-08, both carry `CFBundleVersion 56` — not build 58,
-which is what this file asserted without ever opening them — and both are signed
-`Apple Development`, which is the measurement behind the releasing paragraph
-below.
+the numbering on purpose.
 
-**Nothing after build 61 has been built or run anywhere.** Builds 62 through 65
-were written on a Linux machine with no Swift toolchain; build 66 put them in
-front of a compiler for the first time, and a compiler is all they have seen. No
-build of this app has ever run on physical hardware — every measurement in this
-repository was made on a simulator or on a Mac. `MANUAL_CHECKS.md` carries the
-rest, and its section 17 is the half of the selection gesture that needs a
-finger.
+**The two `.xcarchive`s this paragraph used to describe are not there.**
+Measured 2026-09-07: `~/Library/Developer/Xcode/Archives/2026-09-02/` exists and
+is EMPTY, and `find ~/Library/Developer/Xcode/Archives -name '*.xcarchive'`
+returns five archives, none of them iOSCPM. So the reading recorded here on
+2026-09-08 — "both carry `CFBundleVersion 56`, not build 58" — was a measurement
+of files that are gone, and it also disagreed with the build number this file
+asserts two paragraphs up. Nothing depends on it: the releasing paragraph below
+rests on how `xcodebuild archive` signs, which is a property of the toolchain
+and not of any particular archive.
 
-`Tests/run_tests.sh` is green at **20 suites and 1,208 assertions**, where the
+**Build 67 has been built and run.** Builds 62 through 65 were written on a
+Linux machine with no Swift toolchain and build 66 put them in front of a
+compiler; build 67 put them in front of `xcodebuild`, on a Mac with Xcode 26.6,
+and it succeeded for the iOS Simulator, for `generic/platform=iOS` at arm64, and
+for Mac Catalyst. It was then installed on an iPhone 17 simulator and driven:
+the v0 index and both releases' catalogs were fetched, both releases' ROMs and
+combo images were downloaded and verified against the catalog's SHA-256, CP/M
+2.2 booted under `CBIOS v3.5.1 [WBW]` and under `CBIOS v3.6.0 [WBW]` with no
+HBIOS/CBIOS mismatch, and the storage migration was run against a staged pre-v0
+container. The Catalyst app was launched and driven on the Mac. See the build 67
+CHANGELOG entry.
+
+**No build of this app has ever run on physical hardware** — every measurement
+in this repository was made on a simulator or on a Mac, and build 67 does not
+change that. `MANUAL_CHECKS.md` carries the rest, and its section 17 is the half
+of the selection gesture that needs a finger.
+
+`Tests/run_tests.sh` is green at **21 suites and 1,210 assertions**, where the
 run this file recorded at build 61 was 14 suites and 1,051 checks. Two things
 became checkable that this file once said were not, and — contrary to what this
 file claimed — only one of them is wired in:
@@ -241,7 +255,7 @@ to leave a zero-byte CP/M file behind.
 
 ## Verification available on this machine
 
-    sh Tests/run_tests.sh                      # 20 suites, 1,208 assertions
+    sh Tests/run_tests.sh                      # 21 suites, 1,210 assertions
     sh tools/check-store-version.sh            # needs the network
     sh tools/check-shipped-disks.sh            # needs the network
     xcrun --sdk macosx swiftc -parse iOSCPM/Views/*.swift iOSCPM/iOSCPMApp.swift

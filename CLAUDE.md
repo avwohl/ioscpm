@@ -3,9 +3,17 @@
 ## NEVER change MARKETING_VERSION
 
 `MARKETING_VERSION` in `iOSCPM.xcodeproj/project.pbxproj` is the App Store
-version string (1.5.1 at time of writing). **Do not change it unless a human
+version string (**1.6.1** at time of writing). **Do not change it unless a human
 explicitly asks you to change it**, and do not change it as a side effect of
 "bumping the version" for a fix.
+
+It has moved exactly once under this rule: **1.5.1 → 1.6.1 on 2026-09-07, build
+67, asked for in those words by a human.**  Recorded here because a reader who
+finds this file saying 1.5.1 and the project saying otherwise should be able to
+tell an authorised bump from the accident this section exists to prevent.  The
+occasion was that 1.5.1's description had stopped being true of the app: no ROM
+and no disk image ships in the bundle any more, and the user chooses which
+RomWBW release to run.  A build-number bump could not carry that.
 
 Once a release candidate exists in App Store Connect for a given version, that
 version is frozen — it cannot be edited there. Changing it locally makes the
@@ -16,8 +24,8 @@ only thing that moves between submissions of the same version, and it is what
 every CHANGELOG entry here is keyed to:
 
 ```
-CURRENT_PROJECT_VERSION = 52;      <- bump this, once, for a new build
-MARKETING_VERSION = 1.5.1;         <- leave alone
+CURRENT_PROJECT_VERSION = 67;      <- bump this, once, for a new build
+MARKETING_VERSION = 1.6.1;         <- leave alone
 ```
 
 Both appear twice in the pbxproj (Debug and Release); change both occurrences of
@@ -48,22 +56,51 @@ play is the bug.**  A bundled ROM is one.  So is a hardcoded version string on a
 decision path, a hardcoded catalog filename, and `roms[0]` by array position
 instead of the entry flagged `default: true`.
 
-## Only Xcode can build this, and Xcode is not on this machine
+## Whether Xcode is here is a fact about the machine, not about the repo
 
-There is no `Xcode.app` here, only Command Line Tools, so `xcodebuild` and the
-iOS Simulator are unavailable.  `sh Tests/run_tests.sh` is the build check, and
-it does more than run unit tests — it type-checks `EmulatorViewModel.swift`
-against the real bridging header, compiles the C++ core through the symlinks,
-and name-checks what `ContentView.swift` asks of the view model.  **Run it after
-every change; it exits non-zero on a compile error.**
+**Measure it; do not read it from this file.**  This section has been wrong in
+both directions, and the message that misleads is
+`xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer
+directory ... is a command line tools instance`, which is printed whether Xcode
+is merely *unselected* or genuinely *absent*.  Settle it in one command:
 
-What it still cannot reach: `ContentView.swift`, `TerminalView.swift`,
-`CatalystWindow.swift`, `HelpView.swift` and `iOSCPMApp.swift` all import UIKit
-or use a SwiftUI macro, and neither is available on the macosx SDK.
-`Tests/check_view_bindings.sh` covers the one question that matters most there —
-does a member `ContentView` asks for still exist — but it is a spelling check,
-not a type check.  A build on a Mac with Xcode is still required before any
-submission, and nothing in this tree has ever run on a device or a simulator.
+```bash
+ls -d /Applications/Xcode.app        # present?  then it is only unselected
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -version
+```
+
+`DEVELOPER_DIR` needs no `sudo`, where `xcode-select --switch` does, so an
+unselected Xcode is not an obstacle.  On 2026-09-07 that machine had **Xcode
+26.6** with `xcode-select -p` still pointing at Command Line Tools, and builds
+62 to 67 were built there for the iOS Simulator, for an arm64 device, and for
+Mac Catalyst.  Builds 62 to 66 were written where there was no Xcode at all.
+Both are ordinary.
+
+`sh Tests/run_tests.sh` is the check that runs **everywhere**, and it is not
+only unit tests: it type-checks `EmulatorViewModel.swift` against the real
+bridging header, compiles the C++ core through the symlinks, and name-checks
+what `ContentView.swift` asks of the view model.  **Run it after every change;
+it exits non-zero on a compile error.**  Where there is no Xcode it is all you
+have, and five files stay out of reach — `ContentView.swift`,
+`TerminalView.swift`, `CatalystWindow.swift`, `HelpView.swift` and
+`iOSCPMApp.swift` import UIKit or use a SwiftUI macro, and neither is available
+on the macosx SDK.  `Tests/check_view_bindings.sh` covers the question that
+matters most there, by spelling rather than by type.
+
+Where there IS Xcode, run it as well as the build; it is faster and it catches
+the C++ side, which `xcodebuild` on this project does not exercise as directly.
+And run the build, because the five files above have exactly one compiler:
+
+```bash
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+xcodebuild -project iOSCPM.xcodeproj -scheme iOSCPM \
+    -destination 'platform=iOS Simulator,name=iPhone 17' build
+```
+
+What is still true regardless of this machine: **nothing in this tree has ever
+run on physical iOS hardware.**  Every measurement in this repository was made
+on a simulator or on a Mac, and that is a different claim from "it has never
+been built" — see `MANUAL_CHECKS.md` for what only a real device can answer.
 
 ## Never write down a shipped state you have not measured
 

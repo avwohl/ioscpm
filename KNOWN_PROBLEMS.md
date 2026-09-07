@@ -288,41 +288,32 @@ own code. The request for a human's edit that stood here is discharged.
 
 ## Releasing
 
-### This machine cannot upload, and as of 2026-09-08 it cannot archive either
+### No session can upload, whatever the toolchain here can do
 
-Not a bug and not a task — a standing fact about the toolchain, re-checked at
-build 58, at build 61, and again on 2026-09-08.
+Not a bug and not a task — a standing fact, re-checked at build 58, at build 61,
+and again at build 67.
 
 **Build 61 was uploaded on 2026-09-04 and that does not contradict this entry.**
-It was submitted by a person with App Store Connect credentials, not from this
-machine and not by any session. The rest of this entry is about what the
-toolchain *here* can do.
+It was submitted by a person with App Store Connect credentials, not from a
+machine a session was running on and not by any session.
 
-**The archive half of this entry has expired: there is no Xcode on this machine
-any more.** Measured 2026-09-08: `ls -d /Applications/Xcode.app` finds nothing,
-`xcode-select -p` is `/Library/Developer/CommandLineTools`, and the
-`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` prefix this entry used
-to recommend fails with `missing DEVELOPER_DIR path`. Nothing here archives,
-produces an `.app`, or boots a simulator. What is left is the Command Line Tools
-toolchain — Swift and `clang++` against the macOS SDK — which is everything
-`sh Tests/run_tests.sh` needs, and is the whole of how build 66 was compiled.
-
-The reason this entry and `CHANGELOG.md`, `WIP.md` and `todo.txt` have
-contradicted each other for several builds is that bare `xcodebuild` prints the
+**Whether Xcode is present is a property of the machine, and it changes.**  Do
+not record it here.  Builds 62 to 66 were written where there was none; build 67
+was built on a Mac with Xcode 26.6, for the iOS Simulator, for an arm64 device
+and for Mac Catalyst, and driven on a simulator.  Both readings were correct on
+the day they were made, and this entry has flip-flopped with them twice.
+`CLAUDE.md`'s "Whether Xcode is here is a fact about the machine" section has the
+one command that settles it — the trap being that bare `xcodebuild` prints the
 same "requires Xcode, but active developer directory ... is a command line tools
-instance" line whether Xcode is installed and merely unselected **or is not there
-at all**. `ls -d /Applications/Xcode.app` tells the two apart and costs nothing;
-run it before writing either claim down again. `WIP.md`'s "This machine no longer
-has Xcode" section carries the full measurement, and
-`~/Library/Developer/Xcode/Archives/2026-09-02/` still holds the two build 58
-`.xcarchive`s — which is all that is left of the toolchain that made them.
+instance" line whether Xcode is merely **unselected** or genuinely **absent**,
+and only `ls -d /Applications/Xcode.app` tells the two apart.
 
-**What an archive could never do, and that half is unchanged.** While Xcode was
-here, `xcodebuild archive` succeeded for `generic/platform=iOS`, but it signed
-with the **`Apple Development`** identity, which cannot be exported for the App
-Store. An upload needs three things that were never on this machine: a
-distribution certificate, an App Store provisioning profile, and an App Store
-Connect API key.
+**What an archive could never do, and this half has never changed and is the
+point of the entry.** `xcodebuild archive` succeeds for `generic/platform=iOS`,
+but it signs with the **`Apple Development`** identity, which cannot be exported
+for the App Store. An upload needs three things that have never been on any
+machine a session has run on: a distribution certificate, an App Store
+provisioning profile, and an App Store Connect API key.
 
 So a clean archive is evidence that the code builds and evidence of nothing
 else. Do not report a build as submitted, shipped or released on the strength of

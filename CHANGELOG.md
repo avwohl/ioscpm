@@ -1,5 +1,191 @@
 # Changelog
 
+## Version 1.6.1 (Build 67)
+
+**BUILT, and RUN.**  Every build from 62 to 66 was written on a machine with no
+Xcode; build 66 put that work in front of a *compiler* for the first time and
+said so in as many words — "there is no Xcode on this machine, so `xcodebuild`
+has never run, no `.app` has been produced, and nothing has launched on a
+simulator or a device".  That sentence is no longer true.  This build was made
+on a Mac with **Xcode 26.6**, and the whole of the interface-v0 migration has
+now been compiled into an application, installed, launched, and driven.
+
+`MARKETING_VERSION` moves **1.5.1 → 1.6.1** for the first time in fourteen
+builds, at a human's explicit instruction.  `CLAUDE.md` forbids moving it as a
+side effect and that rule stands; this is the exception it describes, and the
+reason is that 1.5.1's headline is not what this app now is.  Every ROM and
+every disk comes from the `romwbw_disks` catalog at runtime, the app bundles
+neither, and the user picks which RomWBW release to run.
+
+### What xcodebuild says
+
+Three destinations, no errors, one benign `AppIntents` note:
+
+| destination                              | configuration | result |
+|------------------------------------------|---------------|--------|
+| `platform=iOS Simulator,name=iPhone 17`  | Debug         | ok     |
+| `generic/platform=iOS` (arm64 device)    | Release       | ok     |
+| `platform=macOS,variant=Mac Catalyst`    | Debug         | ok     |
+
+The five files no host `swiftc` could ever reach — `ContentView.swift`,
+`TerminalView.swift`, `CatalystWindow.swift`, `HelpView.swift`,
+`iOSCPMApp.swift` — compiled for the first time.  They needed no changes.
+`sh Tests/run_tests.sh` still exits 0 at 21 suites and 1,210 assertions, and
+`tools/check-store-version.sh` exits 0 and reads the 1.6.1 heading correctly:
+the Store serves 1.5.1, and the tree is "at most build 61", which is right.
+
+The Release `.app` for arm64 contains no `.rom` and no `.img`.  That property
+was a `git ls-files` claim until now; it is a property of the artifact.
+
+### The migration, executed
+
+`MANUAL_CHECKS.md` §18 opens "**None of it has been run.**"  It has now been
+run, on a simulator container staged to look like a 1.5.1 device: legacy
+filenames, legacy keys, a user's own image, and a distinctive mtime on every
+file so that a copy could not be mistaken for a rename.
+
+- `hd1k_combo.img` → `hd1k_combo-v0-3.5.1.img` and `hd1k_ws4.img` →
+  `hd1k_ws4-v0-3.5.1.img`, **mtime unchanged** — `moveItem`, not a copy, which
+  is what keeps every ledger measurement valid.
+- `mywork.img`, the user's own image, keeps its name and its slot.
+- `selectedDisks` (legacy) is untouched; `selectedDisks.v0.3.5.1` holds the
+  renamed names with the user's image and the empty slot exactly where they were.
+- `emulatorNvram` `"C:autoboot"` is carried to `emulatorNvram.v0.3.5.1`, and the
+  ROM reported `NV Switches Found` and auto-booted from it.
+- `localDiskBookmarks` is copied verbatim to the versioned key, legacy beside it.
+- `catalogVersion` still reads `13`, orphaned and never touched.
+- `selectedROM` stays `emu_avw.rom`, deliberately not migrated, and resolves
+  through `ROMOption.answersTo`.
+- Nothing was deleted on any path, and a second launch renamed nothing twice.
+
+§19's two fetches were watched: `index-v0.json` arrives byte-identical to what
+the compiled-in URL serves *and* to `romwbw_disks/catalog/v0/index.json`, and
+the second URL comes out of the first document.  §20's ROM fetch happened:
+`emu_avw-v0-3.6.0.rom` and `emu_avw-v0-3.5.1.rom`, both 524,288 bytes, both
+matching the `sha256` their catalog publishes, as did both 51,380,224-byte
+combo images.  The app boots CP/M 2.2 on **both** releases — `CBIOS v3.6.0
+[WBW]` and `CBIOS v3.5.1 [WBW]`, neither printing the HBIOS/CBIOS mismatch
+warning, which is the check that the fetched ROM and the fetched disk are a
+matched pair.  `DIR` lists drive A:.
+
+The `hd1k_combo` equivalence exception fired, on a container whose ledger
+carried the real pre-v0 provenance `89b8ae1aaa6867dc…`: the row went from "A
+newer version is available" to installed-and-current, sparing an upgrading user
+a 49 MB download for 2,342 bytes of slack.  The same row with a provenance that
+does *not* match still offers the update, so the exception is not blanket.
+
+### An upgrade takes the newest RomWBW release
+
+**Behaviour change, decided 2026-09-07.**  A device upgrading with a library of
+pre-v0 disks now adopts the release the index flags `default: true` — 3.6.0
+today — where it used to keep 3.5.1.
+
+Keeping 3.5.1 was defensible: those images are 3.5.1 images, and moving shows
+empty drives and asks for a download.  It was also, in practice, a pin.  Every
+existing user stayed on the older RomWBW for as long as they never opened a
+picker they had no reason to open, and a release nobody is moved onto may as
+well not be published.
+
+The cost is real and is accepted.  What makes it affordable is that the move
+destroys nothing and is one tap to undo, and that was measured rather than
+asserted: switching back to 3.5.1 cost **12 KB** — the catalog document, and
+nothing else — and returned the four slots, the user's own image and the
+`C:autoboot` boot string exactly as they were.  Both releases' files sit side by
+side in `Documents/Disks`.  The newly adopted release is seeded with the
+recommended combo in slot 0, so the drives are not empty.
+
+`romWBWVersionToKeep` therefore honours a user's pick and nothing else.  That
+needed a second key, because it could not previously tell one from the other:
+
+- `selectedRomWBWVersion.v0` records the release in play and is written on
+  *every* switch, automatic ones included, because the next launch scopes its
+  keys from it before any index can arrive.
+- `selectedRomWBWVersionIsUserChoice.v0` is new, and only the picker sets it.
+
+Reading the first as "somebody chose this" is what made the index's
+`default: true` able to move a device exactly once, ever — the app's own
+adoption was indistinguishable from a choice on the next launch.  Measured both
+ways: an adopted release leaves the flag absent and stays movable, and a release
+picked in the UI sets it and survives a relaunch without the index overriding it.
+
+### Four defects the build found, and one the audit did
+
+Building it is what caught the first: `viewModel.showError(...)` from
+`ContentView` is `error: 'showError' is inaccessible due to 'private' protection
+level`.  It is now `refuseWhileRunning(_:)` on the view model, which is the one
+message a view has any business raising and puts the reason in one place.
+
+**Settings could be opened over a running machine, and that destroyed a disk.**
+The toolbar gear carries `.disabled(viewModel.isRunning)`.  The menu route did
+not, and it has a **Cmd-,** shortcut, so on Mac Catalyst and on an iPad with a
+keyboard `SettingsView` presented over a running emulator.  Inside it the
+release picker refuses while running — but the four disk-slot pickers and
+`applyProfile` did not, and re-pointing a slot does not reload the core while
+`saveDownloadedDisks()` writes the drive's live image to the file the SLOT
+names.  So changing Disk 0 under a running machine wrote 51 MB of the mounted
+combo over whichever file was picked instead, within one `diskSaveTimer` period,
+and the image the guest was actually running was never written back.  Guarded in
+three places now — the menu route, the pickers, and `applyProfile` itself — and
+verified on Catalyst: Cmd-, over a running machine puts up "Stop the emulator
+before opening Settings" and Settings stays shut.
+
+**A ROM fetch that never happened spent the one re-fetch.** `fetchROM` marked
+`romRefetched` *before* the transfer, and removed the mark only when a copy
+verified.  A download that failed — no signal — therefore left the mark
+standing, and every later attempt in that session short-circuited to "it is
+still wrong after being fetched again", which was false: it had never been
+fetched.  Settings offered no way out either, because its ROM controls key on
+the file EXISTING, and a truncated ROM exists.  The release could not boot until
+the app was force-quit.  The mark is now released when nothing arrived.
+
+**The migration's deferred pass lost slot 0.**  With `Documents/Disks`
+unreadable, `migrateStorageToInterfaceV0` correctly carries the pre-v0 names
+across without renaming anything — and then the same launch overwrote slot 0 of
+what it had just written.  `refreshAvailableDisks()` could not list the
+directory either, so no carried name resolved; `restoreDiskSelections()`'s
+slot-0 fallback forced in the catalog default; that made slot 0 non-empty, so
+`persistSelectedDisks(remembering:)` skipped it — its guard is
+`filenames[i].isEmpty` — and the default was written over the user's choice.
+The unsuffixed key still held it and is never read again once the versioned key
+exists, so it was gone.  `refreshAvailableDisks()` now records whether the
+listing worked, because "empty" and "unreadable" are the same result and must
+not be the same decision, and the fallback stands down when a saved name merely
+failed to resolve.  Verified with §18's own `chmod 000` recipe: all four slots
+carried verbatim, the boot string and the bookmarks with them, and
+`migratedToInterfaceV0` still unset.
+
+**`check-store-version.sh` went red every day in CI, and the reason it printed
+was false.**  The script dates each CHANGELOG heading by when it was committed,
+to rule out builds that postdate the Store's release, and guards that narrowing
+with `rev-parse --is-inside-work-tree`.  A `git clone --depth 1` passes that
+guard: it is a real work tree.  But its root commit has no parent, so `git log
+-S` diffs it against the empty tree and attributes **every** heading to the tip's
+date — so every compiled build looks too new to have shipped, `ceiling` comes
+back empty, and the script exits 1 announcing "CHANGELOG CONTRADICTS THE STORE:
+1.5.1 heads builds 43-66 and every one of them says it was never built".  Build
+66's entry opens "**COMPILED, for the first time.**"  `actions/checkout` defaults
+to `fetch-depth: 1` and `store-version.yml` set none, on a daily cron.
+Reproduced here with `git clone --depth 1` (exit 1) against the full checkout
+(exit 0).  The script now declines to narrow on a shallow checkout — the honest
+wider answer its own comment already promises an exported tree — and the workflow
+asks for full history.  Both verified: the same shallow clone now exits 0.
+
+### check-shipped-disks.sh could never inspect an iOS build
+
+The script's stated reason for existing is that it "checks the BUILT ARTIFACT as
+well as the tree", and its epilogue is careful to distinguish "found nothing"
+from "checked nothing".  For this port it always found nothing.  `artifacts_for`
+globs `*.app` out of `DerivedData`, but an `.app` is a bundle **directory**: the
+caller's `[ -f "$a" ]` rejected it, and the default branch of
+`scan_artifact_for` would have grepped a directory anyway.
+
+Measured here with a Release `.app` sitting in `./DerivedData` whose binary does
+name `index-v0.json`: the run still ended on "NO PACKAGE WAS INSPECTED".  Both
+guards now accept a bundle and both scanners walk one.  The artifact half of
+this gate has now passed for the first time — "artifact iOSCPM.app names the v0
+index, agrees with the tree" — and it still fails, exit 1, on a planted `.app`
+that does not.
+
 ## Version 1.5.1 (Build 66)
 
 **COMPILED, for the first time.**  Builds 62 through 65 were written on a Linux

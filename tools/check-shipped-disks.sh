@@ -200,6 +200,11 @@ scan_artifact() { # $1 = file -> prints every vN.N.N found
             unzip -o -qq "$f" -d "$tmp/x" 2>/dev/null || return 1
             find "$tmp/x" -type f 2>/dev/null | while read -r m; do scan_bytes "$m"; done
             rm -rf "$tmp/x" ;;
+        # An .app is a DIRECTORY, not an archive.  Nothing unpacks it and
+        # scan_bytes cannot read it; walk it instead.  See the note on the
+        # *.app case in scan_artifact_for() for why this was missing.
+        *.app)
+            find "$f" -type f 2>/dev/null | while read -r m; do scan_bytes "$m"; done ;;
         *) scan_bytes "$f" ;;
     esac
 }
@@ -237,6 +242,22 @@ scan_artifact_for() { # $1 = file, $2 = ERE -> exit 0 when found
                 fi
             done
             rm -rf "$tmp/y"
+            [ -f "$tmp/y.hit" ] ;;
+        # The iOS case, and the one this script could never actually answer.
+        # artifacts_for() has always globbed *.app out of DerivedData, but an
+        # .app is a bundle DIRECTORY: the caller's `[ -f "$a" ]` rejected it and
+        # the default branch below would have grepped a directory anyway, so on
+        # the one machine that can build this port the run still ended on "NO
+        # PACKAGE WAS INSPECTED".  Measured 2026-09-07 with a Release .app
+        # sitting in ./DerivedData whose binary does name index-v0.json.
+        *.app)
+            rm -f "$tmp/y.hit"
+            find "$1" -type f 2>/dev/null | while read -r m; do
+                if grep -a -qE "$spat" "$m" 2>/dev/null ||
+                   tr -d '\000' < "$m" 2>/dev/null | grep -a -qE "$spat" 2>/dev/null; then
+                    : > "$tmp/y.hit"
+                fi
+            done
             [ -f "$tmp/y.hit" ] ;;
         *)
             grep -a -qE "$spat" "$1" 2>/dev/null && return 0
@@ -378,7 +399,8 @@ echo "$ports" | while IFS='|' read -r port file pat kind; do
         # the thing to look for - an artifact that does not name it is stale.
         [ "$TREE_ONLY" = "1" ] && continue
         artifacts_for "$port" "$dir" 2>/dev/null | while read -r a; do
-            [ -f "$a" ] || continue
+            # A .app is a bundle directory, not a regular file.
+            { [ -f "$a" ] || [ -d "$a" ]; } || continue
             echo x >> "$tmp/scanned"
             if scan_artifact_for "$a" 'index-v0\.json'; then
                 printf '%-10s   artifact %s names the v0 index, agrees with the tree\n' \
@@ -429,7 +451,7 @@ echo "$ports" | while IFS='|' read -r port file pat kind; do
     # the new one.
     [ "$TREE_ONLY" = "1" ] && continue
     artifacts_for "$port" "$dir" 2>/dev/null | while read -r a; do
-        [ -f "$a" ] || continue
+        { [ -f "$a" ] || [ -d "$a" ]; } || continue
         echo x >> "$tmp/scanned"
         found=$(scan_artifact "$a" | sort -u | tr '\n' ' ')
         case " $found " in

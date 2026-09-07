@@ -53,6 +53,17 @@ jobs:
         uses: actions/checkout@v7
         with:
           path: ioscpm
+          # FULL HISTORY, and the run is wrong without it. The script dates each
+          # CHANGELOG heading by when it was committed, to rule out builds that
+          # postdate the Store's release. actions/checkout defaults to
+          # fetch-depth: 1, and in a depth-1 clone the root commit has no parent,
+          # so `git log -S` attributes every heading to the tip's date; every
+          # compiled build then looks too new to have shipped and the job went
+          # red daily claiming the CHANGELOG contradicts the Store. The script
+          # now detects a shallow checkout and declines to narrow, so this is
+          # belt and braces - but declining to narrow measures less than a local
+          # run does, and this is the run nobody watches.
+          fetch-depth: 0
 
       # The script compares against z80cpmw/FEATURE_PARITY.md as a SIBLING
       # directory, the way the checkouts sit on a developer's machine.
