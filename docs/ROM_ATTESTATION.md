@@ -32,18 +32,21 @@ this project's own published catalog and from nowhere else:
 
 The user chooses a RomWBW release; the application fetches that release's ROM,
 verifies it against the SHA-256 published in the catalog, and refuses it if the
-hash does not match. The files it can fetch today are:
+hash does not match. The files it can fetch today, each 524288 bytes, and the
+SHA-256 the catalog publishes for each, are:
 
-| File | RomWBW release | Banks 1-15 from |
-|---|---|---|
-| `emu_avw-v0-3.5.1.rom` | 3.5.1 | RomWBW `SBC_simh_std` |
-| `emu_rcz80-v0-3.5.1.rom` | 3.5.1 | RomWBW `RCZ80_std` |
-| `emu_avw-v0-3.6.0.rom` | 3.6.0 | RomWBW `SBC_simh_std` |
-| `emu_rcz80-v0-3.6.0.rom` | 3.6.0 | RomWBW `RCZ80_std` |
+- `emu_avw-v0-3.5.1.rom`, RomWBW 3.5.1, banks 1-15 from `SBC_simh_std`
+  `4b11402a29fad22de304775b7c415eb6a74600df06bd57828b9931a7e9693258`
+- `emu_rcz80-v0-3.5.1.rom`, RomWBW 3.5.1, banks 1-15 from `RCZ80_std`
+  `03e646914628aea507eb8db560497292c728d26a127965b5b3cff6270af5feee`
+- `emu_avw-v0-3.6.0.rom`, RomWBW 3.6.0, banks 1-15 from `SBC_simh_std`
+  `01d1ca6d142e9b757d4fd98c2229f2e506dd8c3253839391c8f5d4f6263c6557`
+- `emu_rcz80-v0-3.6.0.rom`, RomWBW 3.6.0, banks 1-15 from `RCZ80_std`
+  `9b204cd71d1064d7f4a46d4403f106250e0e53f2239931a6f81aa7bc7dba5fc5`
 
 `emu_avw-v0-3.5.1.rom` is byte-identical to the `emu_avw.rom` included in the
-bundle (both 512 KB, SHA-256
-`4b11402a29fad22de304775b7c415eb6a74600df06bd57828b9931a7e9693258`).
+bundle: `iOSCPM/Resources/emu_avw.rom` is 524288 bytes and hashes to the first
+of the four above.
 
 Further RomWBW releases may be published to that same catalog later. They are
 built by the same scripts, from the same two sources, under the same licence;
@@ -99,6 +102,25 @@ the downloadable ones:
 - Each published ROM's SHA-256 is recorded in the public catalog alongside it,
   so a downloaded ROM can be checked against the source it was built from.
 
+That last point is checkable rather than merely stated. `roms/build_emu_rom.sh`
+in https://github.com/avwohl/romwbw_emu assembles `src/emu_hbios.asm` into bank
+0, overlays it on banks 1-15 taken from the upstream RomWBW package, hashes the
+result, and compares that against the SHA-256 the catalog publishes for the same
+ROM. Run on 2026-09-07 it ends:
+
+```
+PASS: byte-identical to the published emu_avw for RomWBW 3.5.1
+      sha256 4b11402a29fad22de304775b7c415eb6a74600df06bd57828b9931a7e9693258
+      The ROM users download is reproducible from the source in this
+      repository.  That is what docs/ROM_ATTESTATION.md asserts.
+```
+
+That is the ROM included in this application bundle, reproduced from source. It
+covers RomWBW 3.5.1 only, because that copy of `src/emu_hbios.asm` hardcodes its
+version stamp; the parameterised copy in romwbw_disks builds bank 0 for any
+release, and romwbw_disks' `tools/check_source_drift.sh` asserts the two trees'
+copies have not diverged.
+
 ## Authorization for Apple
 
 I hereby grant Apple Inc. permission to use the ROM file included with this
@@ -112,7 +134,7 @@ Developer: Aaron Wohl
 Repositories:
   https://github.com/avwohl/romwbw_disks (ROM and disk images, and their source)
   https://github.com/avwohl/romwbw_emu (emulator)
-Date: September 2026
+Date: 2026-09-07
 
 ---
 
