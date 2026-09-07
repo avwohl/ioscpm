@@ -7,9 +7,10 @@ This document explains how disk images are managed, distributed, and consumed by
 The manifest and the help content are stored in this repository under
 `/release_assets/`. The disk images themselves are **not** in the repo — they
 exist only as GitHub Release assets (they were removed from `release_assets/` in
-f570676). Clients fetch the manifest and download disks on-demand from a
-**pinned** release tag, not from the "latest" endpoint; only the help system
-still floats on `latest`.
+f570676). Clients up to build 63 fetch that manifest and download disks
+on-demand from a **pinned** release tag, not from the "latest" endpoint — since
+build 42; builds 36/37 predate the pin and float on `latest` for disks as well.
+On a pinned build only the help system still floats on `latest`.
 
 > **Build 64 moved this app off all of it.** iOSCPM no longer reads
 > `release_assets/disks.xml`, no longer downloads from an `avwohl/ioscpm`
@@ -27,13 +28,19 @@ still floats on `latest`.
 
 ```
 release_assets/
-├── disks.xml              # Disk catalog manifest
+├── disks.xml              # Disk catalog manifest — FROZEN, do not edit
 ├── help_index.json        # Help system index
 └── help_*.md              # Help topic markdown files
 ```
 
+`disks.xml` is frozen and read by nothing in this tree; it is byte-identical to
+what `releases/latest/download/disks.xml` serves, and `docs/DISK_W8FIX_RUNBOOK.md`
+rests on that being so. The help assets are still live — `HelpView.swift` fetches
+them from `releases/latest/download/` on every build, including this one.
+
 ## The Disk Manifest (`disks.xml`)
 
+This is the pre-v0 interface, and it is what every build in the field reads.
 The manifest is an XML file listing all available disk images:
 
 ```xml
@@ -73,55 +80,92 @@ and on **any** difference cleared downloaded images. No checksum was consulted �
 the comparison was on the version attribute alone — and it needed no tap and no
 download.
 
-**Build 63 stopped consulting the attribute.** Its successor,
-`checkCatalogGenerationAndInvalidate` (`EmulatorViewModel.swift`), acts on the
-interface-v0 catalog's `generation` field, stored under a key scoped to the
-(interface, RomWBW release) pair; the XML carries no generation, so a build 63
-device deletes nothing on a catalog fetch at all. **This does not make the
-attribute safe to move.** Every build in service still reads it, and the two
-numbers are not interchangeable: the XML is at `version="13"` and the v0
-catalogs start at `generation: 1`, which is exactly why the old value is never
-copied into the new key.
+> **Never move `<disks version>`, and never edit `release_assets/disks.xml`.**
+> It is at `version="13"` and it stays there. There is no longer any reason to
+> touch it — a new disk is published in `romwbw_disks`, where that release's own
+> `generation` advances instead — and what moving it would still do to installed
+> 1.4.x devices is the rest of this section. The file is off limits for a second
+> reason as well: `docs/DISK_W8FIX_RUNBOOK.md` records the measurement that it is
+> byte-identical to what `releases/latest/download/disks.xml` serves, and any
+> edit, a comment included, breaks that. A warning about this belongs in prose
+> like this paragraph, never in the XML.
 
-**Build 56 narrowed what "downloaded images" means**, and the narrowing is the
-whole safety property: `deleteCatalogDisks(named:)` deletes only the `.img` files
-the **new** catalog lists. That is the test for whether deleting one is
-recoverable — an image the new catalog does not name cannot be fetched back from
-it, so a disk the user imported through Files, one `createNewDisk` made, and one
-dropped from the catalog in the same bump are all kept. The alert afterwards
-gives both counts. Before build 56, `deleteAllDownloadedDisks()` took every `.img`
-in `Documents/Disks` regardless of where it came from.
+**Build 63 stopped consulting the attribute, and the tree now deletes nothing at
+all.** What acts on the interface-v0 catalog's `generation` is
+`recordCatalogGeneration` (`EmulatorViewModel.swift`), which stores it under a
+key scoped to the (interface, RomWBW release) pair and stops there. It was
+`checkCatalogGenerationAndInvalidate` and it did delete; why that was retired
+rather than narrowed again is under "What replaced the wipe" below. The XML
+carries no generation either way, so a v0 device deletes nothing on a catalog
+fetch on either count. **None of that makes the attribute safe to move.** Every
+build in service still reads it, and the two numbers are not interchangeable:
+the XML is at `version="13"` while the v0 catalogs started at `generation: 1`
+and are at 2 today, which is exactly why the old value is never copied into the
+new key.
 
-**Since build 61 the attribute is no longer the only thing that can refresh an
-image, and it should not be the thing you reach for.** `DiskLedger.swift` records
-which published image each installed file came from — the catalog `<sha256>` a
-verified download matched — so a respun image can be replaced on that evidence
-alone, per file, with the version attribute left exactly where it is. That is how
-the `hd1k_combo.img` respin reaches a device that already held the old one.
-Deliberately *not* keyed on hashing the file against the catalog: a downloaded
-disk is a writable CP/M volume and `saveDownloadedDisks()` rewrites it, so that
-comparison marks every disk a user has saved work into as stale. See
+**Build 56 had narrowed what "downloaded images" meant**, and while a wipe
+existed that narrowing was the whole safety property: `deleteCatalogDisks(named:)`
+deleted only the `.img` files the **new** catalog listed. That is the test for
+whether deleting one is recoverable — an image the new catalog does not name
+cannot be fetched back from it, so a disk the user imported through Files, one
+`createNewDisk` made, and one dropped from the catalog in the same bump were all
+kept, and the alert afterwards gave both counts. Before build 56,
+`deleteAllDownloadedDisks()` took every `.img` in `Documents/Disks` regardless of
+where it came from. Both functions are gone from the tree; the note stays,
+because that test is what any future deletion would have to satisfy, and because
+the builds in the field still behave exactly as it describes.
+
+### What replaced the wipe
+
+Nothing did, and that is the point: something better was already running.
+`reassessDiskFreshness()` is called immediately after `recordCatalogGeneration`
+on the same path, and it asks the question the wipe was guessing at.
+`DiskLedger.swift` records which published image each installed file came from
+— the catalog `sha256` a verified download matched — so `DiskLedger.action`
+answers per file: `.refreshAutomatically` for an unmodified superseded image,
+`.offerUpdate(lossy: true)` for one the user has written to, and nothing at all
+for one that is already current. It never destroys work, and it stands down
+while the emulator is running off the file. That is how a respun
+`hd1k_combo.img` reaches a device that already holds the old one, with no
+version attribute and no generation moved on its account.
+
+Deliberately *not* keyed on hashing the installed file against the catalog: a
+downloaded disk is a writable CP/M volume and `saveDownloadedDisks()` rewrites
+it, so that comparison marks every disk a user has saved work into as stale. See
 "User Data Persistence" in `KNOWN_PROBLEMS.md`.
 
-There is still no confirmation beforehand on the version-attribute path, and it
-offers nothing as an update: the user is told after the fact. So do not think of
-this attribute as metadata.
-Bumping it clears the catalog half of everyone's disk library, unprompted, on
-their next launch — and for the builds actually in service (1.4.9, builds 36/37,
-which predate both the narrowing and the catalog pin) it still clears **all** of
-it. What that means for the order a release has to go out in is in
+The wipe was wrong in fact and not only in principle, which is why it is gone
+rather than narrowed a second time. The only `generation` bump this catalog has
+ever had — `romwbw_disks` commit `aab3a4f`, 1 → 2 on both releases — changed two
+ROM hashes and **zero of the twenty disk hashes**. A device holding the whole
+3.5.1 set would have deleted all twenty images and re-downloaded twenty
+byte-identical copies because two ROMs were rebuilt: on a phone, on cellular,
+gigabytes to arrive back where it started, and the direct cost of publishing a
+new ROM, which is the thing `romwbw_disks` exists to make cheap.
+
+### What moving it would still do to a device in the field
+
+On the version-attribute path there is no confirmation beforehand and nothing
+offered as an update: the user is told after the fact. So do not think of that
+attribute as metadata. Moving it clears the catalog half of an installed
+device's disk library, unprompted, on its next launch — and on a 1.4.9 install
+(builds 36/37), which predates both the narrowing and the catalog pin, it still
+clears **all** of it, imported and created disks included. Those builds are no
+longer what the App Store serves, but an install nobody has updated is still an
+install. What that means for the order a release has to go out in is in
 `docs/DISK_W8FIX_RUNBOOK.md`; what is still open about it — copy-on-write, and
-confirming before the wipe rather than after — is under "User Data Persistence"
-in `KNOWN_PROBLEMS.md`.
+confirming before a deletion rather than after — is under "User Data
+Persistence" in `KNOWN_PROBLEMS.md`.
 
 ## GitHub Releases Distribution
 
 ### Release URLs
 
 Clients up to build 63 read the catalog and the images from an explicit, pinned
-release tag — `releaseTag` in `EmulatorViewModel.swift`, `v1.4.12`. That
-constant is deleted in build 64; this is what every shipped build still does,
-and the tag has to stay live for as long as one of them is installed:
+release tag — `releaseTag` in `EmulatorViewModel.swift`. It read `v1.4.5`
+through build 58 and `v1.4.12` from build 61, and the constant is deleted in
+build 64. This is what every shipped build still does, and **both** tags have to
+stay live for as long as one build reading either is installed:
 ```
 Catalog:  https://github.com/avwohl/ioscpm/releases/download/v1.4.12/disks.xml
 Base URL: https://github.com/avwohl/ioscpm/releases/download/v1.4.12
@@ -132,19 +176,29 @@ Individual disk downloads append `/` plus the filename to the base URL:
 https://github.com/avwohl/ioscpm/releases/download/v1.4.12/hd1k_combo.img
 ```
 
-The help system is deliberately *not* pinned: `indexURL` and `baseURL` in
-`HelpView.swift` still
-fetches `help_index.json` and the `help_*.md` topics from
-`https://github.com/avwohl/ioscpm/releases/latest/download/`. Help content is not
-version-locked to the ROM; disk images are. See `docs/DISK_CATALOG_PINNING.md`.
+The help system is deliberately *not* pinned, on this build as on every other:
+`indexURL` and `baseURL` in `HelpView.swift` fetch `help_index.json` and the
+`help_*.md` topics from
+`https://github.com/avwohl/ioscpm/releases/latest/download/` (checked 2026-09-08:
+200). Help content is not version-locked to the ROM; disk images are. See
+`docs/DISK_CATALOG_PINNING.md`.
 
 ### Creating a Release
 
-When creating a new GitHub release:
+**This is the frozen record of a procedure, not a recipe to run.** Disks are
+published in `romwbw_disks` now — see "Adding a New Disk" — and these tags exist
+only to keep serving builds already installed. It is kept because somebody
+reading a 1.4.x device's traffic needs to know how those assets got there.
+Anything that does touch these releases goes through `docs/DISK_W8FIX_RUNBOOK.md`
+and its SUPERSEDED block first, never through this list.
 
-1. Update `release_assets/disks.xml` if adding/modifying disks:
-   - Add new `<disk>` entries
-   - Update the `version` attribute
+1. Update `release_assets/disks.xml` if adding/modifying disks — **this step is
+   closed.** The file is frozen: it is byte-identical to what
+   `releases/latest/download/disks.xml` serves, and `docs/DISK_W8FIX_RUNBOOK.md`
+   rests on that measurement. What this step used to say next was "update the
+   `version` attribute", and that instruction was wrong: it is the one act that
+   reaches into an installed 1.4.x device and deletes disks no catalog can give
+   back. See "Version Attribute" above.
    - Generate SHA256 checksums over the built images, wherever they were staged:
      `shasum -a 256 hd1k_*.img`
 
@@ -156,20 +210,31 @@ When creating a new GitHub release:
      downloaded
 
 3. The disk catalog does not follow `/latest/` (only the help system does).
-   Clients from build 42 to build 63 read the pinned tag `v1.4.12`; a new
-   release tag reaches none of them until `releaseTag` in
-   `EmulatorViewModel.swift` is bumped and a new app build ships. **Build 64
-   onwards reads none of this** — a new disk reaches those builds by being
-   published in `romwbw_disks` and does not need an app release at all, which
-   is the point of the migration.
+   Clients from build 42 to build 63 read a pinned tag — `v1.4.5` through build
+   58, `v1.4.12` from build 61 (the repin is `0010591`) — and a new release tag
+   reached none of them until `releaseTag` in `EmulatorViewModel.swift` was
+   bumped and a new app build shipped. **Build 64 onwards reads none of this** —
+   a new disk reaches those builds by being published in `romwbw_disks` and does
+   not need an app release at all, which is the point of the migration.
 
-   **The builds actually in service are not among them.** The App Store serves
-   1.4.9 (builds 36/37), which predates the pin and still fetches from
-   `releases/latest/download/`. So a release that is *not* marked `--prerelease`
-   reaches those devices immediately, with nothing installed and nothing
-   submitted. `v1.4.5` is still marked prerelease and stays that way. `v1.4.12`
-   was deliberately un-marked on 2026-09-04 and is now `releases/latest` — see
-   `docs/DISK_W8FIX_RUNBOOK.md` under "2026-09-04" for why, and
+   **A release published here still reaches installed devices, by two routes.**
+   What the App Store serves is a measurement, not a constant: run
+   `sh tools/check-store-version.sh`. On 2026-09-08 it says 1.5.1, released
+   2026-09-05, **at most build 61**, and confirms
+   `z80cpmw/FEATURE_PARITY.md`'s `shipped:61`. Builds 62 through 65 were never
+   compiled, and 66 was compiled here on 2026-09-08 but its CHANGELOG heading
+   was not committed before the Store published this version — the script prints
+   both narrowings, so read the number it gives rather than deriving one — a range that spans both pins, so which tag the currently
+   shipping binary reads is not knowable from this tree and both must stay
+   live. Older installs nobody has updated are 1.4.9 (builds 36/37), which
+   predate the pin entirely and fetch from `releases/latest/download/`. Since
+   `v1.4.12` became `releases/latest` on 2026-09-04 those two routes resolve to
+   the same tag, so uploading to it — or publishing a newer release that is
+   *not* marked `--prerelease` — reaches both fleets at once, with nothing
+   installed and nothing submitted. Re-measured 2026-09-08: `v1.4.5` is still
+   `prerelease=true` and stays that way, `v1.4.12` is `prerelease=false`, and
+   `releases/latest` resolves to `v1.4.12`. See `docs/DISK_W8FIX_RUNBOOK.md`
+   under "2026-09-04" for why that was traded, and
    `docs/DISK_CATALOG_PINNING.md` for what it changed about the two layers.
 
 ## Interface v0 (build 64 onwards)
@@ -196,13 +261,25 @@ Two hops from there:
 2. **That release's catalog**, verified against those two values *before* it is
    parsed. It carries `base_url` (ending in `/`), `roms[]` and `disks[]`.
 
+Fetched and checked on 2026-09-08: the index lists two releases, both
+`"status": "stable"`, and **3.6.0 is the one flagged `"default": true`**. Each
+catalog's bytes hash to the `catalog_sha256` the index publishes for it. 3.5.1
+is `generation` 2 with 2 ROMs and 20 disks; 3.6.0 is `generation` 2 with 2 ROMs
+and 24 disks.
+
 An asset URL is `base_url + filename`, concatenated. The `"/"` this client used
 to insert is gone — under v0 the separator is in the document, and reproducing
 the fixup would double it.
 
 Which release is in play is a user choice, filtered by asking the emulator core
 about each entry's version bytes (`RomWBWEmulator.supportsRomWBW(ver:upd:)`,
-which wraps `emu_romwbw_release_supported`). Everything whose validity depends
+which wraps `emu_romwbw_release_supported`). That filter is why the index
+carries `hbios.ver_byte`/`upd_byte` at all: a binary whose core predates a
+release must not be offered that release, and it decides for itself rather than
+being told. This tree's core lists both — `ROMWBW_SUPPORTED_RELEASES` in
+`romwbw_emu/src/romwbw_pin.h` names 3.5.1 and 3.6.0 — so both are offered here.
+No ioscpm build in the field reads the index at all, so the question does not
+arise for them. Everything whose validity depends
 on the release is keyed per (interface, release): the disk slots, the NVRAM
 blob, the last-seen generation, the on-disk filenames, and the catalog cache.
 Switching releases deletes nothing.
@@ -220,18 +297,34 @@ ROMs coexist as their disks do, and its `size` and `sha256` are checked against
 the catalog **every time it is used**, not only when it is downloaded. A copy
 that fails is fetched again once and then reported; nothing here deletes a ROM.
 
-`iOSCPM/Resources/emu_avw.rom` still ships, and still boots. It is a reviewed
-App Store asset named in `docs/ROM_ATTESTATION.md`, and it is what makes the
-release it declares work with no network at all: its bytes ARE
-`emu_avw-v0-3.5.1.rom`, which the app proves by hash rather than by assuming,
-so on 3.5.1 there is no ROM download.
+**There is no bundled ROM any more.** `iOSCPM/Resources/emu_avw.rom` is deleted
+and its four `project.pbxproj` references with it; `git ls-files` now matches no
+`.rom`, `.img`, `.bin`, `.com` or `.dsk` at all. ioscpm was the last of the five
+repositories to carry one — cpmdroid and z80cpmw deleted theirs on 2026-09-07 —
+and `sh tools/check-shipped-disks.sh` reads "v0 index, no bundled ROM - every ROM
+comes from the catalog" for all three ports, exit 0.
 
-What the bundled ROM is not is a substitute. A release whose ROM cannot be
-fetched or cannot be verified **does not start**: the app names the release, the
-file and the reason, and offers either to try again or to switch back to the
-release it carries a ROM for. Booting the bundled ROM under another release
-would produce `*** WARNING: HBIOS/CBIOS Version Mismatch ***` part-way through a
-boot, which is the pairing this whole scheme exists to prevent.
+**The reason it was kept was not true, and this document was one of the places
+that repeated it.** The claim was that the bundled ROM is what makes the app
+work with no network at all. It is not. `start()` returns early when
+`diskCatalog` is empty, and the catalog and every disk in it are downloads: a
+device that has never had a network has no disk to boot, so a ROM to boot it
+with buys nothing. What the 512 KB actually bought was skipping the ROM download
+on 3.5.1, and that is the only thing it should ever have been credited with.
+
+What changes for a user is where a fresh install starts. It used to start on the
+bundled ROM's release, 3.5.1; it now starts on the index's `default: true` entry,
+which is **3.6.0** today. Nothing else moves — a device that already holds a
+3.5.1 ROM keeps it, because the ROM is stored beside the disks under its catalog
+filename and two releases' ROMs coexist exactly as their disks do.
+
+A release whose ROM cannot be fetched or cannot be verified **does not start**:
+the app names the release, the file and the reason, and points at a connection
+or at the other ROM the same release publishes. There is no longer a "use the
+bundled one instead" way out, and there should not be: substituting it would
+mean booting a release the user did not pick, which produces
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***` part-way through a boot — the
+pairing this whole scheme exists to prevent.
 
 ## Client Implementation
 
@@ -245,6 +338,7 @@ Documents/Disks/disks_catalog.xml
 Build 64 fetches the two v0 documents instead and caches them per release:
 ```
 Documents/Disks/index-v0.json
+Documents/Disks/catalog-v0-3.6.0.json
 Documents/Disks/catalog-v0-3.5.1.json
 ```
 
@@ -272,15 +366,20 @@ as `Codable` structs, and `Tests/CatalogDocumentTests.swift` covers them.
 ### Download Flow
 
 1. User selects a disk in Settings
-2. Client downloads from GitHub Releases to a temp file
-3. The catalog `<filename>` is checked to be a plain name, not a path
-4. The **temp file** is hashed and compared against the manifest's `sha256`
+2. Client downloads from GitHub Releases to a temp file — under v0 from
+   `base_url + filename`, taken from the catalog rather than built from a tag
+3. The catalog's `filename` is checked to be a plain name, not a path
+4. The **temp file** is hashed and compared against the catalog's `sha256`
+   (`<sha256>` in the XML the field builds read; the same value either way)
 5. Only on a match is the temp file moved into `Documents/Disks/`
 6. Download state is updated in UI
 
 ### Integrity Verification
 
-**Shipped 2026-09-01.** Every download is verified before it is installed.
+**Landed 2026-09-01, in build 55.** Every download is verified before it is
+installed. Whether a given user's copy has it is a separate question and a
+measured one — `sh tools/check-store-version.sh` bounds what the Store serves,
+and it cannot say which build inside that bound it is.
 
 The only download path is `downloadDiskFromSettings` in
 `EmulatorViewModel.swift`, reached from `downloadDisk` (the Settings button),
@@ -300,11 +399,13 @@ That dead path is deleted; there is one download path and it verifies.
 
 Two entries are refused rather than installed:
 
-- **No `<sha256>` in the catalog entry.** Not "assume ok" — all 20 entries in
-  the pinned `v1.4.12` catalog carry a hash, so an entry without one is a
-  degraded or hostile catalog. Accepting it would have made the check optional
-  at the catalog's choosing.
-- **A `<filename>` that is not a plain name.** The catalog is downloaded
+- **No hash in the catalog entry.** Not "assume ok" — all 20 entries in the
+  pinned `v1.4.12` XML carry one, and so does every entry in both v0 catalogs
+  (checked 2026-09-08: 20 disks under 3.5.1, 24 under 3.6.0, plus 2 ROMs each,
+  none missing `sha256`), so an entry without one is a degraded or hostile
+  catalog. Accepting it would have made the check optional at the catalog's
+  choosing.
+- **A filename that is not a plain name.** The catalog is downloaded
   content and its filename reaches `removeItem`; `appendingPathComponent` does
   not escape `..`. Refused rather than silently reduced, because rewriting the
   name would desync it from `refreshAvailableDisks`.
@@ -316,22 +417,40 @@ the catalog carries no hash to compare against.
 
 ## Adding a New Disk
 
-1. Create the disk image with proper format (8MB or 49MB multislice)
-2. Name it following the pattern: `hd1k_<name>.img`
-3. Attach it to the GitHub release — do **not** commit the image to the repo
-4. Add entry to `disks.xml`:
-   ```xml
-   <disk>
-       <filename>hd1k_newdisk.img</filename>
-       <name>New Disk Name</name>
-       <description>Description of contents</description>
-       <size>8388608</size>
-       <license>Abandonware</license>
-       <sha256>YOUR_SHA256_HERE</sha256>
-   </disk>
-   ```
-5. Increment the `version` attribute in `<disks>`
-6. Upload the updated `disks.xml` alongside the image (see "Creating a Release")
+**It is published in `romwbw_disks`, and no app release is involved.** That is
+the whole point of the migration: a client that compiles in one index URL and
+takes every other URL out of the documents behind it needs no edit, no rebuild
+and no review to offer a disk it has never heard of. The set of catalog stems
+this app recognises is *observed* from the catalogs it fetches rather than
+compiled in, so a new id is a system disk on arrival — five ids already exist
+under 3.6.0 and not 3.5.1 (`hd1k_cobol`, `hd1k_dos65`, `hd1k_infocom`,
+`hd1k_msx`, `hd1k_wp`), all bootable.
+
+The steps live in `romwbw_disks`, and `romwbw_disks/docs/CATALOG_SCHEMA.md` is
+the authority for them. What matters from this side is what the client will and
+will not accept:
+
+1. Build the image and attach it to that RomWBW release's `romwbw_disks`
+   release, so that the catalog's `base_url` + `filename` resolves.
+2. Add its entry to that release's catalog with `id`, `filename`, `size` and
+   `sha256`. **An entry carrying no `sha256` is refused, not installed**, and a
+   `filename` that is not a plain leaf name is refused too — see "Integrity
+   Verification".
+3. Advance that catalog's `generation`, and republish the index with the
+   catalog's new `catalog_sha256` and `catalog_size`. The catalog is verified
+   against those two before it is parsed, so a catalog republished without them
+   is a catalog no client will read.
+4. Nothing here touches `release_assets/disks.xml`, the `<disks version>`
+   attribute, or any `avwohl/ioscpm` tag, and advancing `generation` deletes
+   nothing on any device — `reassessDiskFreshness()` decides per file.
+
+**What this section used to say** was: create the image, attach it to an
+`avwohl/ioscpm` release, add a `<disk>` entry to `release_assets/disks.xml`,
+**increment the `version` attribute in `<disks>`**, and upload the XML alongside
+the image. That is the procedure the builds in the field were fed by, and its
+fourth step is the one act `docs/DISK_W8FIX_RUNBOOK.md` forbids absolutely. It
+is written out here so that nobody reconstructs it from the shape of the release
+assets and runs it.
 
 ## Generating SHA256 Checksums
 
@@ -347,7 +466,17 @@ Or for a single file:
 shasum -a 256 hd1k_newdisk.img
 ```
 
-## Current Disk Inventory
+## Disk Inventory
+
+**A snapshot, not a fact about the app.** What a build offers is whatever the
+catalog it fetched lists; no client carries a disk list any more, so a table
+here goes stale by construction. Checked against the live catalogs on
+2026-09-08.
+
+RomWBW 3.5.1 publishes these twenty — the same set `release_assets/disks.xml`
+carries, and the same twenty every build in the field downloads. The Filename
+column is the XML's spelling, which is what those builds fetch; 3.5.1's own v0
+catalog publishes the same images under v0 names (`hd1k_combo-v0-3.5.1.img`):
 
 | Filename | Name | License | Size |
 |----------|------|---------|------|
@@ -371,6 +500,13 @@ shasum -a 256 hd1k_newdisk.img
 | hd1k_bp.img | B/P Bios | Mixed | 8MB |
 | hd1k_msxroms1.img | MSX ROMs 1 | Abandonware | 8MB |
 | hd1k_msxroms2.img | MSX ROMs 2 | Abandonware | 8MB |
+
+RomWBW 3.6.0 publishes twenty-four. It adds `hd1k_cobol` (COBOL), `hd1k_dos65`
+(DOS/65), `hd1k_infocom` (Infocom Adventures), `hd1k_msx` (MSX) and `hd1k_wp`
+(Word Processing), all 8MB and all bootable, and it drops `hd1k_ws4`, which does
+not exist in that release. Under v0 the filenames carry the release —
+`hd1k_combo-v0-3.6.0.img`, not `hd1k_combo.img` — which is what lets two
+releases' sets sit in `Documents/Disks` together.
 
 ## Privacy
 

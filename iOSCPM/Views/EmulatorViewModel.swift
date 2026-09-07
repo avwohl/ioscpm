@@ -8,7 +8,7 @@ import AVFoundation
 import CryptoKit
 import Network
 
-// One ROM the app can load: the one in its bundle, or one the release publishes.
+// One ROM the app can load: an entry in the selected release's `roms[]`.
 struct ROMOption: Identifiable, Hashable, Equatable {
     /// The filename is the identity, exactly as it is for DiskOption below.
     ///
@@ -33,14 +33,18 @@ struct ROMOption: Identifiable, Hashable, Equatable {
     /// for.
     let romID: String
 
-    /// The catalog entry these bytes have to match, or nil for the ROM in the
-    /// app bundle - which no catalog publishes and which is verified by being
-    /// what this build shipped.
+    /// The catalog entry these bytes have to match.
+    ///
+    /// Optional only because the type predates the bundled ROM going away, when
+    /// nil meant "the ROM in the app bundle, which no catalog publishes". Every
+    /// row is built from a catalog entry now, so nil is a bug rather than a
+    /// state, and `resolveROM()` reports it as one instead of booting something.
     let catalogEntry: CatalogROM?
 
     /// The RomWBW release this ROM is for, where it can be known without
-    /// reading the image: the catalog's `romwbw_version` for a published ROM,
-    /// and what the bundled image's own HCB says for the bundled one.
+    /// reading the image - the catalog's `romwbw_version`. Still optional
+    /// because a catalog is allowed to omit it; the bytes are then the only
+    /// answer, and `loadSelectedResources()` reads it out of the ROM itself.
     let romwbwRelease: String?
 
     /// Does this option answer to a ROM name something wrote down earlier - a
@@ -199,7 +203,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var showingError: Bool = false
     @Published var errorMessage: String = ""
     /// The alert's heading. "Error" for the overwhelming majority of callers,
-    /// which really are errors; the catalog-invalidation notice is not one, and
+    /// which really are errors; a catalog notice is not one, and
     /// heading "your disks were cleared" with the word Error tells the user
     /// something went wrong when the app did exactly what it meant to.
     @Published var errorTitle: String = "Error"
@@ -258,22 +262,50 @@ class EmulatorViewModel: NSObject, ObservableObject {
     //      coexist exactly as their disks do.
     //   3. Its size AND its sha256 are checked before it is used, EVERY time,
     //      not only when it is downloaded.
-    //   4. The bundled ROM stays, and is what a first offline launch boots. It
-    //      is not a substitute for another release's ROM.
+    //   4. This app bundles NO ROM. Every ROM is fetched, the same way every
+    //      disk is, and the repository tracks neither - which is the state
+    //      cpmdroid and z80cpmw reached on 2026-09-07 and this app reached on
+    //      2026-09-08.
+    //
+    //      The bundled `emu_avw.rom` that used to be here was justified as
+    //      "what a first offline launch boots". It was not, and could not be:
+    //      `start()` returns early when the disk catalog is empty, and the
+    //      catalog and every disk in it are downloads. A device that has never
+    //      had a network has no disk to boot, so a ROM to boot it with buys
+    //      nothing. What the 512 KB actually bought was skipping the ROM
+    //      download on 3.5.1, on a launch that was downloading a 49 MB disk
+    //      anyway.
     //   5. It lands BEFORE the emulator starts, or the machine does not start.
-    //      Falling back to the bundled ROM would pair one release's disks with
-    //      another release's HBIOS - the mismatch this whole thing removes -
-    //      and would do it invisibly.
+    //      There is no fallback and there must not be one: booting some other
+    //      release's ROM would pair one release's disks with another release's
+    //      HBIOS - the mismatch this whole thing removes - and would do it
+    //      invisibly.
 
     /// Which ROM the user picked. The picker binds straight to this.
     @Published var selectedROM: ROMOption? {
         didSet {
+            // Only when a PERSON moved it. `restoreROMSelection()` assigns to
+            // this too - on every catalog fetch and every release switch - and
+            // without the bracket that assignment writes the app's own fallback
+            // to the key as though the user had chosen it. That is not a
+            // cosmetic slip: `restoreROMSelection` reads the key FIRST, so once
+            // it has written `defaultROMOption`'s id there, that id is what it
+            // finds on every later launch. The catalog's `default: true` could
+            // then only ever take effect on a device that had never run the app
+            // before, and romwbw_disks changing which ROM it recommends would
+            // reach nobody - which is the same promise the release picker makes,
+            // broken one level down.
+            guard !isRestoringROMSelection else { return }
             // The catalog id, not the filename: see selectedROMIDKey.
             if let rom = selectedROM {
                 UserDefaults.standard.set(rom.romID, forKey: Self.selectedROMIDKey)
             }
         }
     }
+
+    /// Brackets `restoreROMSelection()`, exactly as `isRestoringSelections`
+    /// brackets the four disk slots and for the same reason.
+    private var isRestoringROMSelection = false
 
     /// Where the ROM choice is remembered.
     ///
@@ -284,36 +316,31 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// wants, which should survive a release switch the way the terminal
     /// settings do. It is also what the schema asks for: key on `id`.
     ///
-    /// The old "selectedROM" key held a bundle filename and is deliberately
-    /// left in place, unread, exactly as "catalogCacheTag" is. It costs
-    /// nothing, a user who downgrades this app finds their settings as they
-    /// left them, and nothing is lost by not reading it: it can only say
-    /// "emu_avw.rom", which resolves to the ROM the catalog flags default
+    /// The old "selectedROM" key held the bundle filename builds before the
+    /// catalog wrote, and is deliberately left in place, unread, exactly as
+    /// "catalogCacheTag" is. It costs nothing, a user who downgrades this app
+    /// finds their settings as they left them, and nothing is lost by not
+    /// reading it: it can only say "emu_avw.rom", which resolves to the ROM the
+    /// catalog flags default
     /// anyway.
     private static let selectedROMIDKey = "selectedROMID.\(CatalogMigration.interface)"
 
     /// The ROMs this app can load for the release in play.
     ///
-    /// Computed from the catalog now, not a one-element `let`. Each row is a
-    /// ROM the selected release publishes; where the bundled image IS one of
-    /// them - byte for byte, checked by hash in `resolveROM()` - that row costs
-    /// no download at all.
+    /// Computed from the catalog, not a one-element `let`: each row is a ROM the
+    /// selected release publishes, so a release that publishes a second ROM
+    /// grows a second row with no change here and no app release.
     ///
-    /// With no catalog in hand - or with one that publishes no `roms[]` at
-    /// all, which §6.1 says to survive rather than assume away - the whole list
-    /// is the bundled ROM, and only when the release in play is the one it
-    /// declares. That is the first offline launch: no network, no index, and a
-    /// machine that still boots. Offering it under any OTHER release would be
-    /// the silent substitution this change exists to remove, so the list is
-    /// empty instead and `start()` says why.
+    /// Empty with no catalog in hand, and empty for a catalog that publishes no
+    /// `roms[]` at all - which §6.1 of romwbw_disks' CATALOG_SCHEMA.md says to
+    /// survive rather than assume away. Empty is the honest answer and `start()`
+    /// says so: this app carries no ROM of its own to offer instead, and
+    /// offering one release's ROM under another release is the silent
+    /// substitution the whole catalog exists to remove.
     var availableROMs: [ROMOption] {
-        if let document = catalogDocument, !document.romEntries.isEmpty {
-            let release = document.romwbwVersion ?? romwbwVersion
-            return document.romEntries.map { ROMOption(catalog: $0, release: release) }
-        }
-        guard let bundled = Self.bundledROMRelease, bundled == romwbwVersion,
-              Self.bundledROMURL != nil else { return [] }
-        return [Self.bundledROMOption]
+        guard let document = catalogDocument, !document.romEntries.isEmpty else { return [] }
+        let release = document.romwbwVersion ?? romwbwVersion
+        return document.romEntries.map { ROMOption(catalog: $0, release: release) }
     }
 
     // Disk selection for slots 0-3 (OS slots) and data drives
@@ -441,21 +468,57 @@ class EmulatorViewModel: NSObject, ObservableObject {
         downloadsDirectory.appendingPathComponent("index-\(CatalogMigration.interface).json")
     }
 
-    /// The catalog generation last seen for THIS RomWBW release, and the only
-    /// thing that may delete a downloaded image.  Per release because deletion
-    /// is per release; see checkCatalogGenerationAndInvalidate.
+    /// The catalog generation last seen for THIS RomWBW release.
+    ///
+    /// It gates nothing any more - build 66 deleted the wipe it used to
+    /// trigger, and `recordCatalogGeneration` only writes it down. Kept because
+    /// it is still the thing a later fetch is compared against, and because
+    /// re-deriving a generation history from nothing is not possible.
     ///
     /// Not the old unsuffixed "catalogVersion" key, which held the XML's
     /// `version` attribute - "13" against a v0 generation of 1. That key is
     /// orphaned rather than carried forward, so the first v0 fetch on any
-    /// device finds this one empty and takes the first-run branch.
+    /// device finds this one empty.
     ///
     /// Takes the release explicitly, like `catalogCacheURL(for:)` and for the
-    /// same reason: this key gates a DELETION, and reading `romwbwVersion` from
-    /// inside would file one release's generation under another's the moment a
-    /// fetch outlives the picker.
+    /// same reason: reading `romwbwVersion` from inside would file one release's
+    /// generation under another's the moment a fetch outlives the picker.
     private func catalogGenerationKey(for version: String) -> String {
         CatalogMigration.versionedKey("catalogGeneration", romwbwVersion: version)
+    }
+
+    /// Every disk stem this app has ever seen a catalog publish, under any
+    /// release, unioned with the twenty pre-v0 ones.
+    ///
+    /// This is what tells `hd1k_msx-v0-3.6.0.img` sitting under a 3.5.1 catalog
+    /// apart from a disk the user imported themselves. It has to be OBSERVED and
+    /// not a table, because a table can only ever list what was published when
+    /// this app was built - and "romwbw_disks can add a disk without an app
+    /// release" is the promise the whole interface exists to keep. Five ids
+    /// already exist under 3.6.0 and not 3.5.1, all bootable, and against a
+    /// frozen table every one of them is offered as a 3.5.1 system disk.
+    ///
+    /// Scoped to the interface and NOT to a release, deliberately: it is the
+    /// union across releases, and that is the only shape in which it can answer
+    /// "does this file belong to some OTHER release". It only ever grows, so a
+    /// disk that is dropped from a catalog keeps being recognised as that
+    /// release's - which is right, since the file on disk still is.
+    private static let knownCatalogStemsKey = "catalogDiskStems.\(CatalogMigration.interface)"
+
+    private var knownCatalogStems: Set<String> = {
+        let stored = UserDefaults.standard.stringArray(
+            forKey: EmulatorViewModel.knownCatalogStemsKey) ?? []
+        return CatalogMigration.catalogDiskStems.union(stored)
+    }()
+
+    /// Note the stems a freshly adopted catalog publishes.
+    private func recordCatalogStems(from filenames: [String]) {
+        let stems = filenames.compactMap { CatalogMigration.versionedParts(of: $0)?.stem }
+        let grown = knownCatalogStems.union(stems)
+        guard grown != knownCatalogStems else { return }
+        knownCatalogStems = grown
+        UserDefaults.standard.set(Array(grown).sorted(), forKey: Self.knownCatalogStemsKey)
+        debugPrint("[Catalog] Known disk stems: \(grown.count)")
     }
 
     @Published var diskCatalog: [DownloadableDisk] = []
@@ -526,69 +589,32 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// Guards the didSet above against running twice for one move.
     private var isSwitchingRomWBWVersion = false
 
+    /// A release the index says to move to, held until the machine stops.
+    ///
+    /// Set only by the index hop, and only while `isRunning`. Taken in `stop()`,
+    /// after `saveDownloadedDisks()` - the order is the point, because the
+    /// switch empties the slots that call needs to know where to write.
+    private var pendingRomWBWVersion: String?
+
     /// Where the release choice is remembered. Scoped by interface but NOT by
     /// release - it names the release, so it cannot be per release.
     private static let romwbwVersionKey =
         "selectedRomWBWVersion.\(CatalogMigration.interface)"
 
-    /// The ROM the app bundle ships, and the release it declares.
-    ///
-    /// Read out of the image rather than asserted: there is no compile-time pin
-    /// left to read anywhere in this tree - the core takes the RomWBW version
-    /// from whichever ROM it loads - so the only honest answer comes from the
-    /// four HCB bytes at 0x103-0x106 of the file itself. nil when the bundled
-    /// ROM is missing or carries no HCB, which is a broken build rather than a
-    /// user-visible condition; the fallback is the release the storage
-    /// migration was written for.
-    static let bundledROMFilename = "emu_avw.rom"
-    static let bundledROMRelease: String? =
-        RomWBWEmulator.romWBWRelease(ofBundledROM: bundledROMFilename)
-
-    /// The bundled ROM's file, or nil when this build was assembled without it.
-    /// Named with the type rather than bare, as `bundledROMFacts` below is: a
-    /// closure is a different lexical context from the property initializers
-    /// above it, and spelling the two the same way is one less thing for the
-    /// first Mac build of this file to argue about.
-    static let bundledROMURL: URL? = {
-        let name = (EmulatorViewModel.bundledROMFilename as NSString).deletingPathExtension
-        let ext = (EmulatorViewModel.bundledROMFilename as NSString).pathExtension
-        return Bundle.main.url(forResource: name, withExtension: ext)
-    }()
-
-    /// Its size and SHA-256, measured once.
-    ///
-    /// Measured rather than declared, for the same reason `bundledROMRelease`
-    /// is read out of the image: it is what lets the bundled file STAND IN for
-    /// a catalog ROM instead of merely resembling one. The v0 3.5.1 catalog's
-    /// emu_avw entry names 524,288 bytes hashing to 4b11402a…, and the file in
-    /// this bundle is those exact bytes - so a first launch on 3.5.1 downloads
-    /// no ROM at all, and the claim that it need not is CHECKED rather than
-    /// asserted. Bundle a differently-built image one day and the hash simply
-    /// stops matching: the release's ROM is then fetched, which is right,
-    /// rather than quietly substituted, which is the bug.
-    ///
-    /// Mapped, and lazy like every `static let`, so the 512 KB is read the
-    /// first time a ROM is resolved and not at launch.
-    static let bundledROMFacts: (size: Int64, sha256: String)? = {
-        guard let url = EmulatorViewModel.bundledROMURL,
-              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
-        return (size: Int64(data.count), sha256: EmulatorViewModel.sha256Hex(data))
-    }()
-
-    /// The bundled ROM as a picker row.
-    ///
-    /// Only ever offered when no catalog has been read, so it is the offline
-    /// first launch and nothing else; where a catalog IS in hand the bundle
-    /// gets no row of its own but stands in for the entry whose bytes it
-    /// already is. Its `romID` is its own stem, which is also the catalog id of
-    /// the ROM it is a copy of - that is what makes a remembered "emu_avw"
-    /// resolve to the same ROM either way.
-    static let bundledROMOption = ROMOption(
-        name: "EMU AVW",
-        filename: bundledROMFilename,
-        romID: (bundledROMFilename as NSString).deletingPathExtension,
-        catalogEntry: nil,
-        romwbwRelease: bundledROMRelease)
+    // This app bundles no ROM.
+    //
+    // `bundledROMFilename`, `bundledROMRelease`, `bundledROMURL`,
+    // `bundledROMFacts`, `bundledROMOption`, `bundledROMFallbackRelease` and
+    // `switchToBundledROMRelease()` all used to live here and are gone, with
+    // `iOSCPM/Resources/emu_avw.rom` itself. Every ROM now comes from the
+    // catalog, hash-checked before use, exactly as every disk does.
+    //
+    // Do not put a bundled ROM back without re-reading rule 4 above. The reason
+    // it went is not that it was unused - it saved a 512 KB download on 3.5.1 -
+    // but that the thing it was justified by was untrue: it could not make a
+    // never-online launch work, because `start()` has no disk catalog to boot
+    // from either. Re-adding one re-adds a second, silent answer to "which
+    // RomWBW release is this", and that is what romwbw_disks exists to delete.
 
     /// The release to start on when the user has never chosen one.
     ///
@@ -597,12 +623,62 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// migration. That is only safe because the key it reads is a new one that
     /// no migration touches: anything this needed from a migrated key would
     /// have to move, not be read from here.
+    /// With nothing stored this is the PRE-v0 release, not the index's default,
+    /// and deliberately so: it is the value in play only until an index arrives,
+    /// and the device it has to be right for is the one upgrading with a library
+    /// of pre-v0 disks. Those are 3.5.1 images, and the storage migration renames
+    /// them to 3.5.1 names, so starting anywhere else would show an upgrading
+    /// user an empty set of drives for as long as the fetch takes.
+    ///
+    /// It is a display and key-scoping value and NOT a choice, which is why
+    /// `romWBWVersionToKeep` below exists rather than this being passed to
+    /// `RomWBWIndex.preferred` directly.
     private static func initialRomWBWVersion() -> String {
-        if let stored = UserDefaults.standard.string(forKey: romwbwVersionKey),
-           !stored.isEmpty {
-            return stored
-        }
-        return bundledROMRelease ?? CatalogMigration.bundledRomWBWVersion
+        storedRomWBWVersion() ?? CatalogMigration.legacyRomWBWVersion
+    }
+
+    /// The release the user has actually chosen, or nil if they never have.
+    private static func storedRomWBWVersion() -> String? {
+        guard let stored = UserDefaults.standard.string(forKey: romwbwVersionKey),
+              !stored.isEmpty else { return nil }
+        return stored
+    }
+
+    /// What to hand `RomWBWIndex.preferred` as "the release already in play",
+    /// or nil when there is nothing to keep and the index should decide.
+    ///
+    /// This is the difference between "the value `romwbwVersion` happens to
+    /// hold" and "a release somebody chose", and conflating them is what pinned
+    /// every fresh install to 3.5.1 for ever. `initialRomWBWVersion()` seeds
+    /// `romwbwVersion` with the PRE-v0 release so that keys and filenames
+    /// resolve before any index arrives; passing that seed as `keeping:` then
+    /// matched rule 1 of `preferred` on every launch, and the index's
+    /// `default: true` was unreachable by construction.
+    ///
+    /// Three cases, in order:
+    ///
+    ///   1. The user chose. Keep it. A choice outranks the index's
+    ///      recommendation, which is what the picker is for.
+    ///   2. Nobody chose, but this device carries disks from before the picker
+    ///      existed. Keep the legacy release. Those images were renamed to
+    ///      `-v0-3.5.1` names by the storage migration and are the only ones on
+    ///      the device, so adopting 3.6.0 would show an upgrading user four
+    ///      empty drives and a 24-image download.
+    ///   3. Nobody chose and there is nothing to carry - a fresh install. nil,
+    ///      so `preferred` takes `default: true`, which is romwbw_disks'
+    ///      recommendation and 3.6.0 today.
+    ///
+    /// Case 2 reads the slots the migration writes, and the migration runs in
+    /// `init()` before any fetch, so the key is already in place by the time an
+    /// index can land. An upgrading device with no disk configured falls to
+    /// case 3, which is right: it has nothing to lose by starting on 3.6.0.
+    private var romWBWVersionToKeep: String? {
+        if let chosen = Self.storedRomWBWVersion() { return chosen }
+        let legacy = CatalogMigration.legacyRomWBWVersion
+        let slots = UserDefaults.standard.stringArray(
+            forKey: CatalogMigration.versionedKey("selectedDisks", romwbwVersion: legacy))
+        if let slots = slots, slots.contains(where: { !$0.isEmpty }) { return legacy }
+        return nil
     }
 
     // MARK: Disk freshness
@@ -929,18 +1005,32 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // state where start() refuses to boot and saveDownloadedDisks() throws
         // the guest's work away in silence. So it defers the whole pass with
         // the flag left clear, and the next launch tries again.
+        //
+        // What it must NOT do is return here. The two key MOVES below -
+        // `selectedDisks` and `emulatorNvram`, legacy key to versioned key - are
+        // not optional on a deferred pass, because this same launch goes on to
+        // WRITE both versioned keys: `restoreBootString()` writes the NVRAM one
+        // and `persistSelectedDisks()` writes the slots one. By the next launch
+        // `object(forKey: migratedNvramKey) == nil` is false and the
+        // `?? stringArray(forKey: "selectedDisks")` fallback never fires, so the
+        // legacy values are never read again. Returning here loses the user's
+        // boot string and their four slots permanently, on the one path that
+        // exists to be safe. So `renameFiles` gates the NAME REWRITING, which is
+        // the part that genuinely depends on knowing what moved, and the key
+        // moves happen either way with the names carried across untouched.
+        var renameFiles = true
         var contents: [String] = []
         if fm.fileExists(atPath: directory.path) {
             do {
                 contents = try fm.contentsOfDirectory(atPath: directory.path)
             } catch {
                 print("[Migration] Could not list \(directory.path):"
-                      + " \(error.localizedDescription) - deferred to the next launch")
-                return
+                      + " \(error.localizedDescription) - names deferred to the next launch")
+                renameFiles = false
             }
         }
 
-        for rename in CatalogMigration.renames(in: contents) {
+        for rename in renameFiles ? CatalogMigration.renames(in: contents) : [] {
             let source = directory.appendingPathComponent(rename.from)
             let destination = directory.appendingPathComponent(rename.to)
             // `moveItem` THROWS when the destination exists, and this pass may
@@ -969,17 +1059,26 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // launch, by which time the user may have changed a slot, and copying
         // the legacy value over it again would put the older choice back.
         //
-        // The target key is the BUNDLED release's, not the one the release
+        // The target key is the PRE-v0 release's, not the one the release
         // picker has selected. Everything this pass touches was written by a
         // build that had no picker and one pinned catalog, so it can only be
         // 3.5.1 data; filing it under 3.6.0 because that is where the user
         // happens to be would claim disks for a release they were never built
         // for. This runs before any instance exists, which is what makes that
         // hard to get wrong: there is no romwbwVersion here to reach for.
+        //
+        // On a deferred pass the value is carried across VERBATIM: the key has
+        // to exist before anything else in this launch writes it, but no name
+        // may be rewritten while it is unknown whether its file moved. The next
+        // pass reads the versioned key first, so it picks these legacy names up
+        // and rewrites them then - `CatalogMigration.migratedName` is idempotent
+        // by construction, so a name that was already rewritten is left alone.
         let migratedSlotsKey = CatalogMigration.versionedKey("selectedDisks")
         if let stored = defaults.stringArray(forKey: migratedSlotsKey)
             ?? defaults.stringArray(forKey: "selectedDisks") {
-            defaults.set(CatalogMigration.migratedSlots(stored, notMoved: notMoved),
+            defaults.set(renameFiles
+                            ? CatalogMigration.migratedSlots(stored, notMoved: notMoved)
+                            : stored,
                          forKey: migratedSlotsKey)
         }
 
@@ -987,7 +1086,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // release-specific, it names disks by filename and the filenames now
         // carry the release. Note that decoding sorts and de-duplicates, so the
         // stored bytes change even when no name did.
-        if let data = defaults.data(forKey: profileStoreKey) {
+        //
+        // Skipped entirely on a deferred pass, and safe to skip: this rewrites
+        // in place under a key that is not versioned, so leaving it alone leaves
+        // pre-v0 names under a key that already held pre-v0 names. Nothing this
+        // launch writes can hide them from the next pass, which is exactly what
+        // made the two key moves above different.
+        if renameFiles, let data = defaults.data(forKey: profileStoreKey) {
             let store = CatalogMigration.migrated(ProfileStore.decoded(from: data),
                                                   notMoved: notMoved)
             if let encoded = store.encoded() {
@@ -998,33 +1103,74 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // The ledger, likewise in place and for the same reason. Only when
         // there is one: `deserialized(nil)` is an empty ledger, and writing
         // that would put an empty record set where there had been no key.
-        if let stored = defaults.string(forKey: diskLedgerKey),
+        if renameFiles,
+           let stored = defaults.string(forKey: diskLedgerKey),
            let serialized = CatalogMigration.migrated(DiskLedger.deserialized(stored),
                                                       notMoved: notMoved).serialized() {
             defaults.set(serialized, forKey: diskLedgerKey)
         }
 
         // The NVRAM blob, which holds no filename at all - this is a key move,
-        // not a rename. Same reasoning as the slots: into the bundled release's
+        // not a rename. Same reasoning as the slots: into the PRE-v0 release's
         // key, because a boot string saved before there was a picker was saved
-        // against the bundled ROM. The legacy key is left in place
-        // deliberately.
+        // against the one catalog that build could fetch. The legacy key is left
+        // in place deliberately.
+        //
+        // Unconditional, `renameFiles` or not, and it must stay that way: there
+        // is no filename in this value, so nothing about it depends on which
+        // files moved, and `restoreBootString()` writes this same key later in
+        // this very launch. Gating it would mean the guard below sees a key that
+        // this launch created and never copies the user's boot string across.
         let migratedNvramKey = CatalogMigration.versionedKey("emulatorNvram")
         if defaults.object(forKey: migratedNvramKey) == nil,
            let legacy = defaults.string(forKey: "emulatorNvram") {
             defaults.set(legacy, forKey: migratedNvramKey)
         }
 
+        // The local-file bindings, the other key move with no filename in it.
+        // Same shape and the same reason as the NVRAM blob above, including why
+        // it is not gated on `renameFiles`: `restoreLocalDiskBindings()` writes
+        // this key later in this launch.
+        let migratedBookmarksKey = CatalogMigration.versionedKey("localDiskBookmarks")
+        if defaults.object(forKey: migratedBookmarksKey) == nil,
+           let legacy = defaults.array(forKey: "localDiskBookmarks") {
+            defaults.set(legacy, forKey: migratedBookmarksKey)
+        }
+
         // A file that could not be moved is worth another attempt on the next
         // launch rather than a name frozen half-migrated for ever. The pass is
         // idempotent and costs one directory listing, so re-running it is
         // cheaper than the state it avoids.
-        if notMoved.isEmpty {
+        if renameFiles && notMoved.isEmpty {
             defaults.set(true, forKey: v0MigrationDoneKey)
         }
-        if renamed > 0 || !notMoved.isEmpty {
+        if renamed > 0 || !notMoved.isEmpty || !renameFiles {
             print("[Migration] interface v0: renamed \(renamed) disk image(s), "
                   + "\(notMoved.count) deferred to the next launch")
+        }
+    }
+
+    /// The disk a profile's stored name means, under the release in play.
+    ///
+    /// Exact filename first, so a user's own import resolves to itself and
+    /// nothing else. Then by catalog id, because a catalog filename carries the
+    /// release and a profile does not belong to one: a profile saved on 3.5.1
+    /// naming `hd1k_combo-v0-3.5.1.img` means "the combo disk", and under 3.6.0
+    /// that is `hd1k_combo-v0-3.6.0.img`. Matching the exact name alone reported
+    /// every disk in every profile unresolved the moment the user switched
+    /// release - which made profiles and the release picker mutually exclusive
+    /// features.
+    private func resolveProfileDisk(named filename: String) -> DiskOption? {
+        if let exact = availableDisks.first(where: { $0.filename == filename }) {
+            return exact
+        }
+        guard let wanted = CatalogMigration.catalogID(ofDiskNamed: filename,
+                                                      knownStems: knownCatalogStems) else {
+            return nil
+        }
+        return availableDisks.first {
+            CatalogMigration.catalogID(ofDiskNamed: $0.filename,
+                                       knownStems: knownCatalogStems) == wanted
         }
     }
 
@@ -1040,6 +1186,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
             name: name,
             romFilename: selectedROM?.filename ?? "",
             diskFilenames: selectedDisks.map { $0?.filename ?? "" },
+            romwbwVersion: romwbwVersion,
             bootString: bootString,
             keyProfileName: keyProfile.rawValue,
             keyBindings: bindings,
@@ -1082,10 +1229,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// Put the machine into the state a profile describes.
     ///
-    /// Best-effort per item, and it says so: a disk the catalog no longer
-    /// carries, or a ROM that is not in the bundle, leaves that one slot alone
+    /// Best-effort per item, and it says so: a disk this release does not
+    /// publish, or a ROM its `roms[]` does not name, leaves that one slot alone
     /// rather than failing the whole apply. What is reported back is what
-    /// actually could not be honoured.
+    /// actually could not be honoured - naming the release a slot was saved
+    /// under when that is why it did not resolve.
     ///
     /// The four disk slots are set inside the isRestoringSelections bracket for
     /// the reason the restore path uses it: each assignment persists, so
@@ -1114,11 +1262,19 @@ class EmulatorViewModel: NSObject, ObservableObject {
         for (index, filename) in profile.diskFilenames.enumerated() where index < 4 {
             if filename.isEmpty {
                 selectedDisks[index] = nil
-            } else if let disk = availableDisks.first(where: { $0.filename == filename }) {
+            } else if let disk = resolveProfileDisk(named: filename) {
                 selectedDisks[index] = disk
                 // A catalog disk replaces whatever local file was bound here;
                 // leaving the bookmark would have the slot claim two sources.
+                localDiskURLs[index]?.stopAccessingSecurityScopedResource()
                 localDiskURLs[index] = nil
+            } else if let saved = profile.romwbwVersion, saved != romwbwVersion {
+                // Name the release it was saved under. `hd1k_ws4` exists in
+                // 3.5.1 and not in 3.6.0 - upstream's combo.def calls slice 5
+                // "wp" there - so this is a real and permanent answer, not a
+                // download away, and saying only the filename leaves the user
+                // hunting for a disk that cannot exist here.
+                unresolved.append("disk \(index): \(filename) (saved under RomWBW \(saved))")
             } else {
                 unresolved.append("disk \(index): \(filename)")
             }
@@ -1157,6 +1313,20 @@ class EmulatorViewModel: NSObject, ObservableObject {
         statusText = unresolved.isEmpty
             ? "Applied profile: \(profile.name)"
             : "Applied \(profile.name) - could not resolve \(unresolved.count) item(s)"
+
+        // Say it here rather than returning it and hoping. The one caller
+        // discards this array, so every per-item explanation the loop above
+        // builds - including which release a slot was saved under, which is the
+        // whole reason a profile can half-apply after a release switch - reached
+        // nothing but a status line that the next redraw replaces. A profile
+        // that silently applies three slots out of four is the case a user
+        // cannot diagnose on their own.
+        if !unresolved.isEmpty {
+            showError("Applied \(profile.name), but these could not be restored:\n\n"
+                      + unresolved.map { "• \($0)" }.joined(separator: "\n")
+                      + "\n\nEverything else in the profile was applied.",
+                      title: "Profile Partly Applied")
+        }
         return unresolved
     }
 
@@ -1425,10 +1595,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // MARK: - Resource Loading
 
     func loadBundledResources() {
-        // The ROM choice, against what this release offers. With no catalog yet
-        // that is the app's own ROM and only when the release in play is the
-        // one it declares - which is the offline first launch. The catalog
-        // fetch below re-resolves it against `roms[]` the moment it lands.
+        // Named for a time when this app bundled a ROM and two disk images. It
+        // bundles neither now, and the name is left alone only because renaming
+        // it is a change to a call site in a file no compiler here can check.
+        //
+        // The ROM choice, against what this release offers - which is nothing at
+        // all until a catalog has been read, since every ROM is a download. The
+        // catalog fetch below resolves it against `roms[]` the moment it lands.
         restoreROMSelection()
 
         // Fetch the disk catalog (async - calls restoreDiskSelections when done)
@@ -1516,9 +1689,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // This prevents old disks from persisting when user reduces disk count
         emulator?.closeAllDisks()
 
-        // The ROM, from wherever this release's copy actually is: the app
-        // bundle when the bundled image is what the catalog publishes, and
-        // Documents/Disks when it is not.
+        // The ROM, from this release's downloaded copy in Documents/Disks.
+        // There is no other place it can come from: nothing is bundled.
         //
         // Checked here rather than trusted from start(). This is the moment the
         // bytes reach the core, and it is reached again from every later Play,
@@ -1528,9 +1700,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // change - which loadROMFromPath: would have left open.
         let resolution = resolveROM()
         guard case .ready(let romImage, let romOption) = resolution else {
-            // No fallback to the bundled ROM. See resolveROM: substituting it
-            // is the mismatch this whole path exists to prevent, and it would
-            // happen where nobody is looking.
+            // No fallback to another release's ROM. See resolveROM:
+            // substituting one is the mismatch this whole path exists to
+            // prevent, and it would happen where nobody is looking.
             switch resolution {
             case .ready:
                 break
@@ -1558,7 +1730,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
 
         debugPrint("[EmulatorVM] Loading ROM: \(romOption.filename)")
-        guard emulator?.loadROM(fromData: romImage) == true else {
+        guard emulator?.loadROM(from: romImage) == true else {
             // The bridge records why: unreadable, or rejected by the core's HCB
             // validation. That check stays the last line of defence - verifying
             // a hash says the bytes are the published ones, not that this build
@@ -1616,15 +1788,15 @@ class EmulatorViewModel: NSObject, ObservableObject {
                     }
                 }
 
-                // Try loading from bundle as fallback
-                let success = emulator?.loadDisk(Int32(unit), fromBundle: disk.filename) == true
-                debugPrint("🔵 [DISK] loadDisk(\(unit), \(disk.filename)) from bundle = \(success)")
-                if success {
-                    statusText = "Loaded: \(disk.name) to \(diskLabels[unit])"
-                } else {
-                    debugPrint("[EmulatorVM] ERROR: Failed to load \(disk.filename) to unit \(unit) - not in downloads or bundle")
-                    diskLoadErrors.append(disk.filename)
-                }
+                // Nowhere else to look. This used to fall back to
+                // `loadDisk:fromBundle:`, and that arm could not have succeeded
+                // since December 2025: no build has bundled a disk image, and
+                // `git ls-files` matches no `.img` at all. A fallback that can
+                // only fail is worse than none - it turned "this file is not on
+                // the device" into "not in downloads or bundle", which reads as
+                // though there were a second place worth checking.
+                debugPrint("[EmulatorVM] ERROR: \(disk.filename) is not downloaded")
+                diskLoadErrors.append(disk.filename)
             }
         }
 
@@ -1753,6 +1925,23 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     // MARK: - Local Disk Bookmark Persistence
 
+    /// Where the four local-file bindings are remembered, per RomWBW release.
+    ///
+    /// Per release for the same reason `selectedDisksKey` is: this IS slot
+    /// state. A slot bound to a file the user picked out of Files is one of the
+    /// four drives, and `restoreLocalDiskBindings()` writes `filename: ""` over
+    /// whatever catalog disk that slot held - so a single shared key means the
+    /// binding a user made under 3.5.1 silently overrides slot 0 under 3.6.0,
+    /// with a boot slice built by the other release, and the guest prints
+    /// *** WARNING: HBIOS/CBIOS Version Mismatch *** in the middle of a boot.
+    ///
+    /// The bookmark blobs hold no catalog filename, so the migration moves this
+    /// key the way it moves the NVRAM one - verbatim, and without waiting to
+    /// learn which files were renamed.
+    private var localDiskBookmarksKey: String {
+        CatalogMigration.versionedKey("localDiskBookmarks", romwbwVersion: romwbwVersion)
+    }
+
     /// Save security-scoped bookmarks for local disk files to UserDefaults
     private func saveLocalDiskBindings() {
         var bookmarks: [Data?] = Array(repeating: nil, count: 4)
@@ -1774,13 +1963,29 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         // Save as array of optional Data (encode as array of Data or empty Data)
         let encoded = bookmarks.map { $0 ?? Data() }
-        UserDefaults.standard.set(encoded, forKey: "localDiskBookmarks")
+        UserDefaults.standard.set(encoded, forKey: localDiskBookmarksKey)
         debugPrint("[LocalDisk] Saved \(bookmarks.compactMap { $0 }.count) local disk bookmarks")
     }
 
-    /// Restore local disk bindings from saved bookmarks
+    /// Restore local disk bindings from saved bookmarks.
+    ///
+    /// Idempotent, and it has to be: it is called from `restoreDiskSelections()`
+    /// on every catalog fetch and again from the release switch, and every
+    /// successful resolve below takes a sandbox extension with
+    /// `startAccessingSecurityScopedResource()`. Releasing what is already held
+    /// before re-reading is what keeps those balanced; without it each call
+    /// leaked one extension per bound slot.
+    ///
+    /// The release happens before the `guard`, so a release with NO saved
+    /// bookmarks still drops the previous release's - otherwise switching to a
+    /// release the user has never bound a file under would leave the old
+    /// release's file mounted in the slot.
     private func restoreLocalDiskBindings() {
-        guard let savedBookmarks = UserDefaults.standard.array(forKey: "localDiskBookmarks") as? [Data] else {
+        for i in localDiskURLs.indices {
+            localDiskURLs[i]?.stopAccessingSecurityScopedResource()
+            localDiskURLs[i] = nil
+        }
+        guard let savedBookmarks = UserDefaults.standard.array(forKey: localDiskBookmarksKey) as? [Data] else {
             debugPrint("[LocalDisk] No saved bookmarks found")
             return
         }
@@ -2052,6 +2257,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
         emulator?.stop()
         isRunning = false
         statusText = "Stopped - disk changes saved"
+
+        // A release the index asked for while this was running. Taken now, and
+        // strictly after saveDownloadedDisks() above: the switch empties the
+        // four slots, and that call writes the guest's live images back to the
+        // files those slots name.
+        if let pending = pendingRomWBWVersion {
+            pendingRomWBWVersion = nil
+            debugPrint("[Catalog] Taking the held move to RomWBW \(pending)")
+            adoptRomWBWVersion(pending, refetch: true)
+        }
     }
 
     // MARK: - NVRAM Persistence
@@ -2676,6 +2891,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
         UserDefaults.standard.set(romwbwVersion, forKey: Self.romwbwVersionKey)
         debugPrint("[Release] RomWBW \(previous) -> \(romwbwVersion)")
 
+        // Any move the index asked for is answered by this one, whoever asked.
+        // Left set, a held move from a fetch that saw a momentarily short index
+        // would fire at the next Stop and take the user off the release they had
+        // just chosen by hand - a switch nobody asked for, one action late.
+        pendingRomWBWVersion = nil
+
         isRestoringSelections = true
         selectedDisks = Array(repeating: nil, count: 4)
         isRestoringSelections = false
@@ -2692,15 +2913,31 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         // The ROM belongs to the release that is leaving too: its filename
         // carries the release, and the file it names boots that release and no
-        // other. Re-resolved here against an empty catalog, so the picker shows
-        // this app's own ROM if this is its release and nothing at all if it is
-        // not - and then again when the new catalog lands.
+        // other. Re-resolved here against an empty catalog, which empties the
+        // picker rather than leaving it pointing at the old release's ROM, and
+        // then again when the new catalog lands and there is something to offer.
         restoreROMSelection()
 
         // Under a per-release key the boot string cannot simply be kept: it is
         // the other release's, and RomWBW would fail its checksum and silently
         // reset. Read this release's own.
         restoreBootString()
+
+        // The local-file bindings are the leaving release's slot state as much
+        // as `selectedDisks` is, so they are re-read under the key that has just
+        // moved. HERE and not only from `restoreDiskSelections()`: that runs at
+        // the end of a successful catalog fetch, and a switch whose fetch FAILS
+        // would otherwise leave every slot unbound in memory while the new
+        // release's bookmark key still holds them - and the next
+        // `saveLocalDiskBindings()`, from any slot the user touches, would write
+        // four empty bookmarks straight over it. `restoreLocalDiskBindings()`
+        // releases what it replaces, so being called again later is free.
+        //
+        // Inside the bracket because it writes `selectedDisks`, whose didSet is
+        // already pointed at the new release's key.
+        isRestoringSelections = true
+        restoreLocalDiskBindings()
+        isRestoringSelections = false
 
         statusText = "RomWBW \(romwbwVersion) selected"
         if refetch { fetchDiskCatalog() }
@@ -2772,20 +3009,15 @@ class EmulatorViewModel: NSObject, ObservableObject {
                     + " or it publishes no ROM this app can load"))
         }
 
-        // The bundled ROM, when it is the whole list - no catalog has been read
-        // yet, or the one that has been read publishes no roms[]. It boots the
-        // release it declares and no other.
+        // Every ROMOption this app builds now carries a catalog entry, because
+        // `availableROMs` builds them all from `roms[]` and there is no bundled
+        // ROM to make a row out of. A row without one is therefore a bug rather
+        // than a state - reported as one instead of silently booting something.
         guard let entry = option.catalogEntry else {
-            guard let release = Self.bundledROMRelease, release == romwbwVersion,
-                  let url = Self.bundledROMURL,
-                  let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
-                return .unavailable(romProblemText(
-                    file: option.filename,
-                    reason: "the ROM this app carries is RomWBW"
-                        + " \(Self.bundledROMRelease ?? "an unreadable release"), not"
-                        + " \(romwbwVersion), and no catalog has been fetched to get one from"))
-            }
-            return .ready(data, option)
+            return .unavailable(romProblemText(
+                file: option.filename,
+                reason: "it names no catalog entry, so there is nothing to"
+                    + " check its bytes against"))
         }
 
         guard let document = catalogDocument else {
@@ -2794,28 +3026,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
             return .unavailable(romProblemText(
                 file: entry.filename,
                 reason: "the catalog it comes from is no longer loaded"))
-        }
-
-        // The bundled image standing in for a published ROM, by hash. Same
-        // check a downloaded copy gets, against the same catalog fields: the
-        // bundled 3.5.1 emu_avw IS emu_avw-v0-3.5.1.rom, byte for byte
-        // (524,288 bytes, 4b11402a…), so the release this app ships with needs
-        // no network on a first launch.
-        //
-        // By hash and not by "same release, same id", deliberately. If
-        // romwbw_disks ever republishes 3.5.1's emu_avw with different bytes,
-        // this stops matching and the published image is FETCHED - which is the
-        // entire point of reading the ROM from the catalog, and it would be
-        // undone by an arm that shrugged and booted the older copy. What that
-        // costs is the offline first launch of a device that has never fetched
-        // it, on a release whose ROM has been rebuilt. Nothing published today
-        // is in that state, and a rebuild is a decision someone makes upstream
-        // rather than something that drifts.
-        if let facts = Self.bundledROMFacts,
-           entry.problem(byteCount: facts.size, sha256: facts.sha256) == nil,
-           let url = Self.bundledROMURL,
-           let data = try? Data(contentsOf: url, options: .mappedIfSafe) {
-            return .ready(data, option)
         }
 
         let asset = Self.romAsset(entry, from: document)
@@ -2884,6 +3094,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// data now - they arrive over the network and they change with the
     /// release.
     private func restoreROMSelection() {
+        isRestoringROMSelection = true
+        defer { isRestoringROMSelection = false }
+
         let options = availableROMs
         guard !options.isEmpty else {
             // Nothing to offer. Deliberately not left pointing at the previous
@@ -2905,13 +3118,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// `true` means the ROM for the release in play is on this device and its
     /// bytes have been checked against the catalog. `false` means the machine
     /// does not start: the user has been told which release, which file and
-    /// why, and offered the release this app carries a ROM for. There is
-    /// deliberately no third answer.
+    /// why. There is deliberately no third answer.
     ///
     /// This is the part that differs from a disk. A missing disk is an empty
-    /// drive; a missing ROM is either nothing to execute or - if the bundled
-    /// one were quietly substituted - a guest that misbehaves and says so in a
-    /// warning most people will scroll past.
+    /// drive; a missing ROM is either nothing to execute or - if another
+    /// release's were quietly substituted - a guest that misbehaves and says so
+    /// in a warning most people will scroll past.
     private func prepareROM(then completion: @escaping (Bool) -> Void) {
         switch resolveROM() {
         case .ready(_, let option):
@@ -3008,15 +3220,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// the ROM cannot be had, the machine does not start on that release.
     private func romProblemText(file: String?, reason: String) -> String {
         let named = file.map { "\($0) " } ?? ""
-        var text = "The RomWBW \(romwbwVersion) ROM \(named)cannot be used: "
+        return "The RomWBW \(romwbwVersion) ROM \(named)cannot be used: "
             + CatalogTransfer.sentence(reason)
-        if let fallback = bundledROMFallbackRelease {
-            text += " Try again when you have a connection, or switch back to RomWBW"
-                + " \(fallback), which this app carries its own ROM for."
-        } else {
-            text += " Try again when you have a connection, or choose another ROM in Settings."
-        }
-        return text
+            + " Try again when you have a connection, or choose another ROM in Settings."
     }
 
     private func reportROMProblem(_ reason: String) {
@@ -3026,22 +3232,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
         debugPrint("[ROM] \(reason)")
     }
 
-    /// The release this app carries its own ROM for, offered as the way out of
-    /// a ROM that cannot be fetched. Nil when that IS the release in play.
-    var bundledROMFallbackRelease: String? {
-        guard let bundled = Self.bundledROMRelease, bundled != romwbwVersion else { return nil }
-        return bundled
-    }
-
-    /// Take that offer.
-    func switchToBundledROMRelease() {
-        guard let bundled = bundledROMFallbackRelease else { return }
-        guard !isRunning else {
-            showError("Stop the emulator before changing the RomWBW release.")
-            return
-        }
-        adoptRomWBWVersion(bundled, refetch: true)
-    }
+    // `bundledROMFallbackRelease` and `switchToBundledROMRelease()` stood here
+    // and offered "switch back to RomWBW 3.5.1, which this app carries its own
+    // ROM for" as the way out of a ROM that would not download. With no bundled
+    // ROM there is no such way out, and inventing one would mean booting a
+    // release the user did not pick. The way out is a connection, or the other
+    // ROM the same release publishes - which is what the message now says.
 
     /// One line for Settings about where the selected ROM's bytes come from.
     ///
@@ -3053,13 +3249,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
             return "No ROM for RomWBW \(romwbwVersion) yet - the catalog has not been read."
         }
         guard let entry = option.catalogEntry else {
-            return "\(option.filename) - the ROM in this app,"
-                + " for RomWBW \(option.romwbwRelease ?? "an unreadable release")."
-        }
-        if let facts = Self.bundledROMFacts,
-           entry.problem(byteCount: facts.size, sha256: facts.sha256) == nil {
-            return "\(entry.filename) - this app already carries these exact bytes,"
-                + " so there is nothing to download."
+            return "\(option.filename) - no catalog entry, so its bytes cannot be checked."
         }
         if isDiskDownloaded(entry.filename) {
             return "\(entry.filename) - downloaded, and checked again every time it is used."
@@ -3072,8 +3262,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// Whether Settings should offer to fetch it now. Same cheap test.
     var romNeedsDownload: Bool {
         guard let entry = romInPlay?.catalogEntry else { return false }
-        if let facts = Self.bundledROMFacts,
-           entry.problem(byteCount: facts.size, sha256: facts.sha256) == nil { return false }
         return !isDiskDownloaded(entry.filename)
     }
 
@@ -3087,17 +3275,18 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// What to say when the ROM that would boot is not the release's own, or
     /// nil when they agree.
     ///
-    /// It should be unreachable in normal operation now, and it is kept for the
-    /// case where it is not: someone whose picker is showing the bundled ROM
-    /// while another release is selected, because no catalog has been read yet.
-    /// Deleting it would take away the only warning such a user gets before
-    /// RomWBW prints *** WARNING: HBIOS/CBIOS Version Mismatch *** in the
-    /// middle of a boot.
+    /// It should be unreachable in normal operation, and it is kept for the case
+    /// where it is not. The route that used to reach it - a picker showing the
+    /// bundled ROM while another release was selected - is gone with the bundled
+    /// ROM, but the check is not about where the ROM came from. It compares the
+    /// release the ROM IN PLAY declares against the release whose disks are in
+    /// the drives, and a catalog that published a mislabelled `roms[]` entry, or
+    /// a selection left behind by a switch that did not complete, would still
+    /// pair them wrongly.
     ///
-    /// It no longer means "the bundled ROM's release is not the release in
-    /// play". That stopped being a mismatch the moment this app could fetch the
-    /// release's own ROM, and leaving it saying so would have turned the one
-    /// warning that matters into a line every 3.6.0 user learns to ignore.
+    /// Deleting it would take away the only warning such a user gets before
+    /// RomWBW prints *** WARNING: HBIOS/CBIOS Version Mismatch *** in the middle
+    /// of a boot. It is cheap and it is the last line of defence.
     var romReleaseMismatchNotice: String? {
         guard let option = romInPlay,
               let release = option.romwbwRelease,
@@ -3216,13 +3405,44 @@ class EmulatorViewModel: NSObject, ObservableObject {
         romwbwVersions = offered
 
         guard let entry = RomWBWIndex.preferred(among: offered,
-                                                keeping: romwbwVersion,
-                                                bundledROMRelease: Self.bundledROMRelease) else {
+                                                keeping: romWBWVersionToKeep) else {
             loadCachedCatalog()
             return
         }
 
         if entry.romwbwVersion != romwbwVersion {
+            // Not under a running machine. This is the one path that changes the
+            // release without the user touching the picker, and it reaches
+            // `applyRomWBWVersionSwitch` without passing the `isRunning` guard in
+            // `romwbwVersion`'s didSet - `isSwitchingRomWBWVersion` is set first,
+            // and that guard is checked first. So an index fetch landing while
+            // the emulator runs would empty the four slots underneath it, and
+            // `saveDownloadedDisks()` writes the guest's live image back to the
+            // file the SLOT names: the periodic flush and the one in `stop()`
+            // would both find nothing to write to and drop the user's work
+            // without a word. Exactly what the picker's guard exists to prevent,
+            // arriving on a timer instead of a tap.
+            //
+            // Held instead, and taken in `stop()` AFTER `saveDownloadedDisks()`.
+            // The catalog hop below is skipped with it, so the release in play
+            // keeps the catalog it is running on rather than being handed
+            // another release's disk list mid-session.
+            guard !isRunning else {
+                debugPrint("[Catalog] RomWBW \(entry.romwbwVersion) held: the machine is running on \(romwbwVersion)")
+                pendingRomWBWVersion = entry.romwbwVersion
+                catalogLoading = false
+                // The release in play is by definition not in `offered` - that is
+                // why a move was called for - so the list just assigned above has
+                // no row matching the picker's selection, and a SwiftUI Picker
+                // whose selection matches no tag renders blank. Put its row back.
+                // The user is still ON this release and will be until they stop.
+                if !romwbwVersions.contains(where: { $0.romwbwVersion == romwbwVersion }) {
+                    romwbwVersions.insert(
+                        RomWBWIndexEntry.placeholder(romwbwVersion: romwbwVersion), at: 0)
+                }
+                return
+            }
+
             // The release in play is no longer published, or was never
             // supported by this core. Move, but do not re-fetch from inside the
             // move - this call is already the fetch, and the catalog hop below
@@ -3347,15 +3567,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
             return
         }
 
-        // Whether the generation moved, and only then, delete the downloaded
-        // images this catalog can hand BACK. The new catalog's names, not the
-        // old one's: a file the new catalog does not list cannot be
-        // re-downloaded from it, which is exactly the test for whether deleting
-        // it is recoverable.
-        let notice = checkCatalogGenerationAndInvalidate(
-            generation: document.generation,
-            catalogFilenames: Set(disks.map { $0.filename }),
-            for: version)
+        // Note the generation for the next fetch to compare against. It deletes
+        // nothing: reassessDiskFreshness() at the end of this function decides
+        // per file, from provenance, and never destroys work.
+        recordCatalogGeneration(document.generation, for: version)
+
+        // And the stems it publishes, so a disk added upstream is recognised as
+        // this release's the next time the user is on another one.
+        recordCatalogStems(from: disks.map { $0.filename })
 
         catalogDocument = document
         diskCatalog = disks
@@ -3366,12 +3585,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
         restoreROMSelection()
         refreshAvailableDisks()
         restoreDiskSelections()
-        // AFTER restoreDiskSelections, which ends by setting statusText to
-        // "Ready - Press Play to start" and so silently swallowed anything set
-        // before it. The status line was the only trace of an invalidation the
-        // user could see while the alert was being eaten too.
-        if let notice = notice { statusText = notice }
-
         // A good catalog behind a stale release list is a note, not a failure:
         // everything on screen works, and what the user cannot see is whether a
         // release has been added since. Saying so at the same volume as "no
@@ -3443,108 +3656,68 @@ class EmulatorViewModel: NSObject, ObservableObject {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Check whether this RomWBW release's catalog generation changed and, if
-    /// it did, invalidate the downloaded disks the catalog is able to hand back.
+    /// Record this RomWBW release's catalog generation. Delete nothing.
     ///
     /// **`generation` is not the old `<disks version="13">` attribute, and the
     /// two must never share a key.** `generation` advances only when a
     /// release's artifacts actually change, and it is scoped per RomWBW release
     /// upstream (romwbw_disks docs/CATALOG_SCHEMA.md §4). The XML this app used
-    /// to fetch carried 13 in an attribute that meant something else; the v0
-    /// catalogs are at generation 1. Had the two shared a key, the first v0
-    /// fetch would have seen 13 ≠ 1, called `deleteCatalogDisks(named:)` with
-    /// the v0 filenames, and deleted the entire library the storage migration
-    /// had just finished renaming into those exact names - with an alert saying
-    /// it was intentional. The old "catalogVersion" key is therefore orphaned
-    /// rather than carried across, so this one starts empty on every device and
-    /// the first v0 fetch takes the first-run branch below.
-    ///
-    /// nil generation means "this document does not say", and the only honest
-    /// response to that is to delete nothing.
+    /// to fetch carried 13 in an attribute that meant something else. The old
+    /// "catalogVersion" key is therefore orphaned rather than carried across, so
+    /// this one starts empty on every device.
     ///
     /// The key is per (interface, RomWBW release) for the same reason the
-    /// generation is: a user switching 3.5.1 → 3.6.0 → 3.5.1 is not making
-    /// three catalog changes and must not have their library cleared twice. One
-    /// shared key across releases re-creates that loop exactly, and it would
-    /// not show up in testing today, because both published releases happen to
-    /// be at generation 1.
+    /// generation is: 3.5.1 -> 3.6.0 -> 3.5.1 is not three catalog changes.
     ///
-    /// **`catalogFilenames` is the whole safety property of this function.** The
-    /// generation moving means the images behind those names may have
-    /// changed, so a stale copy has to go and be fetched again. It says nothing
-    /// about a file the catalog does not name — a disk the user imported through
-    /// Files, or one `createNewDisk` made in the app — and those cannot be
-    /// re-downloaded from anywhere. This used to delete every `.img` in
-    /// `Documents/Disks` regardless, so a catalog bump destroyed a user's own
-    /// disks, unprompted, on their next launch, with an alert afterwards.
+    /// **This used to delete every downloaded image the catalog named whenever
+    /// the generation moved, and that was wrong twice over.**
     ///
-    /// The names come from the **new** catalog rather than the stored one,
-    /// because "can this be given back" is a question about the catalog that is
-    /// about to be in force. An image dropped from the catalog in the same bump
-    /// is therefore spared, which is right: nothing can re-fetch it either.
+    /// Wrong in principle: `generation` says "some artifact of this release
+    /// changed", not "your copy of every artifact is stale". The two are not the
+    /// same claim, and acting on the first as though it were the second throws
+    /// away files that are bit-for-bit identical to what would be fetched back.
     ///
-    /// This is the least destructive of the options considered and forecloses
-    /// none of the others — a confirmation step or copy-on-write can still be
-    /// added in front of it; both are open under "User Data Persistence" in
-    /// KNOWN_PROBLEMS.md. What it cannot do is help the builds already in
-    /// service: the App Store serves 1.4.9 (builds 36/37), those fetch the
-    /// catalog from `releases/latest/download/` rather than from a pinned tag,
-    /// and they carry the old loop. That is why the release order still matters
-    /// and why `--prerelease` is load-bearing; see docs/DISK_W8FIX_RUNBOOK.md,
-    /// and re-measure what the Store serves with tools/check-store-version.sh
-    /// rather than trusting the number in this comment.
-    /// Returns the status-line text for what it did, for the caller to apply
-    /// after restoreDiskSelections - which ends by overwriting statusText.
-    @discardableResult
-    private func checkCatalogGenerationAndInvalidate(generation: Int?,
-                                                    catalogFilenames: Set<String>,
-                                                    for version: String) -> String? {
+    /// Wrong in fact, and measurably so: the only generation bump this catalog
+    /// has ever had - romwbw_disks `aab3a4f`, 1 -> 2, on both releases - changed
+    /// two ROM hashes and **zero of the twenty disk hashes**. A device that had
+    /// downloaded the whole 3.5.1 set would have deleted all twenty images, and
+    /// re-downloaded twenty byte-identical copies, because two ROMs were
+    /// rebuilt. On a phone, on cellular, that is gigabytes to arrive back where
+    /// it started - and it is the direct cost of publishing a new ROM, which is
+    /// the exact thing romwbw_disks was built to make cheap.
+    ///
+    /// Nothing replaces it, because something better was already running.
+    /// `reassessDiskFreshness()` is called immediately after this on the same
+    /// path, and it asks the question this function was guessing at: it compares
+    /// each installed image's recorded provenance against the catalog's hash and
+    /// routes the answer through `DiskLedger.action` - `.refreshAutomatically`
+    /// for an unmodified superseded image, `.offerUpdate(lossy: true)` for one
+    /// the user has written to, and nothing at all for an image that is already
+    /// current. It is per file rather than per catalog, it never destroys work,
+    /// and it stands down while the emulator is running off the file.
+    ///
+    /// So this keeps the bookkeeping - the stored generation is still what a
+    /// later change is measured against, and it is still worth logging - and
+    /// deletes nothing at all.
+    private func recordCatalogGeneration(_ generation: Int?, for version: String) {
         // A catalog document that carries no generation cannot say whether
-        // anything changed, and the only honest response to "I do not know" is
-        // to delete nothing. The unsuffixed "catalogVersion" key the XML path
+        // anything changed. The unsuffixed "catalogVersion" key the XML path
         // used to write is deliberately left where it is, unread: a user who
         // downgrades this app should find it as they left it.
-        guard let generation = generation else { return nil }
+        guard let generation = generation else { return }
 
         let key = catalogGenerationKey(for: version)
         let newVersion = String(generation)
         let storedVersion = UserDefaults.standard.string(forKey: key) ?? ""
-
-        print("[Catalog] Checking generation: stored='\(storedVersion)' new='\(newVersion)'")
+        UserDefaults.standard.set(newVersion, forKey: key)
 
         if storedVersion.isEmpty {
-            // First run - just store the generation
-            print("[Catalog] First run, storing catalog generation: '\(newVersion)'")
-            UserDefaults.standard.set(newVersion, forKey: key)
-            return nil
+            debugPrint("[Catalog] RomWBW \(version) generation \(newVersion) (first seen)")
         } else if storedVersion != newVersion {
-            print("[Catalog] ⚠️ GENERATION CHANGED from '\(storedVersion)' to '\(newVersion)'")
-            let (cleared, kept) = deleteCatalogDisks(named: catalogFilenames)
-            UserDefaults.standard.set(newVersion, forKey: key)
-
-            // Say nothing at all when nothing was cleared. A user who has only
-            // ever imported their own disks has had nothing done to them, and an
-            // alert claiming otherwise is its own small harm.
-            guard cleared > 0 else {
-                print("[Catalog] Nothing to clear (\(kept) disk(s) not in the catalog, kept)")
-                return nil
-            }
-
-            var message = "The disk catalog has been updated. "
-            message += cleared == 1
-                ? "1 downloaded disk was cleared and needs to be downloaded again."
-                : "\(cleared) downloaded disks were cleared and need to be downloaded again."
-            if kept > 0 {
-                message += kept == 1
-                    ? "\n\n1 disk that is not in the catalog — one you imported or created — was left alone."
-                    : "\n\n\(kept) disks that are not in the catalog — ones you imported or created — were left alone."
-            }
-            showError(message, title: "Disk Catalog Updated")
-            return "Disk catalog updated - \(cleared) disk(s) need redownload"
-        } else {
-            print("[Catalog] Generation unchanged: '\(newVersion)'")
+            // Worth a line in the log and nothing more. reassessDiskFreshness()
+            // decides, per file, whether anything actually needs re-fetching.
+            debugPrint("[Catalog] RomWBW \(version) generation \(storedVersion) -> \(newVersion)")
         }
-        return nil
     }
 
     /// Show the saved catalog for the release in play.
@@ -3607,10 +3780,17 @@ class EmulatorViewModel: NSObject, ObservableObject {
         debugPrint("[Catalog] Using the cached RomWBW \(romwbwVersion) catalog, \(disks.count) disks")
         catalogDocument = document
         diskCatalog = disks
-        // The saved catalog names the release's ROMs as well as its disks, so
-        // the ROM picker is right offline too - and, on the release this app
-        // bundles a ROM for, the bundled bytes still satisfy that entry and
-        // nothing has to be fetched.
+        // The saved catalog names the release's ROMs as well as its disks, so the
+        // ROM picker is right offline too. There is no bundled ROM standing in
+        // for any of them, so an offline launch that has never downloaded this
+        // release's ROM cannot start - which start() says.
+        //
+        // Its stems count as seen, exactly as a freshly fetched catalog's do.
+        // Without this the offline path is the one that forgets: a user who
+        // downloaded 3.6.0's hd1k_msx and then launched with no network would be
+        // offered it as a 3.5.1 system disk, because nothing had recorded that
+        // 3.6.0 publishes that stem.
+        recordCatalogStems(from: disks.map { $0.filename })
         restoreROMSelection()
         refreshAvailableDisks()
         restoreDiskSelections()
@@ -3725,7 +3905,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 // filenames exist to keep apart. Nothing is deleted and nothing
                 // moves: they come back when their release does.
                 if CatalogMigration.belongsToAnotherRelease(filename,
-                                                            romwbwVersion: romwbwVersion) {
+                                                            romwbwVersion: romwbwVersion,
+                                                            knownStems: knownCatalogStems) {
                     continue
                 }
                 if !disks.contains(where: { $0.filename == filename }) {
@@ -4088,49 +4269,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
     }
 
-    /// Delete the downloaded images the catalog names, and only those.
-    ///
-    /// Returns (cleared, kept) so the caller can say what happened rather than
-    /// asserting that everything went. See checkCatalogGenerationAndInvalidate
-    /// for why the set is the boundary.
-    ///
-    /// The comparison is case-insensitive. The catalog's filenames and the
-    /// on-disk names are written by the same code, so they agree today — but
-    /// `Documents` is published to the Files app on a case-insensitive volume,
-    /// and a user's own `HD1K_COMBO.IMG` must not be deleted as a catalog disk
-    /// on one device and kept on another.
-    @discardableResult
-    private func deleteCatalogDisks(named catalogFilenames: Set<String>) -> (cleared: Int, kept: Int) {
-        let fm = FileManager.default
-        let lowercased = Set(catalogFilenames.map { $0.lowercased() })
-        var cleared = 0
-        var kept = 0
-        if let contents = try? fm.contentsOfDirectory(at: downloadsDirectory, includingPropertiesForKeys: nil) {
-            for url in contents where url.pathExtension.lowercased() == "img" {
-                let filename = url.lastPathComponent
-                guard lowercased.contains(filename.lowercased()) else {
-                    // Another RomWBW release's catalog image is kept too, but
-                    // it is not COUNTED: the caller's alert calls what it
-                    // counts "ones you imported or created", and twenty
-                    // hd1k_*-v0-3.5.1.img files sitting under a 3.6.0 catalog
-                    // are neither. They are this catalog's opposite numbers,
-                    // and they come back the moment that release is selected.
-                    if CatalogMigration.belongsToAnotherRelease(filename,
-                                                                romwbwVersion: romwbwVersion) {
-                        continue
-                    }
-                    kept += 1
-                    debugPrint("[Catalog] Keeping '\(filename)' - not in the catalog, cannot be re-downloaded")
-                    continue
-                }
-                try? fm.removeItem(at: url)
-                downloadStates[filename] = .notDownloaded
-                cleared += 1
-            }
-        }
-        debugPrint("[Catalog] Catalog version change: cleared \(cleared), kept \(kept)")
-        return (cleared, kept)
-    }
+    // `deleteCatalogDisks(named:)` stood here and is gone with the generation
+    // wipe that was its only caller. It is worth knowing why it is not merely
+    // unused but unwanted: it removed files without touching `diskLedger`, so
+    // every image it deleted left its provenance record behind, and the next
+    // download of that name inherited a provenance it had not earned. The
+    // user-initiated `deleteDownloadedDisk` above removes the record, the
+    // refresh plan and the cached measurement together, and says in its own
+    // comment why all four have to move at once.
 
     /// Load a downloaded disk into the emulator
     func loadDownloadedDisk(unit: Int, filename: String) -> Bool {

@@ -27,6 +27,44 @@ Several CHANGELOG headings therefore share one version with different build
 numbers — `## Version 1.5.1 (Build 51)` and `## Version 1.5.1 (Build 52)` — and
 that is correct, not a mistake to tidy up.
 
+## No ROM and no disk image belongs in this repository
+
+`git ls-files` matches no `.rom`, `.img`, `.bin`, `.com` or `.dsk`, and that is
+a property to preserve, not a coincidence.  Every ROM and every disk image comes
+from the `romwbw_disks` catalog at runtime, verified by size and SHA-256 against
+what the catalog publishes, every time it is used.  The other four repositories
+in the family reached the same state; ioscpm was the last, on 2026-09-08.
+
+The bundled `iOSCPM/Resources/emu_avw.rom` that used to be here was defended for
+a year as "what a first offline launch boots".  It was not, and could not be:
+`start()` returns early when the disk catalog is empty, and the catalog and
+every disk in it are downloads, so a device that has never had a network has no
+disk to boot either.  If you find yourself about to add a ROM back, that is the
+argument to answer first — and answering it means changing `start()`, not adding
+a file.
+
+The practical rule: **a second source of truth about what RomWBW release is in
+play is the bug.**  A bundled ROM is one.  So is a hardcoded version string on a
+decision path, a hardcoded catalog filename, and `roms[0]` by array position
+instead of the entry flagged `default: true`.
+
+## Only Xcode can build this, and Xcode is not on this machine
+
+There is no `Xcode.app` here, only Command Line Tools, so `xcodebuild` and the
+iOS Simulator are unavailable.  `sh Tests/run_tests.sh` is the build check, and
+it does more than run unit tests — it type-checks `EmulatorViewModel.swift`
+against the real bridging header, compiles the C++ core through the symlinks,
+and name-checks what `ContentView.swift` asks of the view model.  **Run it after
+every change; it exits non-zero on a compile error.**
+
+What it still cannot reach: `ContentView.swift`, `TerminalView.swift`,
+`CatalystWindow.swift`, `HelpView.swift` and `iOSCPMApp.swift` all import UIKit
+or use a SwiftUI macro, and neither is available on the macosx SDK.
+`Tests/check_view_bindings.sh` covers the one question that matters most there —
+does a member `ContentView` asks for still exist — but it is a spelling check,
+not a type check.  A build on a Mac with Xcode is still required before any
+submission, and nothing in this tree has ever run on a device or a simulator.
+
 ## Never write down a shipped state you have not measured
 
 The tree is always ahead of the App Store, and that gap is normal.  What is not
@@ -53,10 +91,29 @@ Three rules follow from it, and each has been broken here at least once:
   keep failing.**  Setting it to the tree's build certifies every tick in the
   column against software nobody can install.  That field is hand-maintained
   precisely because no tree knows what a store is serving.
-- **Bumping a pin is not shipping it.**  Editing `releaseTag` in
-  `EmulatorViewModel.swift` reaches users only through a build that carries the
-  edit *and* that Apple has actually released.  `tools/check-shipped-disks.sh`
-  inspects the built artifact as well as the tree for exactly this reason.
+- **Publishing is not shipping it.**  There is no `releaseTag` in
+  `EmulatorViewModel.swift` any more — the app compiles in one index URL and
+  reads everything else out of the catalog — so the shape of this rule changed
+  but not its force.  Adding a ROM or a disk to an **already-supported** RomWBW
+  release reaches a *shipped* client with no app release at all, which is the
+  point.
+
+  A whole new RomWBW release does **not**, and saying otherwise is the easy
+  mistake to make here.  `ROMWBW_SUPPORTED_RELEASES` in
+  `romwbw_emu/src/romwbw_pin.h` is a compile-time list — 3.5.1 and 3.6.0 today —
+  and a client filters the index by asking its own core
+  (`emu_romwbw_release_supported`), so a 3.7.0 entry is simply not offered by any
+  binary built before somebody added it there and booted it.  That is deliberate:
+  bank 0 of an `emu_*.rom` is ours, and a release whose CBIOS calls something the
+  dispatcher does not implement would load and then misbehave.  Adding a release
+  is a claim that somebody ran it.
+
+  What still needs a release is a change to this app's own code, and it reaches
+  users only through a build that carries the edit *and* that Apple has actually
+  released.  `tools/check-shipped-disks.sh` inspects the
+  built artifact as well as the tree for exactly this reason, and it now checks
+  that the tree names the v0 index rather than grepping for a version pin that
+  no longer exists.
 - **Archiving is not uploading.**  Do not report a build as submitted, shipped
   or released on the strength of a clean archive.  See "Releasing" in
   `KNOWN_PROBLEMS.md` for what this machine cannot do.

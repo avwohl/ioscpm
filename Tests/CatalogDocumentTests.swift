@@ -239,28 +239,23 @@ func runAllTests() {
 
     section("Which one is selected")
 
-    check(RomWBWIndex.preferred(among: offered, keeping: "3.6.0",
-                                bundledROMRelease: "3.5.1")?.romwbwVersion == "3.6.0",
-          "a release already in play is kept, even against the bundled ROM's own")
-    check(RomWBWIndex.preferred(among: offered, keeping: nil,
-                                bundledROMRelease: "3.6.0")?.romwbwVersion == "3.6.0",
-          "with no preference, the release the BUNDLED ROM declares wins - this app ships "
-            + "one ROM and cannot download another, so what it can boot outranks a hint")
-    check(RomWBWIndex.preferred(among: offered, keeping: nil,
-                                bundledROMRelease: nil)?.romwbwVersion == "3.5.1",
-          "and with no bundled ROM either, the entry flagged default: true")
-    check(RomWBWIndex.preferred(among: offered, keeping: "9.9.9",
-                                bundledROMRelease: "9.9.9")?.romwbwVersion == "3.5.1",
+    check(RomWBWIndex.preferred(among: offered, keeping: "3.6.0")?.romwbwVersion == "3.6.0",
+          "a release already in play is kept, even against the flagged default")
+    check(RomWBWIndex.preferred(among: offered, keeping: nil)?.romwbwVersion == "3.5.1",
+          "with no preference, the entry flagged default: true - this app carries no ROM "
+            + "of its own, so there is no release it can boot more cheaply than any other")
+    check(RomWBWIndex.preferred(among: offered, keeping: "")?.romwbwVersion == "3.5.1",
+          "an empty stored choice is no choice, and falls through to the flagged default "
+            + "rather than matching an entry whose version is somehow empty too")
+    check(RomWBWIndex.preferred(among: offered, keeping: "9.9.9")?.romwbwVersion == "3.5.1",
           "a stored choice the index no longer offers does not select nothing; it falls "
             + "through to the flagged default")
-    check(RomWBWIndex.preferred(among: [], keeping: "3.5.1",
-                                bundledROMRelease: "3.5.1") == nil,
+    check(RomWBWIndex.preferred(among: [], keeping: "3.5.1") == nil,
           "nothing offered selects nothing, which the caller has to report rather than paper over")
 
     let unflagged = [RomWBWIndexEntry.placeholder(romwbwVersion: "3.6.0"),
                      RomWBWIndexEntry.placeholder(romwbwVersion: "3.7.0")]
-    check(RomWBWIndex.preferred(among: unflagged, keeping: nil,
-                                bundledROMRelease: nil)?.romwbwVersion == "3.6.0",
+    check(RomWBWIndex.preferred(among: unflagged, keeping: nil)?.romwbwVersion == "3.6.0",
           "an index with no default at all still selects its first entry")
 
     // MARK: -

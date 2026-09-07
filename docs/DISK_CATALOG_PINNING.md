@@ -7,24 +7,41 @@
 > bump. See `docs/DISK_DISTRIBUTION.md` under "Interface v0".
 >
 > **Everything below still governs the builds users have.** They are hardwired
-> to `v1.4.12`'s asset URLs, GitHub release assets cannot be redirected, and
-> `v1.4.5` and `v1.4.12` must stay live and keep their prerelease flags exactly
-> as recorded here for as long as one of those builds is installed. Nothing in
-> this migration frees a tag; only the last uninstall does.
+> to one of these tags' asset URLs — `v1.4.5` up to build 58, `v1.4.12` from
+> build 61, and `releases/latest` on anything predating the pin — GitHub release
+> assets cannot be redirected, and both tags must stay live and keep their
+> prerelease flags exactly as recorded here for as long as one of those builds
+> is installed. Nothing in this migration frees a tag; only the last uninstall
+> does.
 
-**Status:** Done. Applied in `4be8a13` (2026-07-25, v1.5.1 build 42):
-`EmulatorViewModel.swift` builds both the catalog URL and the download base from
-a single `releaseTag`. **The pin is `v1.4.12` as of `0010591`; it read `v1.4.5`
-from build 42 to build 58.** No build carrying `v1.4.12` has reached a user — the
-App Store serves 1.4.9, builds 36/37. Measure that with
-`tools/check-store-version.sh` rather than reading a number here.
-The pinned `disks.xml` + `hd1k_combo.img` URLs both return 200.
+**Status:** Done, then superseded. Applied in `4be8a13` (2026-07-25, v1.5.1
+build 42): `EmulatorViewModel.swift` built both the catalog URL and the download
+base from a single `releaseTag`. **The pin moved to `v1.4.12` in `0010591`
+(2026-09-03); it read `v1.4.5` from build 42 through build 58.** Build 64 then
+deleted the constant outright.
+
+Which pin the currently shipping binary carries is a measurement, and this tree
+cannot narrow it. `sh tools/check-store-version.sh` says 1.5.1, released
+2026-09-05, **at most build 61**, and confirms `z80cpmw/FEATURE_PARITY.md`'s
+`shipped:61`. It reaches 61 by two narrowings, both printed: 62 through 65 carry
+a `**NOT COMPILED` marker, and 66 was compiled here but its CHANGELOG heading
+was not committed before the Store published this version, so it cannot be what
+users have either. Both pins live inside that range. Run
+the script for the version and the date rather than reading a build number out
+of this file; either way both tags stay live, for the reason in the banner
+above. Re-measured 2026-09-08: the pinned `disks.xml` and `hd1k_combo.img` URLs
+both return 200, as does `v1.4.5`'s `disks.xml`.
+
 Mismatch check (verify step 3) **confirmed** — on the *v1.4.5* Combo (sha256
 `be19984e…`, byte-exact to that tag's disks.xml), which is the measurement that
-was actually run: it boots against the shipped `emu_avw.rom`
+was actually run: it boots against the `emu_avw.rom` the app bundled at the time
 (HBIOS SYSVER 0x3510 = v3.5.1.0) with CBIOS v3.5.1 and **no** HBIOS/CBIOS
 mismatch banner — verified headlessly in the native `romwbw_emu` CLI, which
 shares the exact core the iOS app compiles (see memory `ioscpm-native-boot-verify`).
+Those bytes are not lost with the bundle: they are published as
+`emu_avw-v0-3.5.1.rom`, and its catalog hash
+`4b11402a29fad22de304775b7c415eb6a74600df06bd57828b9931a7e9693258` — re-measured
+against the live catalog on 2026-09-08 — is the hash the deleted resource had.
 That result carries to the `v1.4.12` combo (`89b8ae1a…`) by argument rather than
 by a re-run: the two images differ in 5,121 bytes out of 51,380,224 and every one
 of them is inside `R8.COM`, `W8.COM` or their two directory entries, so the CBIOS
@@ -39,32 +56,43 @@ disk catalog to an explicit release tag; iOS was the last port floating on
 
 ## Background
 
-All three clients embed the **same** `emu_avw.rom` (sha256 `4b11402a…`, which
-identifies as **RomWBW HBIOS v3.5.1**). That hash changed in `8cb26f9`
+All three clients used to embed the **same** `emu_avw.rom` (sha256 `4b11402a…`,
+which identifies as **RomWBW HBIOS v3.5.1**). That hash changed in `8cb26f9`
 (shipped in build 45), which refreshed the bundled ROM from `romwbw_emu` v1.35
 so it reproduces from `src/emu_hbios.asm`; the RomWBW version it reports did
-**not** change, and the file is now byte-identical to
-`romwbw_emu/roms/emu_avw.rom`.
+**not** change.
+
+**None of the three bundles a ROM now** — cpmdroid and z80cpmw deleted theirs on
+2026-09-07, ioscpm on 2026-09-08 — and every ROM comes from the same catalog the
+disks do, verified against a published hash before it is loaded. `4b11402a…` did
+not become wrong when the file went away; it is what the catalog publishes for
+`emu_avw-v0-3.5.1.rom`.
 
 The disk images the clients download must be built from a matching RomWBW
 version, or CP/M prints `*** WARNING: HBIOS/CBIOS Version Mismatch ***` at cold
-boot.
+boot. **That constraint is unchanged, and it is the whole reason any of this
+exists.** What changed is where the guarantee comes from: a pin froze one
+release's disks against one build's ROM, whereas the v0 catalog pairs them by
+RomWBW release and lets the core say which releases it can run.
 
-To guarantee that match, the disk catalog is **pinned** to one explicit ioscpm
-release instead of `latest`:
+To guarantee the match, the disk catalog was **pinned** to one explicit ioscpm
+release instead of `latest`. Where each port stands as of 2026-09-08:
 
 | Port | Where | Catalog source |
 |---|---|---|
-| Windows (z80cpmw) | `DiskCatalog.cpp` → `RELEASE_TAG` | pinned `v1.4.12` |
-| Android (cpmdroid) | `DiskCatalogRepository.kt` → `RELEASE_TAG` | pinned `v1.4.12` |
-| iOS (this app) | `EmulatorViewModel.swift` → `releaseTag` | pinned `v1.4.12` up to build 63; build 64 reads the v0 index instead |
+| Windows (z80cpmw) | `CatalogV0.cpp`; `DiskCatalog.cpp` → `RELEASE_TAG` before it | v0 index; pinned `v1.4.12` in shipped builds |
+| Android (cpmdroid) | `DiskCatalogRepository.kt` → `INDEX_URL`, which replaced `RELEASE_TAG` | v0 index; pinned `v1.4.12` in shipped builds |
+| iOS (this app) | `EmulatorViewModel.swift` → `indexURL`, which replaced `releaseTag` | v0 index from build 64; pinned up to build 63 |
+
+All three trees now compile in the same one URL, which is the point: it is the
+only thing left that a port can get wrong on its own.
 
 `v1.4.12` (2026-09-01) is the pinned release: the same v3.5.1 disk set, with
 `hd1k_combo.img` respun to carry the current `r8.com` and `w8.com`. Nineteen of
 the twenty images are byte-identical to `v1.4.5`'s; only the combo moved.
 
 `v1.4.5` is still published and **still marked prerelease** — re-measured
-2026-09-04, `gh api repos/avwohl/ioscpm/releases/tags/v1.4.5 --jq .prerelease` is
+2026-09-08, `gh api repos/avwohl/ioscpm/releases/tags/v1.4.5 --jq .prerelease` is
 `true`. It is a prerelease mirror of `v1.4.11` (both catalogs hash `6ae94b8c…`)
 carrying the v3.5.1 set with the w8-lowercase-fixed combo. It is frozen: nothing
 may be uploaded to it and its flag does not move.
@@ -87,12 +115,36 @@ mismatch warning on every download, on every already-installed client. The pin
 removes that trap: the disks can't change under an installed client until the
 tag is deliberately bumped and a new build ships.
 
+### What the pin cost, and why it is not the scheme any more
+
+The same sentence describes the pin's protection and its defect: **the disks
+can't change under an installed client.** A bad disk cannot be withdrawn either.
+
+That is not hypothetical. `v1.4.5`'s `R8.COM` handed an unfiltered host basename
+to `F_DELETE`, so importing a file whose name held `?` or `*` silently erased
+every matching CP/M file first. A fixed image was built and published — and the
+broken one went on being served for two more days, to every device pinned to
+`v1.4.5`, because publishing an asset is not the same as shipping it. Reaching
+those users needed an edit to `releaseTag`, a rebuild, a submission and a
+review. That is the cost the pin charges for its safety, and it is charged
+exactly when the news is worst.
+
+The v0 catalog keeps the protection and drops the cost. A client that reads
+`base_url` out of a per-release catalog can be handed a corrected image the
+moment it is published, while still never being handed a *different RomWBW
+release's* disks — the pairing the pin existed to enforce is now enforced by the
+release the catalog belongs to, and by the core being asked whether it can run
+it, rather than by a constant nobody can change from outside the App Store.
+
+The lesson generalises past this app: a pin is a promise that nothing will
+change, and "nothing" includes the fix.
+
 ---
 
 ## The change (applied)
 
-File: **`iOSCPM/Views/EmulatorViewModel.swift`**, as shipped (near line 123 —
-the comment/pattern matches cpmdroid's):
+File: **`iOSCPM/Views/EmulatorViewModel.swift`**, as shipped — the constant was
+`releaseTag`, and the comment/pattern matched cpmdroid's:
 
 ```swift
     // Downloadable disk catalog - pinned to an explicit ioscpm release (matching
@@ -109,7 +161,8 @@ It replaced two constants that hard-coded `…/releases/latest/download/…`.
 
 ### The URL shape — it is NOT a plain `latest → v1.4.12` substitution
 
-Worth remembering when the tag is next bumped: the path segments reorder
+There is no next bump, but the shape still has to be read correctly by anyone
+reconstructing what a build in the field fetches: the path segments reorder
 between the two forms.
 
 - floating: `…/releases/`**`latest/download`**`/<asset>`
@@ -135,51 +188,87 @@ content isn't version-locked to the ROM; disk images are).
 
 ---
 
-## Verify after the change
+## What still has to hold
 
-1. Build & run. Open the disk catalog — it should load the list (no error) and
-   downloads should succeed.
-2. Sanity-check the pinned URL resolves:
+This was the acceptance test for the change. Steps 1 and 3 have no tree left to
+run against; what step 2 checked is now a standing obligation to the field
+rather than a post-change sanity check.
+
+1. **The pinned assets keep resolving**, for as long as one build that fetches
+   them is installed:
    ```
-   curl -sILo /dev/null -w '%{http_code}\n' \
-     https://github.com/avwohl/ioscpm/releases/download/v1.4.12/disks.xml
+   for u in \
+     https://github.com/avwohl/ioscpm/releases/download/v1.4.12/disks.xml \
+     https://github.com/avwohl/ioscpm/releases/download/v1.4.12/hd1k_combo.img \
+     https://github.com/avwohl/ioscpm/releases/download/v1.4.5/disks.xml \
+     https://github.com/avwohl/ioscpm/releases/latest/download/help_index.json; do
+       curl -sILo /dev/null -w "%{http_code}  $u\n" "$u"
+   done
    ```
-   Expect `200`.
-3. Boot a downloaded disk (e.g. Combo) and confirm **no** "HBIOS/CBIOS Version
-   Mismatch" banner (v3.5.1 disks vs v3.5.1 ROM).
+   All four returned `200` on 2026-09-08.
+
+2. **The flags stay where they are.** Re-measured 2026-09-08 with
+   `gh api repos/avwohl/ioscpm/releases/...`: `v1.4.5` is `prerelease=true`,
+   `v1.4.12` is `prerelease=false`, and `releases/latest` resolves to `v1.4.12`.
+   That last pair was set deliberately on 2026-09-04;
+   `docs/DISK_W8FIX_RUNBOOK.md` under "2026-09-04" records what it traded.
+
+3. **The tree's own version of step 3 is not a check but a refusal.** The ROM's
+   `size` and `sha256` are verified against the catalog every time it is used,
+   and `loadSelectedResources()` will not start a machine whose ROM image's own
+   HCB bytes name a release other than the selected one. The mismatch banner is
+   prevented rather than watched for. `sh tools/check-shipped-disks.sh` is the
+   standing check that no port's tree has drifted from the published catalog —
+   note what it says about packages, since a tree agreeing with the catalog is
+   not a user having the tree.
 
 ---
 
-## Future: the RomWBW v3.6.0 upgrade (not part of this task)
+## The RomWBW v3.6.0 upgrade — it happened, and not like this
 
-When the stack is rebuilt to RomWBW v3.6.0, do it in lockstep across all ports:
+This planned a lockstep tag bump across three ports. That is not how 3.6.0
+arrived, and the plan is kept because most of what it was guarding against is
+still real.
 
-1. Build the v3.6.0 `emu_avw` ROM (a v3.6.0 `SBC_simh_std_v360.rom` is parked in
-   `romwbw_emu/archive/romwbw-v3.6.0/`, but the `emu_avw` v3.6.0 build does not
-   yet exist) and rebuild the disk set from v3.6.0.
-2. Cut a **new** ioscpm tag (e.g. `v1.6.0`; the app already ships v1.5.1) — do
-   **not** reuse `v1.4.5`, and do not reuse `v1.4.12` either. `v1.4.5` is frozen
-   under `docs/DISK_W8FIX_RUNBOOK.md`; `v1.4.12` is what every port now pins
-   **and** what `releases/latest` resolves to, so overwriting it would reach both
-   the pinned and the floating fleet at once.
-3. Bump the pinned tag in **all three**: z80cpmw `DiskCatalog.cpp`, cpmdroid
-   `DiskCatalogRepository.kt`, and this iOS constant.
+**What actually happened.** `romwbw_disks` publishes 3.6.0 as its own catalog
+under its own tag, and the index promoted it out of preview on 2026-09-05. Read
+live on 2026-09-08 it is `"status": "stable"`, `"default": true`, generation 2,
+2 ROMs and 24 disks. The `emu_avw` v3.6.0 ROM the plan said did "not yet
+exist" does exist and is published: `emu_avw-v0-3.6.0.rom`, 524288 bytes,
+`01d1ca6d142e9b757d4fd98c2229f2e506dd8c3253839391c8f5d4f6263c6557`. No ioscpm
+tag was cut, no constant was bumped in any port, and no app release was needed
+for any of it. That is the migration paying for itself.
 
-   > Two things gate that bump on this port, and neither is about the ROM.
-   > **(a)** The build that carries the new tag must also carry the `W8`/`R8`
-   > path sanitiser — build 52 or later. Refreshing the catalog is what puts a
-   > path-capable `W8` in front of every user; the order is romwbw_emu's
-   > `docs/RELEASE_ORDER_2026-08-25.md` (this port is step 1, the bump is
-   > step 5). **(b)** A new catalog almost certainly carries a new
-   > `<disks version="N">`, and changing that attribute makes every installed
-   > app delete every `.img` in its `Documents/Disks` on the next fetch —
-   > including disks the user imported or created, which the catalog cannot
-   > give back. Narrowed in build 56 — `deleteCatalogDisks(named:)` takes only
-   > the images the new catalog names, so an imported or created disk survives —
-   > but not closed, and it does nothing for the builds actually in service.
-   > See "User Data Persistence" in `KNOWN_PROBLEMS.md`, which carries what is
-   > still open, and `docs/DISK_DISTRIBUTION.md`'s "Version Attribute" section.
-4. Rebuild and ship all three apps with the v3.6.0 ROM.
+What still holds:
 
-Until iOS ships a v3.6.0 ROM, keep any v3.6.0 ioscpm release marked
-**prerelease** so it can't become "Latest" and disturb clients still on v3.5.1.
+1. **Do not reuse `v1.4.5` or `v1.4.12`, ever.** `v1.4.5` is frozen under
+   `docs/DISK_W8FIX_RUNBOOK.md`. `v1.4.12` is what shipped builds pin **and**
+   what `releases/latest` resolves to, so writing to it reaches the pinned and
+   the floating fleet in one move.
+2. **A binary must not be offered a release its core cannot run.** This is now
+   enforced rather than scheduled: the index publishes each release's
+   `hbios.ver_byte`/`upd_byte`, and each v0 client filters the list through its
+   own core (`emu_romwbw_release_supported`). A build predating 3.6.0 simply
+   never sees the entry, so "ship the ROM first, then the disks" stops being an
+   ordering a person has to remember. `ROMWBW_SUPPORTED_RELEASES` in
+   `romwbw_emu/src/romwbw_pin.h` is where a core says what it can run; it names
+   3.5.1 and 3.6.0 today.
+3. **The `<disks version="N">` warning, undiminished.** Changing that attribute
+   makes an installed pre-v0 app delete `.img` files from `Documents/Disks` on
+   its next fetch — including, on the oldest installs, disks the user imported
+   or created, which no catalog can give back. Build 56 narrowed it and build 63
+   stopped reading the attribute, but neither reaches a device already in the
+   field. `generation` is not a replacement for it and is not a substitute
+   danger either: advancing `generation` deletes nothing at all, by measurement
+   as well as by design. See "User Data Persistence" in `KNOWN_PROBLEMS.md` and
+   `docs/DISK_DISTRIBUTION.md`'s "Version Attribute" section.
+4. **A new ioscpm release still becomes "Latest" unless it is marked
+   `--prerelease`**, and `releases/latest` is a live entry point for both the
+   help system and any install predating the pin. Those installs are also the
+   ones with no `W8`/`R8` path sanitiser — that is build 52 — so what a
+   refreshed catalog puts in front of them is gated by step 5 of
+   `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md`, and that gate is why the
+   ordering survives the migration even though no tag is bumped any more.
+   `docs/DISK_W8FIX_RUNBOOK.md` is the procedure; its SUPERSEDED block is the
+   corrected recipe, and its 2026-09-04 section records what the trade cost on
+   exactly this point.

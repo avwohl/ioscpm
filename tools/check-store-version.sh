@@ -176,13 +176,53 @@ builds=$(awk -v v="$live" '
     /^\*\*NOT COMPILED/ { nc = 1 }
     END { if (b != "" && ver == v) print b, nc }' "$CHANGELOG" 2>/dev/null)
 
-floor=; newest=; ceiling=; uncompiled=
+# Compiled is still not shipped, and the marker above cannot tell them apart.
+# Build 66 was compiled on 2026-09-08 - three days AFTER the Store released
+# 1.5.1 - so it carries no NOT COMPILED line and would become the ceiling,
+# which would say users might have a build that did not exist when their copy
+# was published.  That is exactly the claim this script was written to refuse,
+# arriving through the fix for the last one.
+#
+# So narrow once more, with the only dating evidence there is: when the heading
+# entered CHANGELOG.md, per git.  A heading that is not committed at all has
+# never left this machine and cannot be what Apple is serving; a heading first
+# committed after the Store published this version cannot be either.  Both are
+# facts about this repository rather than guesses about App Store Connect.
+#
+# Silent when git is unavailable or this is not a checkout: an exported tree
+# gets the old, wider answer, which is honest rather than wrong.
+# `git -C "$root"`, not a bare `git`: every other path in this script is
+# deliberately independent of the working directory ($root comes from the
+# script's own location, and $PBX/$CHANGELOG are absolute), and a bare `git` here
+# made the whole narrowing depend on where it was run from. Run from a sibling
+# checkout, `rev-parse` succeeded, the absolute $CHANGELOG pathspec matched
+# nothing, every compiled build looked "never committed", and the script exited 1
+# announcing that every heading says NOT COMPILED - a false diagnosis that sends
+# the reader to audit markers that are correct.
+heading_committed_before() { # $1 = build number, $2 = YYYY-MM-DD -> 0 if it could have shipped
+    git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+    first=$(git -C "$root" log --reverse --format=%ad --date=short \
+                -S"## Version $live (Build $1)" -- "$CHANGELOG" 2>/dev/null | head -1)
+    [ -n "$first" ] || return 1          # never committed
+    [ -z "$2" ] && return 0
+    [ "$first" \< "$2" ] || [ "$first" = "$2" ]
+}
+
+floor=; newest=; ceiling=; uncompiled=; unshippable=
 if [ -n "$builds" ]; then
     floor=$(echo   "$builds" | awk '{print $1}'          | sort -n | head -1)
     newest=$(echo  "$builds" | awk '{print $1}'          | sort -n | tail -1)
-    ceiling=$(echo "$builds" | awk '$2 == 0 {print $1}'  | sort -n | tail -1)
     uncompiled=$(echo "$builds" | awk '$2 == 1 {print $1}' | sort -n |
                  tr '\n' ' ' | sed 's/ *$//; s/ /, /g')
+    when_day=$(echo "$when" | cut -c1-10)
+    for b in $(echo "$builds" | awk '$2 == 0 {print $1}' | sort -n); do
+        if heading_committed_before "$b" "$when_day"; then
+            ceiling=$b
+        else
+            unshippable="$unshippable $b"
+        fi
+    done
+    unshippable=$(echo "$unshippable" | sed 's/^ *//; s/ /, /g')
 fi
 
 lo=; hi=
@@ -217,6 +257,10 @@ elif [ -n "$builds" ] && [ "$floor" = "$newest" ]; then
 elif [ -n "$builds" ] && [ -n "$uncompiled" ]; then
     echo "  which is         at most build $ceiling  ($live heads builds $floor-$newest;"
     echo "                   $uncompiled NOT COMPILED, so none of those can be it)"
+    [ -n "$unshippable" ] &&
+        echo "                   $unshippable compiled, but not committed before the Store"
+    [ -n "$unshippable" ] &&
+        echo "                   published this version, so none of those can be it either"
 elif [ -n "$builds" ]; then
     echo "  which is         at most build $ceiling  ($live heads builds $floor-$newest,"
     echo "                   all compiled, and the lookup does not say which)"
@@ -235,7 +279,21 @@ if [ "$(vnum "$mkv")" -lt "$(vnum "$live")" ] 2>/dev/null; then
     echo "  That is not a normal state.  Somebody edited it downward, or a"
     echo "  release went out from another checkout.  See CLAUDE.md."
     status=1
-elif [ -n "$ceiling" ] && [ "$cpv" -gt "$ceiling" ] 2>/dev/null; then
+elif [ -z "$ceiling" ]; then
+    # No ceiling means the narrowing could not identify a shipped build at all -
+    # every heading marked NOT COMPILED, or none bracketing the shipped version.
+    # The old `else` below caught this and printed the agreement sentence, which
+    # is the one claim this script exists to prevent: the header says a gate that
+    # cannot verify must not say yes, and the six months of true-about-the-repo
+    # false-about-the-product statements in the preamble are what that rule is
+    # made of.  Not a pass.
+    echo "WHICH BUILD USERS HAVE COULD NOT BE ESTABLISHED."
+    echo "  The CHANGELOG does not narrow $live to a build that could have"
+    echo "  shipped, so this script has no opinion on the gap - which is NOT the"
+    echo "  same as the tree and the Store agreeing.  Nothing that records a"
+    echo "  shipped state may move on the strength of this run."
+    status=2
+elif [ "$cpv" -gt "$ceiling" ] 2>/dev/null; then
     echo "The tree is ahead of the Store by roughly $((cpv - ceiling)) build(s). That is normal."
     echo "What is NOT normal is writing build $cpv into anything that records what"
     echo "USERS have.  Queued is not released: a submission can sit in review, be"

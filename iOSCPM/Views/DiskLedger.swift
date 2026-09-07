@@ -17,16 +17,22 @@
 //  the only thing that has ever caused an installed image to be replaced.  It
 //  fired on a change to that attribute and on nothing else.  The attribute is
 //  13 at v1.4.5, v1.4.11 and v1.4.12 alike - left there deliberately, because
-//  moving it makes `deleteCatalogDisks(named:)` clear the catalog half of every
-//  device's library, including for the builds in service, which still carry the
-//  pre-build-56 loop that took every `.img` regardless.
+//  moving it makes every device in service clear the catalog half of its
+//  library, unprompted, on its next launch.  **That is still true and is still
+//  the rule**: the builds users actually have are at most build 61 and they all
+//  carry that loop, so the attribute must never move.
 //
-//  Build 63 stopped reading that attribute at all: the successor,
-//  `checkCatalogGenerationAndInvalidate`, acts only on the v0 catalog's
-//  `generation`, which the XML does not carry.  Nothing below changes - a
-//  generation bump reaches this file by exactly the path the version attribute
-//  did - but the attribute is no longer a way to reach a build 63 device, and
-//  is still the old way to reach every build in service.
+//  Build 63 stopped reading that attribute at all, and build 66 stopped
+//  deleting anything at all.  There is no catalog-wide invalidation left in
+//  this app: `recordCatalogGeneration` notes the v0 catalog's `generation` for
+//  the next fetch to compare against and deletes nothing, because "some
+//  artifact of this release changed" is not "your copy of every artifact is
+//  stale" - measurably not, since the one generation bump that has happened
+//  moved two ROM hashes and none of the twenty disk hashes.
+//
+//  So this file is no longer the second opinion on a wipe.  It is the ONLY
+//  thing that decides whether an installed image is replaced, per file and from
+//  provenance, and everything below matters more than it did rather than less.
 //
 //  So when `hd1k_combo.img` was republished with the fixed `r8.com`, nothing
 //  reached a device that already had the old one.  The user could see it -

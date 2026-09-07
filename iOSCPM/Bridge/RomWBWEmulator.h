@@ -81,30 +81,29 @@ typedef NS_ENUM(NSInteger, RWBControlifyMode) {
 ///
 /// Answered from the first 264 bytes (the 'W' 0xA8 marker at 0x103/0x104 and
 /// the two version bytes after it), so an image can be inspected before it is
-/// loaded - or, as this app uses it, so the release the bundled ROM is for can
+/// loaded - or, as this app uses it, so the release a DOWNLOADED ROM is for can
 /// be read out of the ROM itself rather than asserted by a constant that has
 /// to be remembered.
 + (nullable NSString*)romWBWReleaseOfImageData:(NSData*)data
     NS_SWIFT_NAME(romWBWRelease(ofImageData:));
 
-/// The same, for a ROM in the app bundle. `filename` is the bundle name with
-/// its extension, e.g. "emu_avw.rom". Nil when it is not in the bundle, cannot
-/// be read, or carries no HCB.
-+ (nullable NSString*)romWBWReleaseOfBundledROM:(NSString*)filename
-    NS_SWIFT_NAME(romWBWRelease(ofBundledROM:));
-
 // ROM loading
-- (BOOL)loadROMFromBundle:(NSString*)filename;
+//
+// There is no `loadROMFromBundle:` and no `romWBWReleaseOfBundledROM:` any
+// more: this app bundles no ROM, so both could only ever answer "not in the
+// bundle". Every ROM arrives as bytes that have been checked against the
+// catalog's sha256, which is what `loadROMFromData:` takes - and taking the
+// exact bytes that were hashed is the point, since a path leaves room for the
+// file to change between the check and the load.
 - (BOOL)loadROMFromPath:(NSString*)path;
 - (BOOL)loadROMFromData:(NSData*)data;
 
 /// Why the last ROM load failed, or nil after a successful load. The three
-/// failure modes - not in the bundle, unreadable, rejected by the core's HCB
+/// failure modes - unreadable, rejected by the core's HCB
 /// validation - are otherwise indistinguishable to the caller.
 @property (readonly, copy, nonatomic, nullable) NSString* lastROMError;
 
 // Disk management
-- (BOOL)loadDisk:(int)unit fromBundle:(NSString*)filename;
 - (BOOL)loadDisk:(int)unit fromPath:(NSString*)path;
 - (BOOL)loadDisk:(int)unit fromData:(NSData*)data;
 - (nullable NSData*)getDiskData:(int)unit;

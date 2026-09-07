@@ -172,8 +172,16 @@ rom_release_of() { # $1 = rom file -> prints e.g. 3.5.1
                else printf "%d.%d.%d.%d\n", major, minor, update, patch }'
 }
 
-# Which ROM a migrated port bundles.  One line per port so that adding the next
-# one is an edit here rather than a new function.
+# Where a port WOULD keep a bundled ROM.  One line per port so that adding the
+# next one is an edit here rather than a new function.
+#
+# "Would" is the operative word since the v0 migration.  A bundled ROM is now
+# optional: cpmdroid and z80cpmw deleted theirs on 2026-09-07 and fetch every ROM
+# from the catalog, which is the whole point of publishing ROMs there.  So the
+# path existing is a fact to be measured, not a precondition - see the ROM arm
+# below, which skips a port that bundles nothing and fails only for a ROM that is
+# present and unreadable.  Keeping the path listed rather than deleting the line
+# is deliberate: it means a ROM that reappears at that path gets checked again.
 bundled_rom_of() { # $1 = port name, $2 = checkout -> prints a path
     case "$1" in
         cpmdroid) echo "$2/app/src/main/assets/emu_avw.rom" ;;
@@ -321,12 +329,25 @@ echo "$ports" | while IFS='|' read -r port file pat kind; do
             continue
         fi
 
+        # A port that bundles no ROM at all.  Not a failure and not a gap in the
+        # check: with every ROM in the catalog and verified by sha256 before use,
+        # bundling one is a choice about the first launch, and cpmdroid and
+        # z80cpmw have made the other one.  There is simply no bundled ROM to
+        # compare against the index, so the arm below has nothing to say and the
+        # index-URL and artifact checks carry the port on their own.
         rom=$(bundled_rom_of "$port" "$dir")
-        romver=$(rom_release_of "$rom")
-        if [ -z "$romver" ]; then
-            printf '%-10s CANNOT READ the RomWBW release out of %s\n' "$port" "$rom"
-            echo 1 > "$tmp/fail"
-            continue
+        romver=""
+        if [ -n "$rom" ] && [ -f "$rom" ]; then
+            romver=$(rom_release_of "$rom")
+            if [ -z "$romver" ]; then
+                # Present but unreadable: a real failure, and the one this arm
+                # was written for.  A 512 KB file at that path that does not
+                # carry an HBIOS Configuration Block is a corrupt or truncated
+                # ROM, and it would be loaded at first launch.
+                printf '%-10s CANNOT READ the RomWBW release out of %s\n' "$port" "$rom"
+                echo 1 > "$tmp/fail"
+                continue
+            fi
         fi
 
         if ! get "$idx" "$tmp/$port-index.json"; then
@@ -338,7 +359,9 @@ echo "$ports" | while IFS='|' read -r port file pat kind; do
         # Whitespace stripped first so this does not depend on how the generator
         # happens to indent.  One field, not a pair, so it does not depend on
         # field order either.
-        if tr -d ' \n' < "$tmp/$port-index.json" |
+        if [ -z "$romver" ]; then
+            printf '%-10s v0 index, no bundled ROM - every ROM comes from the catalog\n' "$port"
+        elif tr -d ' \n' < "$tmp/$port-index.json" |
                 grep -q "\"romwbw_version\":\"$romver\""; then
             printf '%-10s v0 index, bundled ROM RomWBW %s is published\n' "$port" "$romver"
         else

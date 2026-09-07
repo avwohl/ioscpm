@@ -25,8 +25,10 @@ not about touch itself.
     tools/simdrive.py shot /tmp/s.png      # read your coordinates off this
     tools/simdrive.py press 238 1000 346 1000
 
-Most of this needs a Mac, not a device, and **this machine is one** — Xcode 26.6
-is at `/Applications/Xcode.app`.  If `xcodebuild` tells you it "requires Xcode",
+Most of this needs a Mac, not a device, and **the machine this paragraph was
+written on was one** — Xcode 26.6 was at `/Applications/Xcode.app`.  That is
+not true of the machine this is being edited on now; read the next paragraph
+before acting on any of it.  If `xcodebuild` tells you it "requires Xcode",
 that only means `xcode-select` points at the Command Line Tools; prefix the
 command with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` rather
 than concluding there is no toolchain.  The iOS Simulator runs the identical
@@ -37,6 +39,32 @@ com.awohl.cpm data` gives you the `Documents` folder to inspect - and
 really does need hardware: check 3 needs an iPad with a hardware keyboard, check
 4 a real device, and check 8 a phone or a keyboard-less iPad - the point of that
 one is the case where there is no hardware keyboard to fall back on.
+
+**But nothing in this tree has been run, and this machine cannot run it.**
+Measured 2026-09-08: `xcode-select -p` gives `/Library/Developer/CommandLineTools`,
+there is no `Xcode.app` under `/Applications` at all,
+`xcrun --sdk iphonesimulator --show-sdk-path` fails and `simctl` is not
+installed.  So the paragraph above is a description of a machine this file has
+been edited on before, not of the one you are on now - run those three commands
+before believing either version, because the answer is per machine and it has
+been both.  Builds 62 through 66 have never reached a device or a simulator and
+no `.app` has been produced from these sources; `sh tools/check-store-version.sh`
+says the App Store serves at most build 61, and every observation recorded below
+with a date or a build number was made on an EARLIER tree - build 55, 56 or 61 -
+and has not been repeated since.
+
+What does run here is `sh Tests/run_tests.sh`, twenty suites, exit 0.  One of
+them now type-checks `EmulatorViewModel.swift` against the macosx SDK with the
+real bridging header, which is what caught `emulator?.loadROM(fromData:)` - the
+Objective-C `loadROMFromData:` imports into Swift as `loadROM(from:)`, so the
+app target did not build at all.  **A type-check is not a run**, and it does not
+reach the five files that import UIKit - `ContentView`, `TerminalView`,
+`CatalystWindow`, `HelpView` and `iOSCPMApp` - which need an iOS SDK and have
+never been through a compiler in the state they are in now.
+`Tests/check_view_bindings.sh` checks every `viewModel.<member>`
+`ContentView.swift` asks for against the model's declarations, and it is the
+only thing standing between a renamed member and a build that fails on the
+first machine that has Xcode.
 
 ---
 
@@ -62,15 +90,22 @@ Build 52 is a data-loss fix and none of it has been driven by hand.  Use a
       EMPTY.TXT` at the `A>` prompt makes the empty file (CCP built-in, not
       checked here); any other route to a zero-length CP/M file does as well.
 
-Checks 1 and 2 need a disk image carrying the **new** `w8.com`, and **the
-catalog now serves one**: `v1.4.12/hd1k_combo.img` (`89b8ae1a…`) has
-`Usage: W8 <cpmname> [hostpath]`, `Usage: R8 <hostpath>` and the `06 e9 cf`
-probe.  That was not true when this section was written - `v1.4.5`'s combo has
-only `Usage: W8 <cpmname>`, no `[hostpath]` - so a device holding the older image
-looks identical in the picker and silently makes checks 1, 2, 14 and 15 the wrong
-test.  **Check which one you have before running any of them**, either by
-downloading the combo fresh on a clean install or by copying one in through Files
-from `romwbw_emu/disks/`:
+Checks 1 and 2 need a disk image carrying the **new** `w8.com`, and **both
+published releases serve one**.  Measured 2026-09-08 by downloading the two
+images the app can actually install and counting bytes in them:
+
+    hd1k_combo-v0-3.5.1.img  0ca4ec60…  Usage: W8 <cpmname> [hostpath], one 06 e9 cf
+    hd1k_combo-v0-3.6.0.img  f4873027…  the same, and one 06 ea cf in each as well
+
+There is nothing left to choose between at download time: `releaseTag` is gone,
+nothing in the app fetches from `avwohl/ioscpm` any more, and every image it can
+install comes from the romwbw_disks catalog.  What can still make checks 1, 2, 14
+and 15 the wrong test is an image already sitting in `Documents/Disks` from an
+older build - `v1.4.5`'s combo has only `Usage: W8 <cpmname>`, no `[hostpath]` -
+because the interface-v0 migration renames such a file to
+`hd1k_combo-v0-3.5.1.img` on its NAME alone and never looks inside it.  On a
+fresh install you have the new one by construction; on an upgraded device,
+**check which one you have before running any of them**:
 
     xxd -p w8.com | tr -d '\n' | grep -c 06e9cf   # 1 = interlocked, 0 = armed
 
@@ -133,10 +168,14 @@ the parser.
 Build 55 moved the SHA256 check onto the live download path. Nothing has driven
 the rejection arm — only the passing one, which is every ordinary download.
 
-- [ ] Point the app at a catalog whose `<sha256>` for one image is wrong (edit
-      the cached `Documents/Disks/disks_catalog.xml`, or serve your own). The
-      download must retry three times, end as **Checksum mismatch**, and leave
-      **no** `.img` behind in `Documents/Disks`.
+- [ ] Point the app at a catalog whose `sha256` for one image is wrong. Serve
+      your own through a proxy: editing the cached
+      `Documents/Disks/catalog-v0-<release>.json` reaches only the offline path,
+      because a fetched catalog is checked against the index's `catalog_sha256`
+      before it is parsed. (The `disks_catalog.xml` this box used to name is not
+      fetched or written by any build since 63.) The download must retry three
+      times, end as **Checksum mismatch**, and leave **no** `.img` behind in
+      `Documents/Disks`.
 - [ ] The first-run fetch (`downloadDisksAndStart`) surfaces that as a failure
       rather than starting the emulator with a missing disk.
 - [ ] A catalog entry with no `<sha256>` at all is **refused**, with
@@ -144,39 +183,60 @@ the rejection arm — only the passing one, which is every ordinary download.
       `Documents/Disks`. This box used to say the opposite — "the field has
       always been optional and a missing hash is not a failure" — and had been
       wrong since 2026-09-01, when `downloadDiskFromSettings` started refusing
-      such an entry rather than installing it. All 20 entries in the pinned
-      catalog carry a hash, so one without is a degraded or hostile catalog.
+      such an entry rather than installing it. Every entry in both published
+      catalogs carries a hash - 20 disks under 3.5.1 and 24 under 3.6.0, checked
+      2026-09-08 - so one without is a degraded or hostile catalog.
 
-## 6. The narrowed catalog invalidation
+## 6. A generation bump that now deletes nothing
 
-**Build 63 moved this path out from under the check.** The invalidation is now
-`checkCatalogGenerationAndInvalidate`, it reads the interface-v0 `generation`
-rather than the `<disks version>` attribute, and it stores it under
-`catalogGeneration.v0.3.5.1`. Editing `catalogVersion` no longer drives anything:
-that key is orphaned, and the catalog this build fetches carries no generation,
-so nothing here can fire until release B points at a v0 catalog. Drive the boxes
-below then, against the new key — the deletion logic they are about
-(`deleteCatalogDisks(named:)`) is unchanged.
+**Read this before ticking anything: the behaviour this section used to check
+is gone, and its boxes were inverted rather than deleted.**  A catalog
+`generation` bump used to delete every downloaded image the new catalog named.
+`checkCatalogGenerationAndInvalidate` is now `recordCatalogGeneration`, which
+writes the number under `catalogGeneration.v0.<release>` and does nothing else,
+and `deleteCatalogDisks(named:)` is gone.  What decides now is
+`reassessDiskFreshness()` and `DiskLedger.action`, per file, from provenance -
+they offer an update and never destroy work.
 
-Build 56 made the catalog invalidation delete only the images the new catalog
-names. It was driven on the **iPhone 17 Pro simulator** by editing the
-stored `catalogVersion` in the app container's preferences and relaunching, with
-two catalog disks and two of the user's own in `Documents/Disks`: the two catalog
-disks went, the two others stayed, and the alert gave both counts. What that
-could not cover:
+The measurement that settled it: the only generation bump that has ever
+happened - romwbw_disks commit `aab3a4f`, 1 -> 2 on both releases - changed two
+ROM hashes and **zero** of the twenty disk hashes.  The old code would have
+deleted and re-downloaded twenty byte-identical images because two ROMs were
+rebuilt.  Both releases publish generation 2 today, so a device that last saw 1
+has a real bump waiting for it and is the right thing to stage.
 
-- [ ] A real catalog whose `version` attribute has genuinely moved, rather than a
-      stored default edited from underneath the app. The path is the same, but
-      nothing has run it end to end from a published catalog.
-- [ ] A disk that is *selected* in a slot when it is cleared. `refreshAvailableDisks`
-      and `restoreDiskSelections` run straight after; check the slot ends up empty
-      rather than pointing at a file that is gone.
-- [ ] The same, while the emulator is **running** off that disk. Disks are held in
-      memory, so the session should survive; the file underneath it will not.
-- [ ] A case-differing name — `HD1K_COMBO.IMG` beside the catalog's
-      `hd1k_combo.img`. The match is deliberately case-insensitive so it behaves
-      the same on both kinds of volume, which means such a file *is* treated as
-      the catalog's. Confirm that is what you want.
+Build 56's narrowing - delete only the images the new catalog names, keep the
+user's own - was driven on the iPhone 17 Pro simulator in its day, with two
+catalog disks and two of the user's own in `Documents/Disks`: the two catalog
+disks went, the two others stayed, and the alert gave both counts.  That is
+history now.  The thing it narrowed no longer exists.
+
+- [ ] **A real bump deletes nothing.**  Set `catalogGeneration.v0.3.5.1` to `1`
+      in the app container's preferences (shut the simulator down first -
+      `cfprefsd` caches, see §16 for the `plutil` recipe), relaunch, and let the
+      catalog land.  The log must read
+      `[Catalog] RomWBW 3.5.1 generation 1 -> 2` and **every file in
+      `Documents/Disks` must still be there**.  Count them before and after.  If
+      anything is deleted, stop: that is the whole failure this build removed.
+- [ ] **A disk that is selected in a slot is left alone.**  The slot must still
+      name the same file afterwards and the emulator must still boot off it.
+      The old question here was whether `refreshAvailableDisks` and
+      `restoreDiskSelections` emptied a slot whose file had just been deleted;
+      the question now is whether anything moved at all.
+- [ ] **The same, while the emulator is running off that disk.**  Nothing may be
+      deleted under a running machine and nothing may be refreshed under one
+      either - `reassessDiskFreshness()` stands down while a disk is loaded, and
+      §16 has the boxes for what the Update control must do instead.
+- [ ] **A case-differing name is still recognised as the catalog's.**
+      `HD1K_COMBO.IMG` beside the catalog's `hd1k_combo-v0-3.5.1.img`.  The fold
+      is deliberately case-insensitive so it behaves the same on both kinds of
+      volume.  Nothing is deleted either way now, so what this checks is that
+      the ledger and the freshness row find the file rather than reporting it as
+      an unknown image of the user's own.
+- [ ] **No alert fires.**  The invalidation used to raise one giving two counts,
+      "n catalog disks removed" and "n of yours kept".  There is no such alert
+      in the code any more.  Seeing one on a generation bump means a copy of the
+      deletion path survived somewhere.
 
 ---
 
@@ -274,6 +334,11 @@ That is the thing to check hardest.
 - [ ] A profile saved on one device and carried to another restores everything
       except the disks, and is honest about the disks.
 
+A profile now also records the RomWBW release it was saved under, and resolves
+its disks by catalog id rather than by exact filename.  Neither is exercised
+here: both are about crossing a release boundary, so their boxes are in §19
+beside the picker that does the crossing.
+
 ## 12. A multi-slice disk, and the size picker
 
 `DiskSize.offered` is 8 MB hd1k, then 2 / 4 / 7 hd512 slices (N x 8,519,680).
@@ -323,9 +388,12 @@ the name the CCP shouted at it.  `Tests/CoreHostFileTests.cc` proves the core
 side of this against both backend shapes; what no suite can reach is the
 Objective-C++ that does the actual resolving.
 
-Needs an image whose `r8.com` calls 0xEA.  `v1.4.12/hd1k_combo.img` does — the
-bytes `06 ea cf` occur in it — so a freshly downloaded Combo is enough; the
-`v1.4.5` image is not.
+Needs an image whose `r8.com` calls 0xEA, and both published Combos qualify:
+the bytes `06 ea cf` occur once in `hd1k_combo-v0-3.5.1.img` and once in
+`hd1k_combo-v0-3.6.0.img`, measured 2026-09-08 on the published files.  A freshly
+downloaded Combo on either release is enough; an image carried over from
+`v1.4.5` is not, and the migration renames one of those to a v0 name without
+looking inside it.
 
 - [ ] Put a file in `Imports` whose name is **lowercase**: `esc.txt`.  At the
       `A>` prompt run `R8 ESC.TXT` (the CCP uppercases it whatever you type).
@@ -519,9 +587,11 @@ profile and the ledger to match.  **None of it has been run.**  It was written
 on a machine with no Xcode; `Tests/CatalogMigrationTests.swift` covers the
 decisions and skipped, and nothing has executed a single `moveItem`.
 
-The tree carries build 64 as well, so the binary in front of you does §19's
-fetch too.  Read the two sections as one sitting: everything below is still
-about the rename, but the catalog it meets afterwards is the v0 one.
+The tree carries builds 64, 65 and 66 as well, so the binary in front of you
+does §19's fetch and §20's ROM download too.  Read the three sections as one sitting:
+everything below is still about the rename, but the catalog it meets afterwards
+is the v0 one and the ROM it boots with is a download rather than a file in the
+app.
 
 Stage a container that looks like a real one before touching any of this:
 `xcrun simctl get_app_container booted com.awohl.cpm data` gives you the
@@ -541,11 +611,22 @@ saved profile and a ledger with a record for each is enough for all of it.
       directory — that is what a wrong rekey looks like, and it is ~210 MB.
 - [ ] **A slot survives, and so does a profile.**  The slots come back pointing
       at the renamed files, the emulator boots off them, and applying a saved
-      profile still resolves its disks *and its ROM* — `romFilename` is
-      deliberately not migrated, because it names a file in the app bundle.
+      profile still resolves its disks *and its ROM*.  `romFilename` is
+      deliberately not migrated, and the reason for that changed when the
+      bundled ROM went: there is no file in the app to name any more, and which
+      catalog filename `emu_avw` has depends on the release the profile is
+      applied under, so there is no single string to rewrite it to.
+      `applyProfile` matches it by catalog id instead (`ROMOption.answersTo`).
 - [ ] **A slot bound to a local file is still bound to it.**  `""` in
       `selectedDisks` means both "no disk" and "local file", and this is the
-      case that proves the migration left it alone.
+      case that proves the migration left it alone.  The bookmarks themselves
+      moved key: `localDiskBookmarks` is scoped per release now, like
+      `selectedDisks` and `emulatorNvram`, and the migration copies the legacy
+      unsuffixed array into `localDiskBookmarks.v0.3.5.1` verbatim and
+      unconditionally - there is no filename in a bookmark, so nothing about it
+      depends on which files moved, and this same launch writes that key later.
+      Confirm the versioned key exists afterwards and the legacy one is still
+      beside it.
 - [ ] **A destination that already exists is kept, and nothing is deleted.**
       Put both `hd1k_combo.img` and `hd1k_combo-v0-3.5.1.img` in the directory,
       run it, and confirm both are still there afterwards and the app boots off
@@ -558,21 +639,27 @@ saved profile and a ledger with a record for each is enough for all of it.
 - [ ] **Running it twice changes nothing.**  Clear `migratedToInterfaceV0` in
       the preferences plist, relaunch, and confirm no file is renamed a second
       time and no name gains a second `-v0-`.
-- [ ] **A directory that cannot be listed defers everything.**  Make
-      `Documents/Disks` unreadable (`chmod 000` on the simulator container is
-      enough), clear `migratedToInterfaceV0`, and relaunch.  Nothing may be
-      renamed — that part is obvious — but the point of the check is the keys:
-      `selectedDisks.v0.3.5.1` must be **unchanged**, not filled with names
-      whose files never moved, and `migratedToInterfaceV0` must still be absent.
-      Restore the permissions, relaunch, and confirm the pass completes then.
-- [ ] **The invalidation deletes nothing.**  `catalogVersion` still reads `13`
-      and is never touched — the old key is orphaned, not carried across, which
-      is the whole reason `13 ≠ 1` cannot fire against the names the rename has
-      just created.  `catalogGeneration.v0.3.5.1` starts empty; the binary you
-      are driving carries §19 as well, so the first v0 fetch writes `1` there
-      and takes the first-run branch.  Either way a catalog fetch must clear no
-      images at all.  If anything is deleted, stop — that is the failure this
-      whole sequence exists to prevent.
+- [ ] **A directory that cannot be listed defers the NAMES, and moves the KEYS
+      anyway.**  Make `Documents/Disks` unreadable (`chmod 000` on the simulator
+      container is enough), clear `migratedToInterfaceV0`, and relaunch.
+      Nothing may be renamed - that part is obvious - but **this box was
+      inverted after the deferral was found to lose data, so read it rather than
+      remembering it.**  `selectedDisks.v0.3.5.1`, `emulatorNvram.v0.3.5.1` and
+      `localDiskBookmarks.v0.3.5.1` must now all **exist**, holding the legacy
+      values carried across verbatim with their pre-v0 names untouched, and
+      `migratedToInterfaceV0` must still be absent.  Returning early instead -
+      which is what "defers everything" used to mean - lost the user's boot
+      string and their four slots permanently, because this same launch goes on
+      to write those versioned keys itself and the legacy ones are then never
+      read again.  Restore the permissions, relaunch, and confirm the names are
+      rewritten then and the flag is set.
+- [ ] **Nothing deletes an image, on any path.**  `catalogVersion` still reads
+      `13` and is never touched - the old key is orphaned, not carried across.
+      `catalogGeneration.v0.3.5.1` starts empty and the first v0 fetch writes
+      `2`, which is what both catalogs publish today.  Neither number can reach
+      a deletion any more: §6 records that the invalidation is gone.  So a
+      catalog fetch must clear no images at all, and if anything is deleted,
+      stop - that is the failure this whole sequence exists to prevent.
 - [ ] **The boot string survives.**  `emulatorNvram.v0.3.5.1` should hold what
       `emulatorNvram` held, and the autoboot setting should be unchanged in
       SYSCONF after a warm boot.
@@ -584,11 +671,15 @@ saved profile and a ledger with a record for each is enough for all of it.
 
 Build 64 deletes `releaseTag` and fetches `index-v0.json` from `romwbw_disks`,
 then that release's catalog, then assets from the catalog's own `base_url`.  It
-also adds a RomWBW release picker.  **None of it has made a network request.**
-It was written on a machine with no Xcode and no network access to GitHub;
-`Tests/CatalogDocumentTests.swift` covers the document rules and skipped.  Every
-URL and hash in the code was read out of the committed documents under
-`romwbw_disks/catalog/v0/`.
+also adds a RomWBW release picker.  **The app has still never made one of
+these requests.**  It was written on a machine with no Xcode;
+`Tests/CatalogDocumentTests.swift` covers the document rules and skipped.  The
+documents have now been checked from a shell, which is a different thing from
+this code fetching them: on 2026-09-08 the compiled-in index URL returned HTTP
+200 and bytes identical to `romwbw_disks/catalog/v0/index.json`, both releases'
+catalogs matched the `catalog_sha256` and `catalog_size` the index claims, and
+all four published ROMs matched their catalog entries.  So the URLs and the
+hashes are right.  What is unobserved is the app going and getting them.
 
 Do §18 first, on the same container.  A device that has not been through the
 rename is not the interesting case for most of what follows.
@@ -607,9 +698,11 @@ rename is not the interesting case for most of what follows.
       "(download)" with the user's own images listed separately below.  That
       mismatch is what build 63 left behind and what this build ends.
 - [ ] **Nothing is deleted on the first v0 fetch.**  `catalogGeneration.v0.3.5.1`
-      is empty before it and reads `1` after it, and the images in
-      `Documents/Disks` are all still there.  If the library is cleared, stop:
-      that is the wipe the whole two-build sequence exists to prevent.
+      is empty before it and reads `2` after it - that is what both catalogs
+      publish today, checked 2026-09-08 - and the images in `Documents/Disks`
+      are all still there.  If the library is cleared, stop: that is the wipe
+      the whole sequence exists to prevent, and §6 records that the deletion
+      path it could have come from is gone.
 - [ ] **A corrupted catalog is refused, not parsed.**  Hardest check here and
       the most valuable: serve a catalog whose bytes do not match the index's
       `catalog_sha256` (a proxy, or edit the cached
@@ -619,99 +712,216 @@ rename is not the interesting case for most of what follows.
 - [ ] **Offline is usable.**  Turn the network off and relaunch: the saved
       catalog loads, the slots resolve, and the emulator boots.  The message
       must say the list is the saved one rather than claiming an error, and no
-      modal alert should appear when there is a usable cache.
+      modal alert should appear when there is a usable cache.  Boot this one on
+      a release whose ROM is already in `Documents/Disks`: with no bundled ROM
+      left, an offline launch on a release that has never fetched its ROM stops
+      at §20's **ROM Not Available** instead, which is correct behaviour and
+      not this box failing.
 - [ ] **The two hops are told apart.**  Break only the second one (a proxy that
       404s the catalog URL, or a cached index naming a URL that does not exist)
       and confirm the message says the release list loaded and the catalog did
       not.  With both broken it must name the index, not the catalog.
-- [ ] **The picker offers 3.5.1 and 3.6.0, and marks the preview.**  The core
-      supports both today (`ROMWBW_SUPPORTED_RELEASES` in `src/romwbw_pin.h`),
-      so both appear, with `RomWBW 3.6.0 (preview)` reading as a preview in the
-      row itself.  The About screen's `RomWBW 3.5.1, 3.6.0 core` line should
-      agree with what is offered.
+- [ ] **The picker offers 3.5.1 and 3.6.0, and marks NEITHER.**  The core
+      supports both today (`ROMWBW_SUPPORTED_RELEASES`, in
+      `iOSCPM/Core/romwbw_pin.h` - not `src/`, which is where this box used to
+      point and where no such file exists), so both appear.  Both now publish
+      `"status": "stable"`, checked against the live index 2026-09-08, so
+      neither row may carry a parenthesised suffix: `RomWBW 3.6.0 (preview)` was
+      right when this was written and is wrong now.  Any status other than
+      "stable" is shown verbatim, so a suffix coming back means upstream moved
+      the field rather than that the row is broken.  The About screen's
+      `RomWBW 3.5.1, 3.6.0 core` line should agree with what is offered.
+- [ ] **A fresh install lands on 3.6.0.**  Install into an empty container, let
+      the index land, and read the picker and `selectedRomWBWVersion.v0`.  3.6.0
+      is the release flagged `"default": true` today (live index, 2026-09-08).
+      This box was written when the source disagreed with itself: the call site
+      passed `romwbwVersion` as `keeping:`, and on a fresh install that is
+      already the pre-v0 `3.5.1` seed, so rule 1 of `preferred` matched every
+      launch and the flagged default was unreachable.  `romWBWVersionToKeep`
+      passes nil when nobody has chosen, which is the fix; **it has never run on
+      a device, so check it rather than assuming it.**
+- [ ] **An UPGRADING install stays on 3.5.1 and keeps its drives.**  The other
+      half of the same change, and the one with something to lose.  Take a
+      container that already has pre-v0 disks and configured slots, launch the
+      new build, and confirm the storage migration renames the images, the
+      picker still reads 3.5.1, and all four slots still name their disks.
+      `romWBWVersionToKeep` decides this by looking for a non-empty
+      `selectedDisks.v0.3.5.1`, so a device that had disks downloaded but no slot
+      configured is expected to move to 3.6.0 - which is correct, and worth
+      writing down separately if you can make one.
 - [ ] **Switching to 3.6.0 changes everything that is per release, and destroys
       nothing.**  Slots empty, catalog re-fetches, `catalog-v0-3.6.0.json`
       appears beside the 3.5.1 one, and the boot string becomes 3.6.0's (empty,
       the first time).  Then switch back: the 3.5.1 slots, boot string and
       images are exactly as they were.  **Check `Documents/Disks` before and
       after: no file may disappear on either move.**
+- [ ] **A slot bound to a local file is released and re-read on the switch, and
+      never carried across.**  New this session and never exercised.
+      `localDiskBookmarks` is keyed per release now, like `selectedDisks` and
+      `emulatorNvram`, and the switch calls
+      `stopAccessingSecurityScopedResource()` on each slot before clearing it.
+      The arriving release's own bindings come back LATER, not in the switch:
+      `restoreDiskSelections()` ends by calling `restoreLocalDiskBindings()`
+      once the new catalog has landed, so a slot that is empty for as long as
+      the fetch takes is the design and not the failure.  Bind slot 1 to a
+      file of your own through Files on 3.5.1; switch to 3.6.0 and confirm the
+      slot is empty rather than still naming that file; bind a *different* file
+      there; switch back and confirm 3.5.1 has its original one.  Then do it
+      twenty times in a row.  A switch that dropped the URLs without the
+      balancing stop leaks one sandbox extension per slot per switch, and the
+      symptom is not an error message - it is the app quietly losing the ability
+      to open any file at all.
 - [ ] **The other release's disks are not in the picker, and are still on
       disk.**  On 3.6.0 the slot menus must not list `hd1k_combo-v0-3.5.1.img`
       as a user-added disk.  Then check `Documents/Disks` and confirm every one
       of those files is still there — hidden from a menu is not the same as
       gone, and only one of those is acceptable.  A disk you imported yourself
       must still be listed.
-- [ ] **The ROM mismatch warning stays unreachable.**  Build 65 fetches the
-      release's own ROM, so on 3.6.0 the Settings warning about booting a 3.5.1
-      ROM must NOT appear once the catalog has loaded — see §20.  If it does,
-      the ROM picker is showing the bundled ROM under a release that is not its
-      own, which is the state the warning exists for and a bug in the
-      resolution, not in the warning.
+- [ ] **The ROM the picker shows belongs to the release in play, at every
+      moment.**  This box used to be about a Settings warning that the ROM was
+      3.5.1's under a 3.6.0 release; there is no bundled ROM left to produce
+      that state, and `availableROMs` is now built from the loaded catalog's
+      `roms[]` alone.  So: switch to 3.6.0 and watch the ROM row through the
+      whole move.  While the new catalog is in flight the row must be blank or
+      say the catalog has not been read - `restoreROMSelection()` is called
+      against an empty catalog on purpose - and it must never show
+      `emu_avw-v0-3.5.1.rom` under 3.6.0 for even a moment.  Then confirm RomWBW
+      itself prints no `*** WARNING: HBIOS/CBIOS Version Mismatch ***` on the
+      boot that follows (§20 has that boot).
 - [ ] **The picker is unavailable while running.**  Start the emulator, open
       Settings, and confirm the picker is disabled.  Then try it from a second
       window on Catalyst if you can: the model must refuse and say so rather
       than emptying the slots under a running machine.
+- [ ] **An index that asks for a different release while the machine is RUNNING
+      is HELD until Stop.**  New this session and never exercised, and it is the
+      one path that moves the release without the user touching the picker.  The
+      picker's guard is a `didSet` on `romwbwVersion`; the index hop reaches
+      `applyRomWBWVersionSwitch` past it, so a fetch landing mid-session could
+      empty the four slots underneath a running emulator - and
+      `saveDownloadedDisks()` writes the guest's live image back to the file the
+      SLOT names, so the periodic flush and the one in `stop()` would both find
+      nothing to write to and drop the user's work without a word.  Stage it by
+      being on a release the index does not offer: put a release the core still
+      supports but the index has dropped into `selectedRomWBWVersion.v0` in the
+      preferences plist, or serve a doctored index.  Start the emulator, create
+      a file in CP/M, and let the fetch land.  The log must read
+      `[Catalog] RomWBW <new> held: the machine is running on <old>`, the slots
+      must not move, and the disk list must stay the running release's.  Then
+      press Stop: `[Catalog] Taking the held move to RomWBW <new>` must appear
+      **after** the save, and the file you created must still be in the image
+      when you switch back.  The ordering inside `stop()` is the whole check -
+      `saveDownloadedDisks()` first, the held switch second.
 - [ ] **Switching while a fetch is in flight drops the stale answer.**  This is
       the check that needs a throttled connection: with the Network Link
       Conditioner on a slow profile, launch, and switch release before
       `[Catalog] Fetching catalog:` has answered.  The log must show
       `[Catalog] Dropping the RomWBW <old> response`, the disk list must be the
       new release's, and **`catalogGeneration.v0.<new>` must not have been
-      written with the old release's generation**.  No image may be deleted.
-      Both releases are at generation 1 today, so a bug here is invisible until
-      one of them moves — read the key, do not trust the absence of an alert.
+      written with the old release's generation**.  What is at stake changed
+      with §6: no image is deleted on any generation any more, so the failure
+      here is now a recorded number that lies about the release it is filed
+      under rather than a wipe.  Both releases read generation 2 today, so read
+      the key - the absence of an alert proves nothing, and there is no alert
+      left to be absent.
 - [ ] **The ROM picker still shows its selection.**  `ROMOption`'s identity
       changed from a per-construction UUID to the filename, and the rows are
       rebuilt from every catalog fetch now.  Open Settings and confirm the ROM
       row reads `EMU AVW` and not a blank, before and after a release switch.
-- [ ] **A profile still applies.**  Profiles are not per release: save one on
-      3.5.1, apply it on 3.5.1, and confirm every slot resolves.  Applying it
-      while on 3.6.0 should report its disks as unresolved and change nothing —
-      not blank the slots.
+- [ ] **A profile applies ACROSS a release switch, and is honest about the one
+      disk it cannot bring.**  Rewritten this session and never exercised; the
+      old box asserted the opposite outcome and was right about the old code.  A
+      profile used to resolve its disks by exact filename, and a catalog
+      filename carries the release (`hd1k_combo-v0-3.5.1.img`), so applying a
+      3.5.1 profile on 3.6.0 reported all four slots unresolved - which made
+      profiles and the release picker mutually exclusive features.
+      `resolveProfileDisk` now falls back to the catalog `id`, the stem, when
+      the exact name misses.  Save a profile on 3.5.1 with the Combo in slot 0
+      and **`hd1k_ws4` in another slot**, switch to 3.6.0, and apply it: the
+      Combo slot must come back as `hd1k_combo-v0-3.6.0.img`, and `hd1k_ws4`
+      must be the ONE unresolved slot, reported as
+      `disk N: hd1k_ws4-v0-3.5.1.img (saved under RomWBW 3.5.1)`.  That is a
+      real and permanent answer rather than a download away: 3.5.1 publishes
+      `hd1k_ws4` and 3.6.0 does not - upstream's combo.def calls that slice "wp"
+      there - confirmed against both published catalogs on 2026-09-08 (20 disk
+      ids under 3.5.1, 24 under 3.6.0, `hd1k_ws4` in the first only).  Applying
+      a profile must not move the release and must not blank the slots it could
+      not fill.
+- [ ] **A profile also resolves a disk only the OTHER release publishes.**  The
+      stems the matcher knows are OBSERVED from the catalogs this app has
+      fetched, in `catalogDiskStems.v0`, rather than read out of a frozen
+      twenty-name table.  So a device that has never been on 3.6.0 has never
+      seen `hd1k_cobol`, `hd1k_dos65`, `hd1k_infocom`, `hd1k_msx` or `hd1k_wp` -
+      the five ids 3.6.0 adds, all bootable.  Save a profile on 3.6.0 naming one
+      of them, switch to 3.5.1 and back, and confirm it still resolves.  If that
+      key is missing the five, nothing recorded them and the fallback cannot
+      fire.
 
 ---
 
-## 20. The ROM comes from the catalog
+## 20. The ROM comes from the catalog, and the app carries none
 
 Build 65 loads the ROM the selected release publishes, verified against the
 catalog's `size` and `sha256` every time it is used, and refuses to start a
-release whose ROM it cannot get.  **None of it has run.**  Written on a machine
-with no Xcode and no network access to GitHub; the document rules are in
-`Tests/CatalogDocumentTests.swift`, which cannot execute there.
+release whose ROM it cannot get.  **Build 66 then deletes the bundled ROM**,
+which is what makes the boxes below read the way they do.
+`iOSCPM/Resources/emu_avw.rom` is gone and its four references came out of the
+pbxproj; `git ls-files` now matches no `.rom`, `.img`, `.bin`, `.com` or `.dsk`
+at all.  `bundledROMFilename`, `bundledROMRelease`, `bundledROMURL`,
+`bundledROMFacts`, `bundledROMOption`, `bundledROMFallbackRelease` and
+`switchToBundledROMRelease()` went with it, and so did the **Use RomWBW 3.5.1**
+button on both ROM-problem alerts.  **None of it has run.**
 
-Do §19 first — a device that has never fetched a catalog cannot exercise any of
+**Every box below was rewritten on 2026-09-08 and three of them were inverted.
+Do not drive this section from memory.**  What it used to check first was that
+3.5.1 boots offline having never downloaded a ROM - "the guarantee the bundled
+ROM exists for".  That guarantee was false, and why it was false is the thing to
+know before touching any of this: `start()` returns early on
+`diskCatalog.isEmpty`, and the catalog and every disk in it are downloads.  A
+device that has never had a network has no disk to boot and never had one, so a
+ROM to boot it with bought nothing.  What the 512 KB actually bought was
+skipping the ROM download on 3.5.1, and on 3.5.1 alone.
+
+Do §19 first - a device that has never fetched a catalog cannot exercise any of
 this.
 
-- [ ] **3.5.1 boots with the network off and no ROM download, ever.**  Not "out
-      of the box": a fresh install has no disk images and no catalog either, so
-      it cannot boot anything until it has been online once — that is the disk
-      story, not the ROM story, and conflating the two makes this check fail for
-      the wrong reason.  So: fresh install, network ON, stay on 3.5.1, let the
-      catalog land and download the disks you want.  Then turn the network OFF,
-      relaunch, and press Play.  It must boot, and there must be no `.rom`
-      request at all: the bundled `emu_avw.rom` is byte-for-byte
-      `emu_avw-v0-3.5.1.rom`, and `resolveROM()` proves that by hash rather than
-      assuming it.  Settings must read "this app already carries these exact
-      bytes".  **If this one fails, nothing else here matters** — it is the
-      guarantee the bundled ROM exists for.
+- [ ] **A first launch with no network cannot boot, and fails for the right
+      reason.**  Install into an empty container with the network off and press
+      Play.  There must be no boot, and the failure must be the disk catalog's -
+      "Failed to load disk catalog", from `start()`'s `diskCatalog.isEmpty` arm -
+      arriving before anything asks for a ROM.  A **ROM Not Available** alert
+      here means the two failures are in the wrong order and the user is being
+      sent after the smaller of them.  This box asserted the opposite until
+      2026-09-08.
+- [ ] **3.5.1 downloads its own ROM now, exactly once.**  Fresh install, network
+      ON, stay on 3.5.1, press Play.  The log must show
+      `[ROM] Fetching …/v0-romwbw-3.5.1/emu_avw-v0-3.5.1.rom`, and afterwards
+      `Documents/Disks` must hold `emu_avw-v0-3.5.1.rom`: 524,288 bytes,
+      `4b11402a…`, byte-for-byte the ROM this app used to carry (both the
+      published asset and that hash re-measured 2026-09-08).  Then relaunch and
+      press Play again - **no second request**.  The copy on disk is verified
+      against the catalog every time it is used, not fetched again.
 - [ ] **3.6.0 fetches its own ROM before the machine starts.**  Switch to 3.6.0,
       press Play, and watch: `[ROM] Fetching …/v0-romwbw-3.6.0/emu_avw-v0-3.6.0.rom`,
       the download overlay, then the boot.  `Documents/Disks` must then hold
-      `emu_avw-v0-3.6.0.rom` **beside** the 3.5.1 images you already had
-      (`hd1k_combo-v0-3.5.1.img` and the rest) — two releases' assets coexisting
-      is what the naming scheme is for.  Note that there is normally NO
-      `emu_avw-v0-3.5.1.rom` on the device: 3.5.1's ROM is the one in the app.
+      `emu_avw-v0-3.6.0.rom` **beside** `emu_avw-v0-3.5.1.rom` and the 3.5.1
+      images you already had - two releases' assets coexisting is what the
+      naming scheme is for.  There is no longer any release whose ROM lives
+      somewhere other than this directory; the old note here said the opposite.
 - [ ] **And it boots without the mismatch warning.**  The whole point.  RomWBW
       must NOT print `*** WARNING: HBIOS/CBIOS Version Mismatch ***` on a 3.6.0
       disk under a 3.6.0 ROM.  Seeing it means the ROM that loaded was not the
       one that was fetched.
-- [ ] **A ROM that will not download stops the machine, and says what to do.**
-      Turn the network off with 3.6.0 selected and the ROM not yet fetched, then
-      press Play.  There must be no boot: an alert naming RomWBW 3.6.0, naming
-      `emu_avw-v0-3.6.0.rom`, saying why, and offering **Use RomWBW 3.5.1**.
-      Take that offer and confirm it lands back on 3.5.1 with its slots intact.
-      **A boot that happens anyway is the bug this release exists to remove** —
-      it would be the bundled 3.5.1 ROM under 3.6.0 disks.
+- [ ] **A ROM that will not download stops the machine, and offers nothing the
+      app cannot do.**  Turn the network off with 3.6.0 selected and its ROM not
+      yet fetched, then press Play.  There must be no boot, and an alert titled
+      **ROM Not Available** whose message names RomWBW 3.6.0, names
+      `emu_avw-v0-3.6.0.rom`, says why, and ends with the two real ways out - a
+      connection, or the other ROM this release publishes.  **There must be no
+      "Use RomWBW 3.5.1" button.**  It is gone: there is no bundled ROM behind
+      it any more, and a build still offering it would be offering to boot a
+      release the user did not choose.  Confirm the alert presents from the
+      terminal screen *and* from Settings - it is declared on both, because only
+      the view on top can present one.
 - [ ] **A corrupt ROM is caught before it is used, and the file is not
       deleted.**  With a 3.6.0 ROM downloaded, truncate it in the container
       (`xcrun simctl get_app_container booted com.awohl.cpm data`) and press
@@ -719,17 +929,31 @@ this.
       and boot.  Do it again corrupting bytes in the middle instead, so the
       length still matches, and confirm the CHECKSUM arm is the one that speaks.
       Then corrupt it once more with the network off: that one must report and
-      not boot — and after all three the file must still be in
+      not boot - and after all three the file must still be in
       `Documents/Disks`.  Nothing here may delete a user's file.
+- [ ] **It gives up after one re-fetch rather than looping.**  Serve a ROM whose
+      bytes can never match - a proxy, or a cached catalog carrying the wrong
+      `sha256` for it.  The second failure must report that it is still wrong
+      after being fetched again, and stop.  `romRefetched` is what remembers
+      that; a third request on the same launch means it is not being consulted,
+      and this is the arm that would otherwise spend a metered connection on a
+      catalog entry that is simply wrong.
 - [ ] **The second ROM is real.**  Pick EMU RCZ80 in Settings, fetch it, boot,
       and confirm the ROM-resident applications are the RC2014 set rather than
-      the SBC one.  Then switch release: the choice must stay EMU RCZ80 rather
-      than reverting to EMU AVW, because it is remembered by catalog `id`.
+      the SBC one.  Both releases publish it at 524,288 bytes - `03e64691…` on
+      3.5.1, `9b204cd7…` on 3.6.0, downloaded and hashed 2026-09-08.  Then
+      switch release: the choice must stay EMU RCZ80 rather than reverting to
+      EMU AVW, because it is remembered by catalog `id`.
 - [ ] **A profile saved before this build still applies.**  A profile from build
-      64 carries `romFilename` `"emu_avw.rom"`, which no catalog names.  Apply
-      it and confirm the ROM resolves rather than being reported unresolved —
-      that is `ROMOption.answersTo` matching on the catalog id.
-- [ ] **Nothing fetches a ROM without being asked.**  Watch a whole launch on
-      3.5.1 with Charles or the console: there must be no request for a `.rom`
-      at all.  The bundled bytes satisfy the catalog entry, and a ROM fetch on
-      every launch would be 512 KB of somebody's data for nothing.
+      64 carries `romFilename` `"emu_avw.rom"`, which no catalog names and which
+      no longer names a file in the app either.  Apply it and confirm the ROM
+      resolves rather than being reported unresolved - that is
+      `ROMOption.answersTo` matching on the catalog id, and it is now the only
+      thing that can resolve such a profile at all.
+- [ ] **One ROM fetch per release per device, and none unasked.**  Inverted:
+      this used to require that a whole launch on 3.5.1 make no `.rom` request
+      at all, which was true only while the app carried 3.5.1's ROM.  Now watch
+      a launch on a release whose ROM is **already** in `Documents/Disks`, with
+      Charles or the console: there must be no `.rom` request.  A fetch on every
+      launch would be 512 KB of somebody's data for a file that is already there
+      and already verified.

@@ -1,5 +1,277 @@
 # Changelog
 
+## Version 1.5.1 (Build 66)
+
+**COMPILED, for the first time.**  Builds 62 through 65 were written on a Linux
+machine with no Xcode and every one of them says so at the top of its own entry.
+This is the first time any of that work has been put in front of a compiler, and
+the compiler had two things to say.  Both are fixed here, and both were on the
+critical path of the feature those four builds existed to add.
+
+`sh Tests/run_tests.sh` now exits 0: **21 suites, 1,210 assertions, 0 failed, 0
+skipped.**  `sh tools/check-shipped-disks.sh` and `sh tools/check-store-version.sh`
+both exit 0.  That is three gates green, where before this session
+`run_tests.sh` and `check-shipped-disks.sh` both exited 1.
+
+**What is still not done, and no amount of this changes it.**  There is no
+Xcode on this machine, so `xcodebuild` has never run, no `.app` has been
+produced, and nothing has launched on a simulator or a device.  Five files —
+`ContentView.swift`, `TerminalView.swift`, `CatalystWindow.swift`,
+`HelpView.swift`, `iOSCPMApp.swift` — import UIKit or use a SwiftUI macro and
+cannot be compiled by anything here.  `MANUAL_CHECKS.md` is what has to happen
+on a real device, and it has grown in this build rather than shrunk.
+
+### The app did not build
+
+`loadSelectedResources()` called `emulator?.loadROM(fromData: romImage)`.  The
+Objective-C declaration is `- (BOOL)loadROMFromData:(NSData*)data`, and Swift's
+importer drops `Data` from the label because it names the parameter's type, so
+the method is `loadROM(from:)`.  `error: incorrect argument label in call (have
+'fromData:', expected 'from:')` — a hard error, on the single line that hands a
+catalog-fetched ROM to the core.  The whole of build 65 was "the ROM comes from
+the catalog", and the ROM could not be loaded at all.
+
+Fixed at the call site rather than by putting `NS_SWIFT_NAME` on the header: the
+neighbouring `loadDisk:fromData:` is already spelled `from:` at four call sites,
+and pinning only the ROM would put two spellings of one importer rule in one
+header.
+
+`Tests/run_tests.sh` had the same class of problem one level out.
+`DiskLedger.action` grew a call into `CatalogMigration.isEquivalentPriorImage`,
+and the `DiskLedgerTests` compile line was never given `CatalogMigration.swift`,
+so the suite failed to compile and the whole run exited 1.
+
+### Three checks, so that this cannot happen again quietly
+
+The reason a hard compile error survived four builds is that nothing in this
+repository compiled the file it was in.  Every suite compiles the small types
+that were *split out* of `EmulatorViewModel`; none of them compiled
+`EmulatorViewModel`.
+
+- **`EmulatorViewModelTypechecks`** does now.  It imports SwiftUI, Combine,
+  AVFoundation, CryptoKit and Network and no UIKit, so the macosx SDK can
+  type-check all 4,500 lines of it — with `-import-objc-header`, so every
+  Objective-C call is checked against the real `RomWBWEmulator.h`.
+  `Tests/ViewModelHostStubs.swift` supplies the two symbols that live in a
+  UIKit-importing file.  This is the check that catches the `loadROM` bug.
+- **`ViewBindings`** (`Tests/check_view_bindings.sh`) covers what the type-check
+  cannot reach.  `ContentView.swift` asks the view model for 93 members and no
+  compiler here can resolve one of them, so a renamed or deleted member is
+  invisible until somebody opens Xcode — which is exactly what removing
+  `bundledROMFallbackRelease` in this build would have been.  It is a spelling
+  check and not a type check, and it says so; it answers the one question that
+  keeps being answered wrong.
+- **`BridgeCompiles`** compiles `RomWBWEmulator.mm` itself. The type-check above
+  reads `RomWBWEmulator.h`, so it catches a Swift call that disagrees with the
+  header, but nothing compiled the implementation - a method declared and not
+  defined, or defined and not declared, passed everything here. This build
+  removes `loadROMFromBundle:` and `romWBWReleaseOfBundledROM:` from both files,
+  which is exactly the change that needs both halves checked together.
+- **`tools/check-shipped-disks.sh`** stopped failing two ports that are correct.
+  It read an absent bundled ROM as "CANNOT READ", but cpmdroid and z80cpmw
+  deleted theirs on 2026-09-07 and this build deletes ioscpm's.  A port that
+  bundles nothing is now a normal state; a ROM that is present and unreadable is
+  still a failure, which is the case that arm was written for.
+
+### No ROM in this repository
+
+`iOSCPM/Resources/emu_avw.rom` is deleted, with its four references in
+`project.pbxproj`.  `git ls-files` matches no `.rom`, `.img`, `.bin`, `.com` or
+`.dsk`.  ioscpm was the last of the five repositories still carrying one.
+
+**The reason it stayed so long was not true.**  It was defended as what a first
+offline launch boots.  `start()` returns early when the disk catalog is empty,
+and the catalog and every disk in it are downloads — so a device that has never
+had a network has no disk to boot, with or without a ROM.  What the 512 KB
+actually bought was skipping the ROM download on 3.5.1, on a launch that was
+downloading a 49 MB disk anyway.  That is a real saving and it is not one worth
+a second source of truth about which RomWBW release is in play.
+
+Gone with it: `bundledROMFilename`, `bundledROMRelease`, `bundledROMURL`,
+`bundledROMFacts`, `bundledROMOption`, `bundledROMFallbackRelease`,
+`switchToBundledROMRelease()`, the `bundledROMRelease:` parameter of
+`RomWBWIndex.preferred`, the bundled arm of `resolveROM()`, and the "Use RomWBW
+3.5.1" button from both ROM-problem alerts.
+
+Two consequences worth stating plainly.  **A fresh install now starts on the
+release the index flags `default: true`, which is 3.6.0** — it used to start on
+the bundled ROM's 3.5.1, and `todo.txt` had left that choice open.  And **the
+first launch after upgrading, with no network, cannot boot**: the migration
+renames the user's disks to v0 names but there is no cached v0 catalog yet.  It
+fixes itself on the first launch with a connection, and it is written down in
+`KNOWN_PROBLEMS.md` rather than papered over.  Bundling a catalog snapshot was
+considered and rejected — it re-introduces exactly the second source of truth
+this removes.
+
+`CatalogMigration.bundledRomWBWVersion` is renamed `legacyRomWBWVersion`.  It
+names the release every PRE-v0 filename belongs to, which is a fact about the
+past and can never change; calling it "bundled" made it look like a property of
+the build, and updating it when the build moved would silently rename a user's
+3.5.1 disks into another release's names.
+
+### A catalog generation bump no longer deletes anything
+
+`checkCatalogGenerationAndInvalidate` is now `recordCatalogGeneration`, and
+`deleteCatalogDisks(named:)` is gone.
+
+This was the most expensive bug in the tree, and it was aimed squarely at the
+feature the last four builds were for.  `generation` says "some artifact of this
+release changed", not "your copy of every artifact is stale", and the difference
+is measurable: the only generation bump that has ever happened — romwbw_disks
+`aab3a4f`, 1 to 2 on both releases — changed **two ROM hashes and zero of the
+twenty disk hashes**.  A device holding the full 3.5.1 set would have deleted
+all twenty images and re-downloaded twenty byte-identical copies, on cellular
+data, because two ROMs were rebuilt.  Publishing a ROM is the exact thing
+`romwbw_disks` was built to make cheap.
+
+Nothing replaces it, because something better was already running on the same
+path.  `reassessDiskFreshness()` compares each installed image's recorded
+provenance against the catalog's hash and routes the answer through
+`DiskLedger.action`: `.refreshAutomatically` for an unmodified superseded image,
+`.offerUpdate(lossy: true)` for one the user has written to, nothing at all for
+one that is current.  Per file rather than per catalog, and it never destroys
+work.  `deleteCatalogDisks` also removed files without touching `diskLedger`, so
+every image it deleted left its provenance behind for the next download to
+inherit.
+
+### Four more ways a release switch lost data
+
+- **The storage migration lost the boot string and the four disk slots whenever
+  it deferred.**  A directory it could not list returned early, before the two
+  key *moves* — `selectedDisks` and `emulatorNvram`, legacy key to versioned key.
+  The same launch then wrote both versioned keys itself, so on the next launch
+  the `object(forKey:) == nil` guard and the `?? stringArray(forKey:
+  "selectedDisks")` fallback could never fire and the legacy values were never
+  read again.  The key moves now happen either way, carrying names across
+  untouched; only the name *rewriting* waits for a successful listing.
+- **`localDiskBookmarks` was not keyed per release.**  It is slot state — a
+  restored binding writes `filename: ""` over whatever catalog disk that slot
+  held — so one shared key meant a binding made under 3.5.1 silently took over
+  slot 0 under 3.6.0, with a boot slice built by the other release.  Now
+  versioned like `selectedDisks`, migrated like `emulatorNvram`, and released
+  with `stopAccessingSecurityScopedResource()` on a switch rather than leaking a
+  sandbox extension per slot per switch.
+- **An index fetch could switch the release under a running emulator.**
+  `adoptRomWBWVersion` reaches `applyRomWBWVersionSwitch` without passing the
+  `isRunning` guard in `romwbwVersion`'s `didSet`, because
+  `isSwitchingRomWBWVersion` is set first and that guard is checked first.  The
+  switch empties the four slots, and `saveDownloadedDisks()` writes the guest's
+  live image back to the file the *slot* names — so a catalog fetch landing at
+  the wrong moment dropped the user's CP/M work without a word.  Held now, and
+  taken in `stop()` strictly after `saveDownloadedDisks()`.
+- **`restoreROMSelection()` persisted the app's own fallback as the user's
+  choice.**  It reads the remembered ROM id first and assigns to `selectedROM`,
+  whose `didSet` writes that id back — so after one launch the key held
+  `defaultROMOption`'s id and the catalog's `default: true` could only ever take
+  effect on a device that had never run the app.  Bracketed now, the way
+  `isRestoringSelections` already brackets the disk slots.
+
+### A fresh install reaches the release the index recommends
+
+`initialRomWBWVersion()` seeds `romwbwVersion` with the PRE-v0 release so that
+keys and filenames resolve before any index arrives.  That seed was then handed
+to `RomWBWIndex.preferred` as `keeping:`, where it matched rule 1 - "the release
+already in play" - on every launch, so `default: true` was unreachable by
+construction and every fresh install pinned itself to 3.5.1 for ever.  Removing
+the bundled ROM did not fix this on its own, and four documents in this build
+briefly claimed it had.
+
+`romWBWVersionToKeep` is the fix, and it distinguishes the value `romwbwVersion`
+happens to hold from a release somebody chose.  A stored choice is kept.  With no
+stored choice, a device carrying disks from before the picker existed keeps the
+legacy release - adopting 3.6.0 would show an upgrading user four empty drives
+and a 24-image download - and everything else passes nil, so `preferred` takes
+the index's recommendation.  A fresh install now starts on **3.6.0**, which
+settles the question `todo.txt` had left open.
+
+### Four more ways a release switch or a first launch went wrong
+
+- **A release switch whose catalog fetch FAILED lost the user's local-file
+  bindings.**  The switch nils every `localDiskURLs` entry, and the re-read lived
+  at the end of `restoreDiskSelections()`, which only runs after a successful
+  fetch.  In between, any slot the user touched called `saveLocalDiskBindings()`
+  and wrote four empty bookmarks over the new release's key.
+  `restoreLocalDiskBindings()` now releases what it replaces - so it is
+  idempotent, and the switch can call it directly.
+- **The ROM picker rendered blank whenever there was no catalog**, which is every
+  launch until the fetch lands and permanently on a first offline launch.  A
+  SwiftUI `Picker` with no rows and a nil selection draws its title with an empty
+  value.  The two other pickers in that Form were both given a floor for this
+  reason; this one had a third by accident - the bundled ROM was the fallback row
+  - and removing the ROM removed it.  It shows a sentence now.
+- **A held release move was never invalidated.**  `pendingRomWBWVersion` is
+  cleared by `applyRomWBWVersionSwitch`, so a move requested by a fetch that saw
+  a momentarily short index cannot fire at the next Stop and take the user off a
+  release they have since chosen by hand.  The held branch also puts the release
+  in play back into `romwbwVersions`, which otherwise no longer contained it and
+  left the picker matching no row.
+- **`loadCachedCatalog()` adopted a catalog without recording its stems**, so the
+  offline path was the one that forgot: a user who had downloaded 3.6.0's
+  `hd1k_msx` and then launched with no network would be offered it as a 3.5.1
+  system disk.
+
+### Things that could not be seen, that now can
+
+- **`Tests/check_view_bindings.sh` was passing members that do not exist.**  Its
+  dictionary was every `var`/`let`/`func`/`case` anywhere in
+  `EmulatorViewModel.swift` - 407 names, including locals inside unrelated
+  functions and the members of five other types in the same file.  It is the
+  class's own members now, 256 of them, and all 93 references from
+  `ContentView.swift` still resolve.  A spelling check with a dictionary that
+  large is the one kind that cannot afford it.
+- **`applyProfile`'s explanation reached no screen.**  It builds a per-item
+  account of what could not be restored - including which release a slot was
+  saved under, which is the whole reason a profile can half-apply after a release
+  switch - and returned it to a call site that discards it.  It reports directly
+  now.  The storage migration also stamps `romwbwVersion` on the profiles it
+  rewrites, so the profiles that most need "saved under RomWBW 3.5.1" are no
+  longer the ones that could never say it.
+- **`tools/check-store-version.sh` was not independent of the working
+  directory.**  The new narrowing used a bare `git`, so run from a sibling
+  checkout the absolute CHANGELOG pathspec matched nothing, every compiled build
+  looked never-committed, and it exited 1 announcing that every heading says NOT
+  COMPILED - a false diagnosis pointing at correct markers.  `git -C "$root"`
+  now, like everything else in that script.  It also stopped printing "The tree
+  and the Store agree on what users have" out of the state where it could not
+  identify a shipped build at all: that is the one sentence the script exists to
+  prevent, and it now exits 2 there, per its own header.
+
+### Cleanup
+
+The bundled-ROM sweep was incomplete: a dozen comments across
+`EmulatorViewModel.swift`, `CatalogDocument.swift`, `CatalogMigration.swift` and
+`RomWBWEmulator.h` still described a ROM in the bundle, two of them introducing
+the very calls that prove there is not one.  `loadDisk:fromBundle:` is gone from
+the bridge along with its one call site: no build has bundled a disk image since
+December 2025, so that fallback could only ever fail, and it turned "this file is
+not on the device" into "not in downloads or bundle".  The `Resources` group in
+`project.pbxproj` is a virtual group (`name`) rather than one claiming a
+directory (`path`) that no longer exists; its eight help assets were always
+`SOURCE_ROOT`-relative to `release_assets/`.
+
+### Profiles and disks survive a release switch
+
+A saved profile named its disks by exact filename, and a catalog filename now
+carries the release — so switching release reported every disk in every profile
+unresolved, which made profiles and the release picker mutually exclusive
+features.  `applyProfile` matches by catalog **id** now, exactly as it already
+did for `romFilename`: exact filename first, so a user's own import resolves to
+itself and nothing else, then by stem.  `EmulatorProfile` gained
+`romwbwVersion`, so a slot the current release genuinely does not publish —
+`hd1k_ws4` exists under 3.5.1 and not 3.6.0 — is reported as "saved under RomWBW
+3.5.1" rather than as a bare name the user cannot account for.
+
+The set of stems the app recognises as catalog disks is **observed** now rather
+than a frozen table of twenty.  Five ids exist under 3.6.0 and not 3.5.1 —
+`hd1k_cobol`, `hd1k_dos65`, `hd1k_infocom`, `hd1k_msx`, `hd1k_wp`, all bootable
+— and against the frozen table every one of them read as a user-added disk under
+3.5.1 and was offered as a 3.5.1 system disk.  Every disk `romwbw_disks` adds
+from here on would have arrived with the same flaw, which would have made "add a
+disk with no client release" true only in the paperwork.
+`CatalogMigration.catalogDiskStems` stays frozen, because it is the record of
+the twenty PRE-v0 names and the migration depends on it; the runtime test takes
+what the app has actually seen published.
+
 ## Version 1.5.1 (Build 65)
 
 **NOT COMPILED.**  Written on a Linux machine with no Xcode: not built, not

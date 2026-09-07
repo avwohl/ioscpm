@@ -137,23 +137,6 @@ extern "C" void emu_io_set_delegate(id delegate);
   return [NSString stringWithUTF8String:text];
 }
 
-+ (nullable NSString*)romWBWReleaseOfBundledROM:(NSString*)filename {
-  NSString* name = [filename stringByDeletingPathExtension];
-  NSString* ext = [filename pathExtension];
-  NSString* path = [[NSBundle mainBundle] pathForResource:name ofType:ext];
-  if (!path) {
-    NSLog(@"[RomWBW] ROM not found in bundle: %@", filename);
-    return nil;
-  }
-  // Mapped rather than read: this runs at launch on the 512 KB bundled ROM and
-  // only the first page is ever touched, since the version is four bytes at
-  // 0x103-0x106. Falls back to a plain read on its own when mapping is unsafe.
-  NSData* data = [NSData dataWithContentsOfFile:path
-                                        options:NSDataReadingMappedIfSafe
-                                          error:nil];
-  return data ? [self romWBWReleaseOfImageData:data] : nil;
-}
-
 - (instancetype)init {
   self = [super init];
   if (self) {
@@ -178,20 +161,6 @@ extern "C" void emu_io_set_delegate(id delegate);
 //=============================================================================
 // ROM Loading
 //=============================================================================
-
-- (BOOL)loadROMFromBundle:(NSString*)filename {
-  if (_debug) NSLog(@"[RomWBW] Loading ROM from bundle: %@", filename);
-  NSString* name = [filename stringByDeletingPathExtension];
-  NSString* ext = [filename pathExtension];
-  NSString* path = [[NSBundle mainBundle] pathForResource:name ofType:ext];
-  if (!path) {
-    NSLog(@"[RomWBW] ROM not found in bundle: %@", filename);
-    _lastROMError = [NSString stringWithFormat:@"%@ is not in the app bundle", filename];
-    return NO;
-  }
-  if (_debug) NSLog(@"[RomWBW] ROM path: %@", path);
-  return [self loadROMFromPath:path];
-}
 
 - (BOOL)loadROMFromPath:(NSString*)path {
   NSData* data = [NSData dataWithContentsOfFile:path];
@@ -227,17 +196,6 @@ extern "C" void emu_io_set_delegate(id delegate);
 //=============================================================================
 // Disk Management
 //=============================================================================
-
-- (BOOL)loadDisk:(int)unit fromBundle:(NSString*)filename {
-  NSString* name = [filename stringByDeletingPathExtension];
-  NSString* ext = [filename pathExtension];
-  NSString* path = [[NSBundle mainBundle] pathForResource:name ofType:ext];
-  if (!path) {
-    NSLog(@"[RomWBW] Disk not found in bundle: %@", filename);
-    return NO;
-  }
-  return [self loadDisk:unit fromPath:path];
-}
 
 - (BOOL)loadDisk:(int)unit fromPath:(NSString*)path {
   NSData* data = [NSData dataWithContentsOfFile:path];

@@ -10,7 +10,8 @@ A Z80/CP/M emulator for iPhone, iPad, and Mac, built on the [RomWBW](https://git
 - **Terminal scrollback** - configurable history (off, or 500, 1000, 2000, 5000, 10000 lines); drag the screen, two-finger trackpad drag or mouse wheel, or Shift+PageUp/PageDown and Ctrl+Home/End on a hardware keyboard
 - **Configurable key map** - WordStar, VT100/ANSI and VT52 profiles for the navigation keys, or per-key custom bindings
 - **Multiple disk support** - up to 4 disk units with hd1k format (8MB slices)
-- **Download disk images** on demand, SHA-256 verified - no bundled copyrighted content
+- **Download the ROM and disk images** on demand, SHA-256 verified - the app bundles neither, so it carries no copyrighted content
+- **Pick your RomWBW release** - the app offers whichever releases the published index lists and the emulator core can run, and new releases, ROMs and disks reach you without an app update
 - **Host file transfer** - R8 and W8 move files between CP/M and the app's Imports and Exports folders; "Import File… (for R8)" stages host files there
 - **Local file support** - open, create, and save disk images
 - **NVRAM boot configuration** - auto-boot settings persist across sessions
@@ -27,10 +28,13 @@ The emulator provides a classic 80x25 terminal display with support for:
 ## Getting Started
 
 1. **Open Settings** (gear icon) before starting
-2. **Download disk images** - scroll to "Download Disk Images" section
-3. **Select a disk** - CP/M 2.2 recommended for first boot
-4. **Press Play** to start the emulator
-5. At boot menu, press `0` to boot from disk
+2. **Pick a RomWBW release** - optional; the app preselects the one the published
+   index recommends, and the ROM and disks then all come from that release
+3. **Download disk images** - scroll to "Download Disk Images" section
+4. **Select a disk** - CP/M 2.2 recommended for first boot
+5. **Press Play** to start the emulator - the release's ROM is fetched first if
+   it is not already on the device
+6. At boot menu, press `0` to boot from disk
 
 ### Boot Menu Keys
 - `h` - Help (shows full menu)
@@ -54,12 +58,16 @@ To clear auto-boot settings, go to Settings and tap "Clear Auto-Boot".
 
 Disk images are built from [RomWBW](https://github.com/wwarthen/RomWBW) material and
 distributed by [romwbw_disks](https://github.com/avwohl/romwbw_disks), which publishes one
-catalog per RomWBW release. The app compiles in a single index URL, picks a release, and takes
-every download URL from that release's catalog — there is no pinned tag to bump any more, so a
-corrected disk reaches users without an app update. Which releases are offered is decided by
-asking the emulator core which ones it can run; a release published as `preview` is marked as
-one. Every download is checked against the SHA-256 the catalog gives, and the catalog itself is
-checked against the index's before it is read. The 3.5.1 catalog carries 20 images; a selection:
+catalog per RomWBW release. The app compiles in a single index URL and no other disk URL: the index
+lists the releases, Settings' **RomWBW Release** picker is where you choose among them, and every
+download URL comes from the chosen release's own catalog — there is no pinned tag to bump any
+more, so a corrected disk, a new disk or a whole new RomWBW release reaches users without an app
+update. Which releases are offered is decided by asking the emulator core which ones it can run;
+a release published as `preview` is marked as one in the picker. With nothing chosen the app takes
+the release the index flags as its default. Every download is checked against the SHA-256 the
+catalog gives, and the catalog itself is checked against the index's before it is read. Today the
+index publishes two releases, both stable, with 3.6.0 the default: 3.5.1's catalog carries 20
+images and 3.6.0's carries 24. A selection:
 
 | Disk | Description | License |
 |------|-------------|---------|
@@ -68,19 +76,29 @@ checked against the index's before it is read. The 3.5.1 catalog carries 20 imag
 | NZCOM | ZCPR3 command processor | Free |
 | CP/M 3 (Plus) | Banked memory support | Free |
 | ZPM3 | Z-System CP/M 3 | Free |
-| WordStar 4 | Word processor | Abandonware |
+| WordStar 4 | Word processor - a 3.5.1 disk; 3.6.0 replaces it with Word Processing | Abandonware |
 
-Downloaded images are stored in the app's Documents folder and work offline. Their filenames
-carry the release — `hd1k_combo-v0-3.5.1.img` — so two RomWBW releases' disks can sit side by
-side, and so can the slot selections and boot settings that go with them. Switching release
-deletes nothing.
+Downloaded images are stored in the app's `Documents/Disks` folder, beside the ROM and the cached
+catalogs, and work offline. Their filenames carry the release — `hd1k_combo-v0-3.5.1.img` — so two
+RomWBW releases' disks can sit side by side, and so can the slot selections and boot settings that
+go with them. Switching release deletes nothing.
 
-The ROM comes from the same catalog. The app ships one — RomWBW 3.5.1's `emu_avw.rom`, which
-is what a first launch boots with no connection — and fetches the selected release's own ROM
-when that is a different one, verifying its size and SHA-256 against the catalog every time it
-is used. A release whose ROM cannot be fetched does not start: it says what it needs and offers
-to switch back, rather than booting the bundled ROM and leaving RomWBW to print an HBIOS/CBIOS
-version mismatch part-way through a boot.
+The ROM comes from the same catalog, and **the app bundles no ROM at all**. It fetches the
+selected release's own — both published releases offer two, and which of them boots is a choice in
+Settings — verifying its size and SHA-256 against the catalog when it lands, exactly as it does for
+a disk, and again every time it is loaded, which is a check no disk could survive once the guest has
+written to it. A release whose ROM cannot be fetched does not start: an alert names the release
+and the file and says what would fix it, which is a connection or the other ROM that same release
+publishes. It does not quietly substitute another release's ROM, because that is what leaves
+RomWBW printing an HBIOS/CBIOS version mismatch part-way through a boot.
+
+A bundled `emu_avw.rom` from RomWBW 3.5.1 used to sit in the app, justified as what a first
+launch with no connection would boot. That justification was wrong, and it was removed on
+2026-09-08 for that reason: the disk catalog and every disk in it are downloads too, so a device
+that has never had a network has no disk to boot and a ROM to boot it with buys nothing. What the
+512 KB actually bought was letting users on 3.5.1 skip one download. A fresh install now starts on
+whichever release the index marks as default, which is 3.6.0 today, rather than on the bundled
+ROM's 3.5.1.
 
 ## Technical Details
 

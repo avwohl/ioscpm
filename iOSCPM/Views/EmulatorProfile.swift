@@ -48,7 +48,22 @@ struct EmulatorProfile: Codable, Equatable, Identifiable {
     /// saved under one release still finds the same ROM under another.
     var romFilename: String
     /// Four entries, one per disk unit. A catalog filename, or "" for none.
+    ///
+    /// A catalog filename now carries the RomWBW release
+    /// (`hd1k_combo-v0-3.5.1.img`), so an exact-name match resolves a profile
+    /// only under the release it was saved on. `applyProfile` matches by catalog
+    /// id instead - the stem - exactly as it already does for `romFilename`.
     var diskFilenames: [String]
+    /// The RomWBW release the machine was on when this was saved, or nil for a
+    /// profile saved before there was a release to record.
+    ///
+    /// Nothing is switched on it: applying a profile does not move the release,
+    /// because that would empty and refill four slots and re-fetch a catalog
+    /// behind a one-tap action. It is there so that a slot the current release
+    /// does not publish - `hd1k_ws4` exists under 3.5.1 and not 3.6.0 - can be
+    /// reported as "saved under RomWBW 3.5.1" rather than as a bare unresolved
+    /// name the user has no way to account for.
+    var romwbwVersion: String?
     /// What the machine autoboots, as SYSCONF stores it. "" means no autoboot.
     var bootString: String
     /// KeyProfile.rawValue - "WordStar", "VT100/ANSI", "VT52" or "Custom".
@@ -68,6 +83,7 @@ struct EmulatorProfile: Codable, Equatable, Identifiable {
     init(name: String,
          romFilename: String = "",
          diskFilenames: [String] = ["", "", "", ""],
+         romwbwVersion: String? = nil,
          bootString: String = "",
          keyProfileName: String = "WordStar",
          keyBindings: [String: String] = [:],
@@ -79,6 +95,7 @@ struct EmulatorProfile: Codable, Equatable, Identifiable {
         self.name = EmulatorProfile.sanitized(name: name)
         self.romFilename = romFilename
         self.diskFilenames = EmulatorProfile.sanitized(diskFilenames: diskFilenames)
+        self.romwbwVersion = romwbwVersion.flatMap { $0.isEmpty ? nil : $0 }
         self.bootString = bootString
         self.keyProfileName = keyProfileName
         self.keyBindings = keyBindings
@@ -101,6 +118,7 @@ struct EmulatorProfile: Codable, Equatable, Identifiable {
             name: try c.decode(String.self, forKey: .name),
             romFilename: try c.decodeIfPresent(String.self, forKey: .romFilename) ?? "",
             diskFilenames: try c.decodeIfPresent([String].self, forKey: .diskFilenames) ?? [],
+            romwbwVersion: try c.decodeIfPresent(String.self, forKey: .romwbwVersion),
             bootString: try c.decodeIfPresent(String.self, forKey: .bootString) ?? "",
             keyProfileName: try c.decodeIfPresent(String.self, forKey: .keyProfileName) ?? "WordStar",
             keyBindings: try c.decodeIfPresent([String: String].self, forKey: .keyBindings) ?? [:],

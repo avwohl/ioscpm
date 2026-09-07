@@ -15,8 +15,9 @@ FEATURES
 • Full Z80 Emulation - Accurate instruction emulation runs authentic CP/M software
 • VT100 Terminal - ANSI escape sequence support for text adventures and productivity apps
 • Multiple Disk Support - Mount up to 4 disk images simultaneously
-• Download Disk Images - Fetch CP/M disk images directly from the RomWBW project
-• Works Offline - Downloaded disk images are stored locally
+• Download Disk Images - Fetch ready-to-run CP/M disk images from inside the app
+• Choose Your RomWBW Release - Run RomWBW 3.6.0 or 3.5.1, each with its own disks
+• Works Offline After Setup - Downloaded disk images are stored locally
 • Native Mac Support - Runs natively on macOS via Mac Catalyst
 
 CLASSIC SOFTWARE
@@ -38,7 +39,7 @@ GETTING STARTED
 
 BUILT ON ROMWBW
 
-This emulator is built on the RomWBW HBIOS platform, the same firmware used by real retro Z80 hardware projects. Disk images are downloaded from the official RomWBW project and include freely distributable CP/M software.
+This emulator is built on the RomWBW HBIOS platform, the same firmware used by real retro Z80 hardware projects. The system ROM and the disk images are built from the open-source RomWBW distribution and published by the developer at github.com/avwohl/romwbw_disks; the app downloads them from there and checks each one against its published checksum before use. They include freely distributable CP/M software. A first launch needs an internet connection to fetch them.
 
 TECHNICAL DETAILS
 

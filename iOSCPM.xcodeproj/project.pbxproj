@@ -39,7 +39,6 @@
 		A1000027 /* emu_init.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000027 /* emu_init.cc */; };
 		A1000028 /* emu_io_common.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000028 /* emu_io_common.cc */; };
 		A1000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000030 /* Assets.xcassets */; };
-		A1000060 /* emu_avw.rom in Resources */ = {isa = PBXBuildFile; fileRef = B1000060 /* emu_avw.rom */; };
 		A1000070 /* help_index.json in Resources */ = {isa = PBXBuildFile; fileRef = B1000070 /* help_index.json */; };
 		A1000071 /* help_quick_start.md in Resources */ = {isa = PBXBuildFile; fileRef = B1000071 /* help_quick_start.md */; };
 		A1000072 /* help_cpm22.md in Resources */ = {isa = PBXBuildFile; fileRef = B1000072 /* help_cpm22.md */; };
@@ -100,7 +99,6 @@
 		B1000028 /* emu_io_common.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = emu_io_common.cc; sourceTree = "<group>"; };
 		B1000054 /* hbios_cpu.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hbios_cpu.h; sourceTree = "<group>"; };
 		B1000055 /* emu_init.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = emu_init.h; sourceTree = "<group>"; };
-		B1000060 /* emu_avw.rom */ = {isa = PBXFileReference; lastKnownFileType = file; path = emu_avw.rom; sourceTree = "<group>"; };
 		B1000070 /* help_index.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = help_index.json; path = release_assets/help_index.json; sourceTree = SOURCE_ROOT; };
 		B1000071 /* help_quick_start.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = help_quick_start.md; path = release_assets/help_quick_start.md; sourceTree = SOURCE_ROOT; };
 		B1000072 /* help_cpm22.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = help_cpm22.md; path = release_assets/help_cpm22.md; sourceTree = SOURCE_ROOT; };
@@ -223,7 +221,6 @@
 		E1000007 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				B1000060 /* emu_avw.rom */,
 				B1000070 /* help_index.json */,
 				B1000071 /* help_quick_start.md */,
 				B1000072 /* help_cpm22.md */,
@@ -233,7 +230,7 @@
 				B1000076 /* help_zpm3.md */,
 				B1000077 /* help_zsdos.md */,
 			);
-			path = Resources;
+			name = Resources;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -296,7 +293,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000030 /* Assets.xcassets in Resources */,
-				A1000060 /* emu_avw.rom in Resources */,
 				A1000070 /* help_index.json in Resources */,
 				A1000071 /* help_quick_start.md in Resources */,
 				A1000072 /* help_cpm22.md in Resources */,
@@ -361,7 +357,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = iOSCPM/iOSCPM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 65;
+				CURRENT_PROJECT_VERSION = 66;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -401,7 +397,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = iOSCPM/iOSCPM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 65;
+				CURRENT_PROJECT_VERSION = 66;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;

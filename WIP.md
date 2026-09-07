@@ -1,52 +1,92 @@
 # WIP — what is left after the todo sweep
 
-`todo.txt` is down to three open items and one open question, and none is a
-half-finished change. The items are "build 61 is built and not submitted", which
-needs credentials this machine does not have; the rewritten help asset, which
-needs an upload; and section 17's device checks, which need a finger. The
-question is a design choice nothing here can settle. This file carries the
-detail behind all four.
+`todo.txt` is down to seven open items and one open question, and none is a
+half-finished change. Three of the seven want credentials this machine does not
+have — the next submission, the help-asset upload, and the ROM the bundle no
+longer carries, which reaches a device only through a released build. One wants
+a Mac with Xcode, in two halves: an actual `xcodebuild`, which has never been run
+on anything past build 61, and the five view files nothing here can compile. One
+wants a finger (section 17). One is an attestation that only a person can read
+and affirm. The last is `tools/check-store-version.sh`, whose bracket on the
+shipped build loosened the moment this tree was compiled. The question is a
+design choice nothing here can settle. This file carries the detail behind them.
 
 The second sweep, on 2026-09-04, closed four of the five items that were left —
 the synchronous host-file open, both documentation items, and the prerelease
 decision — and added the disk-freshness refresh, which was the unwritten half of
 the [RELEASE] item. `CHANGELOG.md` under build 61 has the whole account.
 
-## This machine has Xcode — read this first
+Build 66, on 2026-09-08, closed the other question this file used to carry:
+**which RomWBW release a fresh install starts on**. It is the one the index flags
+`default: true`, which is 3.6.0 today. Deleting the bundled ROM left no second
+candidate to weigh, so `RomWBWIndex.preferred` lost its `bundledROMRelease`
+parameter and now keeps a stored choice, then takes `default: true`, then takes
+the first entry offered. That was not sufficient on its own, and the first
+attempt at this shipped four documents saying it was: the call site passed
+`romwbwVersion` as the kept release, and on a fresh install that is already the
+pre-v0 `3.5.1` seed, so rule 1 matched on every launch and `default: true` stayed
+unreachable. `romWBWVersionToKeep` is what distinguishes a release somebody chose
+from the value the view model happens to hold.
+The argument that was still open — a first launch on a bad connection getting
+further from a booting machine — went with it, because `start()` returns early
+when the disk catalog is empty and the catalog is itself a download: a device
+that has never had a network has no disk to boot, with or without a ROM. The doc
+comment on `preferred` and `CHANGELOG.md` under build 66 are where that is
+written down.
 
-**Every earlier revision of this file said it did not, and that was wrong.**
-`xcodebuild -version` fails with
+## This machine no longer has Xcode — measured 2026-09-08
+
+**Read this before trusting any sentence in this repository about Xcode: it has
+now been wrong in both directions.** Measured today, here:
+
+- There is no `/Applications/Xcode.app` at all. `xcode-select -p` is
+  `/Library/Developer/CommandLineTools`; the `DEVELOPER_DIR=…` prefix earlier
+  revisions of this file recommend fails with `missing DEVELOPER_DIR path`; there
+  is no iPhoneOS SDK under `/Library/Developer`; and `xcrun` cannot find
+  `simctl`. Nothing here can archive, produce an `.app`, or boot a simulator.
+- What is here is the Command Line Tools toolchain — Apple Swift 6.4 and
+  `clang++` against the macOS SDK — which is everything `Tests/run_tests.sh`
+  needs, and is the whole of how build 66 was compiled.
+
+The trap is that bare `xcodebuild` prints
 
     xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer
     directory '/Library/Developer/CommandLineTools' is a command line tools instance
 
-which reads like "not installed" and only means `xcode-select` points elsewhere.
-`/Applications/Xcode.app` is Xcode 26.6, the simulators are there, and
-`~/Library/Developer/Xcode/Archives/2026-09-03/` holds two build 58 archives made
-here. No `sudo` is needed to use it — set the variable per command:
+whether Xcode is installed and merely unselected **or is not there at all**. For
+three builds this file read that message as "not installed" and was wrong; from
+build 62 it read it as "installed, just unselected" and by build 66 that was
+wrong too. `ls -d /Applications/Xcode.app` tells the two apart and costs nothing.
+Run it before writing either claim down again.
 
-    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild …
-
-**Build 61 is built.** Clean for the iOS Simulator and for
+**Build 61 was built and driven on this machine, while Xcode was still on it, and
+that history stands.** It built clean for the iOS Simulator and for
 `-destination 'platform=macOS,variant=Mac Catalyst'`, no warnings on either;
-launched on the iPhone 17 Pro simulator, where it comes up as `v1.5.1.61` with
-the key row and the scrollback counter painting. The disk refresh was driven end
-to end against a real sandbox.
+launched on the iPhone 17 Pro simulator, where it came up as `v1.5.1.61` with
+the key row and the scrollback counter painting; and the disk refresh was driven
+end to end against a real sandbox. CP/M 2.2 booted there and took
+software-keyboard input (`c`⏎, then `dir`), scrollback moved `sb 0/12` ->
+`sb 12/12` on a swipe, and the Catalyst app returned real text from a pointer
+drag plus Cmd+C. That closed `MANUAL_CHECKS.md` section 7, which is now a hole in
+the numbering on purpose. `~/Library/Developer/Xcode/Archives/2026-09-02/` still
+holds the two `.xcarchive`s made here, and they are what is left of that
+toolchain. Read on 2026-09-08, both carry `CFBundleVersion 56` — not build 58,
+which is what this file asserted without ever opening them — and both are signed
+`Apple Development`, which is the measurement behind the releasing paragraph
+below.
 
-**CP/M now boots here, and the Catalyst build has been run.** Verifying the
-press-and-drag selection fix needed a live machine, so it got one: CP/M 2.2
-boots on the simulator and takes software-keyboard input (`c`⏎, then `dir`),
-scrollback moves `sb 0/12` -> `sb 12/12` on a swipe, and the Catalyst app
-launches and returns real text from a pointer drag plus Cmd+C. That closed
-`MANUAL_CHECKS.md` section 7, which is now a hole in the numbering on purpose.
+**Nothing after build 61 has been built or run anywhere.** Builds 62 through 65
+were written on a Linux machine with no Swift toolchain; build 66 put them in
+front of a compiler for the first time, and a compiler is all they have seen. No
+build of this app has ever run on physical hardware — every measurement in this
+repository was made on a simulator or on a Mac. `MANUAL_CHECKS.md` carries the
+rest, and its section 17 is the half of the selection gesture that needs a
+finger.
 
-What has **still** not happened: nothing submitted and nothing run on hardware —
-every measurement above is a simulator or this Mac. `MANUAL_CHECKS.md` carries
-the rest, and its new section 17 is the half of the selection gesture that needs
-a finger.
-
-`Tests/run_tests.sh` is green at **14 suites and 1051 checks**. Two things also
-became checkable that this file said were not, and both are wired into it:
+`Tests/run_tests.sh` is green at **20 suites and 1,208 assertions**, where the
+run this file recorded at build 61 was 14 suites and 1,051 checks. Two things
+became checkable that this file once said were not, and — contrary to what this
+file claimed — only one of them is wired in:
 
 - **`emu_io_ios.mm` compiles.** It is Foundation-only Objective-C++, so
   `xcrun --sdk macosx clang++ -fsyntax-only -fobjc-arc` builds it clean at
@@ -62,26 +102,66 @@ became checkable that this file said were not, and both are wired into it:
   `allowsExpensiveNetworkAccess`, `allowsConstrainedNetworkAccess`,
   `NWPathMonitor`, `path.isConstrained` and `URLError.networkUnavailableReason`
   with no availability guard. `IPHONEOS_DEPLOYMENT_TARGET` is 15.0 and every one
-  of those is iOS 13.
+  of those is iOS 13. **This one is not a suite.** `run_tests.sh` names neither
+  `macabi` nor any of those symbols, so it is a measurement somebody made once,
+  not a check that would notice a regression. The target still works here; wiring
+  it in is a small job nobody has done.
 
-**It is submitted and it is not released.** 1.5.1 build 61 went to App Store
-Connect on 2026-09-04 for **both iOS and Mac** and is in review. Review is not
-release: it can be approved, rejected or held. Until `tools/check-store-version.sh`
-says 1.5.1 is actually being served, nothing here or in `z80cpmw` may record
-build 61 as what users have — `FEATURE_PARITY.md`'s `shipped:37` stays where it
-is, and its drift check is right to keep failing.
+Build 66 added two more, because the reason a hard compile error survived four
+builds is that nothing in this repository compiled the file it was in. Every
+suite above compiles types that were *split out* of `EmulatorViewModel`; none of
+them compiled `EmulatorViewModel`:
 
-The upload was done by a person. This machine still cannot do it: the archive
-signs with `Apple Development`, which cannot be exported for the App Store. See
-"Releasing" in `KNOWN_PROBLEMS.md` — that entry was correct all along and
-contradicted this file for three builds.
+- **`EmulatorViewModelTypechecks`** type-checks all of `EmulatorViewModel.swift`
+  against the macosx SDK with `-import-objc-header` and the real
+  `RomWBWEmulator.h`, so every Objective-C call is checked against the header it
+  will really meet, with `Tests/ViewModelHostStubs.swift` supplying the two
+  symbols that live in a UIKit-importing file. It is what catches a bridged call
+  spelled the way Swift does not import it — `loadROM(fromData:)` for
+  `loadROM(from:)`, on the one line that hands a fetched ROM to the core.
+- **`ViewBindings`** (`Tests/check_view_bindings.sh`) checks by spelling every
+  `viewModel.<member>` `ContentView.swift` asks for — 93 of them — and
+  `HelpView.swift`'s four. It is a spelling check and says so; it exists because
+  nothing here can type-check either file, so a member renamed out from under the
+  view — which is exactly what removing `bundledROMFallbackRelease` was — stays
+  invisible until somebody opens Xcode.
+
+Five files stay outside all of it. `ContentView.swift`, `TerminalView.swift` and
+`CatalystWindow.swift` import UIKit; `HelpView.swift` and `iOSCPMApp.swift` use
+SwiftUI macros, and the Command Line Tools `swiftc` cannot expand one — measured,
+it answers `external macro implementation type 'SwiftUIMacros.StateMacro' could
+not be found for macro 'State()'`. A build on a Mac that has Xcode is still owed
+before anything is submitted.
+
+**It is released, and build 61 is what users have.** Every earlier revision of
+this section said "submitted and not released"; it was approved.
+`sh tools/check-store-version.sh` exits 0, reports 1.5.1 served since 2026-09-05,
+and the iTunes lookup's release notes are build 61's — scrollback, select text,
+copy and paste. `z80cpmw/FEATURE_PARITY.md` records `shipped:61` and its column
+was re-read at `af0b9b2`, which is build 61, so that gate is answered.
+
+The script's bracket used to need reading with care: narrowing by the
+`**NOT COMPILED` marker alone, it reported "at most build 66" the moment this
+tree was compiled, and followed it with "The tree and the Store agree on what
+users have." It compares dates now — a heading not committed before the Store's
+release date cannot be what the Store serves — and reports "at most build 61"
+with that reason printed. Nothing here or in `z80cpmw` may record a build above
+61 as shipped.
+
+The upload was done by a person, and this machine cannot do it — now for two
+reasons rather than one. There is no Xcode here to archive with at all; when
+there was, the archive signed with `Apple Development`, which cannot be exported
+for the App Store. See "Releasing" in `KNOWN_PROBLEMS.md` — that entry was
+correct all along and contradicted this file for three builds.
 
 ## THE ONE OPEN QUESTION — disk sizes larger than 8 MB
 
-Unchanged by anything this session did.
+Unchanged by builds 62 through 66 — `DiskSize.swift` has not been touched since
+2026-09-03, and none of the interface-v0 work went near it.
 
-`iOSCPM/Views/DiskSize.swift` currently offers **1 / 2 / 4 / 7 hd512 slices**
-(N × 8,519,680 bytes). A spec agent independently proposed something different:
+`iOSCPM/Views/DiskSize.swift` currently offers **one 8 MB hd1k disk** (exactly
+8,388,608 bytes) and then **2 / 4 / 7 hd512 slices** (N × 8,519,680 bytes). A
+spec agent independently proposed something different:
 **1 MB prefix + N × 8 MB hd1k slices** (8/17/25/33/41/49/57 MB), matching the
 shipped `hd1k_combo.img`.
 
@@ -161,28 +241,23 @@ to leave a zero-byte CP/M file behind.
 
 ## Verification available on this machine
 
-    ./Tests/run_tests.sh                       # 14 suites, 1051 checks
+    sh Tests/run_tests.sh                      # 20 suites, 1,208 assertions
     sh tools/check-store-version.sh            # needs the network
-    sh tools/check-shipped-disks.sh                # needs the network
+    sh tools/check-shipped-disks.sh            # needs the network
     xcrun --sdk macosx swiftc -parse iOSCPM/Views/*.swift iOSCPM/iOSCPMApp.swift
     plutil -lint iOSCPM.xcodeproj/project.pbxproj
 
-`-parse` is a syntax check only, and is no longer the best available — it was
-only ever the fallback for the mistaken belief that there was no Xcode. Prefer
-the real thing:
+All five were run on 2026-09-08 and all five exit 0 — with the caveat
+`check-shipped-disks.sh` prints in as many words: it inspected no built package,
+which it does not count as a pass of the artifact half, because nothing on this
+machine can build one. `-parse` covers every Swift file in the app, the five
+nothing can type-check included, precisely because it is a syntax check and stops
+before a name has to resolve — which is also the whole of what it proves.
 
-    export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-    xcodebuild -project iOSCPM.xcodeproj -scheme iOSCPM \
-        -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
-    xcodebuild -project iOSCPM.xcodeproj -scheme iOSCPM \
-        -destination 'platform=macOS,variant=Mac Catalyst' build
-
-and to drive it:
-
-    xcrun simctl boot 'iPhone 17 Pro'
-    xcrun simctl install booted <DerivedData>/Build/Products/Debug-iphonesimulator/iOSCPM.app
-    xcrun simctl launch --console-pty booted com.awohl.cpm
-    xcrun simctl get_app_container booted com.awohl.cpm data   # the sandbox
+**The `xcodebuild` and `simctl` recipes this section carried have been removed
+rather than corrected: neither tool exists here any more.** They are in this
+file's history for a machine that has Xcode, and the traps below are what they
+cost when they were run.
 
 Two traps when steering the app's `UserDefaults` from outside for a test: the
 ledger is stored as a **JSON string**, and both `PlistBuddy` and a

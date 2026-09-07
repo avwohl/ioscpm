@@ -3,37 +3,50 @@
 ## Summary
 
 I, the developer of this application, hereby affirm that I have the appropriate
-rights and licenses to use the ROM files this application includes and the ROM
-files it downloads, and I authorize Apple to use these ROMs for testing purposes
-during App Store review.
+rights and licenses to use the ROM files this application downloads, and I
+authorize Apple to use these ROMs for testing purposes during App Store review.
 
-Every ROM this application can load — the one inside the app bundle and every
-one it can fetch — has the same two-part construction, the same two copyright
-holders and the same licence. The distinction that follows is about *delivery*,
-not about rights.
+This application contains no ROM of its own. Every ROM it can load is fetched at
+runtime from the one repository named below, checked against the SHA-256 that
+repository publishes for it, and refused if the two disagree. All of them have
+the same two-part construction, the same two copyright holders and the same
+licence; they differ only in which RomWBW release they carry and which machine
+configuration banks 1-15 were taken from.
 
-## The ROM included in the application
+## What changed since the previous filing
 
-**File:** `emu_avw.rom` (512 KB), in the application bundle
-**RomWBW release:** 3.5.1
+Earlier revisions of this document had a section headed "The ROM included in
+the application", describing a 512 KB `emu_avw.rom` for RomWBW 3.5.1 inside the
+application bundle, and said that an installed copy was fully functional with
+no ROM download of any kind. That second claim was already too strong when it
+was made: this application had stopped bundling disk images months earlier, and
+a ROM with no disk to boot does not make an installed copy functional. That
+file has been removed. `git ls-files` in this application's repository now
+matches no `.rom`, `.img`, `.bin`, `.com` or `.dsk` at all, and the four
+`project.pbxproj` entries that copied the ROM into the bundle went with it. The
+version the App Store serves today still contains it; the build this
+attestation accompanies does not.
 
-This is what the application boots on a first launch, and it is what it boots
-whenever the user has selected RomWBW 3.5.1. It requires no network. An
-installed copy of this application is fully functional with no ROM download of
-any kind.
+Nothing about the rights position changed when it went. The same bytes are still
+available, as `emu_avw-v0-3.5.1.rom`, from the catalog below — that download is
+byte-identical to the ROM that used to be bundled.
 
-## The ROMs the application can download
+## The ROMs the application downloads
 
-As of build 65 the application can also fetch a ROM at runtime, so that a new
-RomWBW release can be offered without an application update. It downloads from
-this project's own published catalog and from nowhere else:
+The application fetches every ROM it runs, from this project's own published
+catalog and from nowhere else:
 
     https://github.com/avwohl/romwbw_disks/releases/
 
 The user chooses a RomWBW release; the application fetches that release's ROM,
-verifies it against the SHA-256 published in the catalog, and refuses it if the
-hash does not match. The files it can fetch today, each 524288 bytes, and the
-SHA-256 the catalog publishes for each, are:
+verifies its byte count and its SHA-256 against the values published in the
+catalog, and refuses to run it if either disagrees. That check happens every time
+the ROM is used, not only when it is downloaded, because a file that verified
+when it landed can be truncated afterwards by a restore or a full volume. There
+is no fallback: a release whose ROM cannot be fetched or cannot be verified does
+not start, and the application names the release, the file and the reason. The
+files it can fetch today, each 524288 bytes, and the SHA-256 the catalog
+publishes for each, are:
 
 - `emu_avw-v0-3.5.1.rom`, RomWBW 3.5.1, banks 1-15 from `SBC_simh_std`
   `4b11402a29fad22de304775b7c415eb6a74600df06bd57828b9931a7e9693258`
@@ -44,13 +57,23 @@ SHA-256 the catalog publishes for each, are:
 - `emu_rcz80-v0-3.6.0.rom`, RomWBW 3.6.0, banks 1-15 from `RCZ80_std`
   `9b204cd71d1064d7f4a46d4403f106250e0e53f2239931a6f81aa7bc7dba5fc5`
 
-`emu_avw-v0-3.5.1.rom` is byte-identical to the `emu_avw.rom` included in the
-bundle: `iOSCPM/Resources/emu_avw.rom` is 524288 bytes and hashes to the first
-of the four above.
+Those four hashes and sizes were fetched from the live catalog on 2026-09-08 and
+are what it serves today.
 
 Further RomWBW releases may be published to that same catalog later. They are
 built by the same scripts, from the same two sources, under the same licence;
 nothing about the rights position below changes when one is added.
+
+## A first launch needs a network
+
+Because the application bundles no ROM, and because its disk catalog and every
+disk image in it are downloads as well, a first launch requires a network
+connection. That was already true of the disks — no build has bundled a disk
+image since December 2025, and with an empty catalog the application declines
+to start rather than pretending to boot — and it is now true of the ROM too. A
+reviewer testing this build needs the device to be able to reach github.com.
+Everything the application fetches, ROM and disk alike, comes from the one host
+named above.
 
 ## What every one of these ROMs contains
 
@@ -88,8 +111,7 @@ are downloaded and verified by SHA-256 during the build.
 
 ## License Compliance
 
-This application complies with GPLv3 requirements for both the included ROM and
-the downloadable ones:
+This application complies with GPLv3 requirements for every ROM it downloads:
 
 - Corresponding source for every ROM listed above is published at:
   https://github.com/avwohl/romwbw_disks — that repository holds
@@ -100,7 +122,8 @@ the downloadable ones:
   https://github.com/avwohl/romwbw_emu
 - The LICENSE file (GPLv3) is included in both repositories.
 - Each published ROM's SHA-256 is recorded in the public catalog alongside it,
-  so a downloaded ROM can be checked against the source it was built from.
+  so a downloaded ROM can be checked against the source it was built from — and
+  that is exactly the check the application itself performs before it runs one.
 
 That last point is checkable rather than merely stated. `roms/build_emu_rom.sh`
 in https://github.com/avwohl/romwbw_emu assembles `src/emu_hbios.asm` into bank
@@ -115,18 +138,22 @@ PASS: byte-identical to the published emu_avw for RomWBW 3.5.1
       repository.  That is what docs/ROM_ATTESTATION.md asserts.
 ```
 
-That is the ROM included in this application bundle, reproduced from source. It
-covers RomWBW 3.5.1 only, because that copy of `src/emu_hbios.asm` hardcodes its
-version stamp; the parameterised copy in romwbw_disks builds bank 0 for any
-release, and romwbw_disks' `tools/check_source_drift.sh` asserts the two trees'
-copies have not diverged.
+That is the first of the four files above — the one the application downloads
+when the user selects RomWBW 3.5.1 — rebuilt from source and matching the
+published bytes. It is a statement about what users fetch, which is now the only
+kind of ROM this application has. The run covers that one ROM because that copy
+of `src/emu_hbios.asm` hardcodes its version stamp; the parameterised copy in
+romwbw_disks builds bank 0 for any release, and romwbw_disks'
+`tools/check_source_drift.sh` asserts the two trees' copies have not diverged.
 
 ## Authorization for Apple
 
-I hereby grant Apple Inc. permission to use the ROM file included with this
-application (`emu_avw.rom`), and any ROM the application downloads from
-https://github.com/avwohl/romwbw_disks/releases/, for the purpose of testing and
-reviewing this application for the App Store.
+I hereby grant Apple Inc. permission to use any ROM this application downloads
+from https://github.com/avwohl/romwbw_disks/releases/ — the four files listed
+above, and any later RomWBW release published to that same catalog — for the
+purpose of testing and reviewing this application for the App Store. The
+application ships no ROM file of its own, so there is nothing further to
+authorize.
 
 ## Contact
 
@@ -134,7 +161,7 @@ Developer: Aaron Wohl
 Repositories:
   https://github.com/avwohl/romwbw_disks (ROM and disk images, and their source)
   https://github.com/avwohl/romwbw_emu (emulator)
-Date: 2026-09-07
+Date: 2026-09-08
 
 ---
 

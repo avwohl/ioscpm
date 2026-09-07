@@ -68,14 +68,24 @@ enum CatalogMigration {
     /// filename and of every key scoped to a RomWBW release.
     static let interface = "v0"
 
-    /// The RomWBW release this build's bundled ROM and disks are for.
+    /// The RomWBW release every PRE-v0 name belongs to.
     ///
-    /// One constant rather than a lookup because release A changes no URL: the
-    /// app still fetches the catalog it always did, and the only thing that
-    /// moves is what it calls the files it has already downloaded. When the
-    /// version picker arrives this becomes the selected release, and every
-    /// function below already takes it as a parameter.
-    static let bundledRomWBWVersion = "3.5.1"
+    /// A `hd1k_combo.img` on a device is a 3.5.1 image: it is what
+    /// `avwohl/ioscpm` served, under a catalog that named exactly one release
+    /// and never said which. So this is the release the migration renames those
+    /// files INTO, and it is a fact about the past that can never change - not a
+    /// default, not a preference, and (since 2026-09-08) nothing to do with a
+    /// bundled ROM, because this app no longer has one.
+    ///
+    /// It was called `bundledRomWBWVersion` while a bundled `emu_avw.rom`
+    /// happened to declare the same release. That coincidence made it look like
+    /// a property of the build, which would have made it something to update
+    /// when the build moved - and updating it would silently rename a user's
+    /// 3.5.1 disks into another release's names.
+    ///
+    /// Every function below still takes it as a parameter, defaulted here, so
+    /// the release actually in play is what a runtime caller passes.
+    static let legacyRomWBWVersion = "3.5.1"
 
     /// The only extension a catalog disk has ever had. Checked rather than
     /// assumed, because `Documents/Disks` holds more than images: the old
@@ -87,8 +97,15 @@ enum CatalogMigration {
     /// The stems the catalog shipped with this app has ever named.
     ///
     /// These are the twenty disk `id`s in the v0 3.5.1 catalog, which are also
-    /// exactly the twenty `<filename>` stems in the `disks.xml` this build is
-    /// pinned to. Anything else in `Documents/Disks` belongs to the user.
+    /// exactly the twenty `<filename>` stems in the `disks.xml` that every build
+    /// before the migration fetched. This build fetches no XML and is pinned to
+    /// no tag; the set is a frozen record of what a PRE-v0 device can be holding,
+    /// which is what the migration has to recognise. Anything else in
+    /// `Documents/Disks` belongs to the user.
+    ///
+    /// It is deliberately NOT the answer to "is this a catalog disk" at runtime -
+    /// it cannot be, since it can only ever list what was published when this
+    /// build was made. `knownCatalogStems` in the view model is that answer.
     ///
     /// `hd1k_infocom` is deliberately absent although it was served for a while:
     /// it was removed from the catalog as a duplicate of Games, and there is no
@@ -117,10 +134,11 @@ enum CatalogMigration {
         "hd1k_zsdos",
     ]
 
-    /// Filenames are compared case-insensitively, the same fold `DiskLedger` and
-    /// `deleteCatalogDisks(named:)` use. `Documents` is published to the Files
-    /// app on a case-insensitive volume, so a user's `HD1K_COMBO.IMG` and the
-    /// catalog's `hd1k_combo.img` are one file on one device and two on another.
+    /// Filenames are compared case-insensitively, the same fold `DiskLedger`
+    /// uses. `Documents` is published to the Files app on a case-insensitive
+    /// volume, so a user's `HD1K_COMBO.IMG` and the catalog's `hd1k_combo.img`
+    /// are one file on one device and two on another.
+
     /// Pre-v0 images that are equivalent to the v0 image of the same name, keyed
     /// by the v0 catalog's `sha256` and holding the pre-v0 catalog's.
     ///
@@ -170,12 +188,15 @@ enum CatalogMigration {
     /// disk slot names a file that only exists under one release. An NVRAM blob
     /// fails RomWBW's own `NVSW_CHECKSUM` under another release - the version
     /// bytes are XORed into the seed - and resets to defaults without saying so.
-    /// And the catalog generation decides what gets DELETED, so one shared key
-    /// across releases means a user switching 3.5.1 -> 3.6.0 -> 3.5.1 has their
-    /// library cleared twice; `generation` is scoped per release upstream for
-    /// exactly this reason (romwbw_disks docs/CATALOG_SCHEMA.md §4.3).
+    /// And the catalog generation is a fact about one release's artifacts, so a
+    /// shared key would have a fetch of 3.6.0's catalog overwrite the value
+    /// 3.5.1 is measured against; `generation` is scoped per release upstream
+    /// for exactly this reason (romwbw_disks docs/CATALOG_SCHEMA.md §4.3). It
+    /// decided what got DELETED until build 66 removed the wipe, which is why
+    /// getting it wrong used to clear a library on a 3.5.1 -> 3.6.0 -> 3.5.1
+    /// round trip; it deletes nothing now, and the scoping still has to be right.
     static func versionedKey(_ base: String,
-                             romwbwVersion: String = bundledRomWBWVersion) -> String {
+                             romwbwVersion: String = legacyRomWBWVersion) -> String {
         "\(base).\(interface).\(romwbwVersion)"
     }
 
@@ -190,7 +211,7 @@ enum CatalogMigration {
     /// distinction, and the callers need it: a name that does not migrate must
     /// not be counted as migrated when the pass reports what it did.
     static func migratedName(_ filename: String,
-                             romwbwVersion: String = bundledRomWBWVersion) -> String? {
+                             romwbwVersion: String = legacyRomWBWVersion) -> String? {
         // "" is not a filename. See rule 1 in the file comment - this is the
         // check that keeps a slot bound to a local file bound to it.
         guard !filename.isEmpty else { return nil }
@@ -237,7 +258,7 @@ enum CatalogMigration {
     /// and anything it cannot resolve it blanks.
     static func migratedSlots(_ stored: [String],
                               notMoved: Set<String> = [],
-                              romwbwVersion: String = bundledRomWBWVersion) -> [String] {
+                              romwbwVersion: String = legacyRomWBWVersion) -> [String] {
         stored.map { migratedName($0, notMoved: notMoved, romwbwVersion: romwbwVersion) ?? $0 }
     }
 
@@ -260,12 +281,20 @@ enum CatalogMigration {
     /// comparing the stored blob.
     static func migrated(_ store: ProfileStore,
                          notMoved: Set<String> = [],
-                         romwbwVersion: String = bundledRomWBWVersion) -> ProfileStore {
+                         romwbwVersion: String = legacyRomWBWVersion) -> ProfileStore {
         let profiles = store.profiles.map { profile -> EmulatorProfile in
             var updated = profile
             updated.diskFilenames = migratedSlots(profile.diskFilenames,
                                                   notMoved: notMoved,
                                                   romwbwVersion: romwbwVersion)
+            // Stamp the release these slots are now named for, where the profile
+            // does not already say. A profile written before the picker existed
+            // carries no release, and without one `applyProfile` can only report
+            // an unresolved slot as a bare filename - so the profiles that most
+            // need "saved under RomWBW 3.5.1" are exactly the ones that would
+            // never get it. Never overwritten: a profile that names a release
+            // was saved by a build that knew which one.
+            if updated.romwbwVersion == nil { updated.romwbwVersion = romwbwVersion }
             return updated
         }
         return ProfileStore(profiles: profiles, lastUsedName: store.lastUsedName)
@@ -291,7 +320,7 @@ enum CatalogMigration {
     /// its old key, which still matches the file that kept its old name.
     static func migrated(_ ledger: DiskLedger,
                          notMoved: Set<String> = [],
-                         romwbwVersion: String = bundledRomWBWVersion) -> DiskLedger {
+                         romwbwVersion: String = legacyRomWBWVersion) -> DiskLedger {
         var result: [String: DiskRecord] = [:]
         var moving: [(from: String, to: String, record: DiskRecord)] = []
 
@@ -326,24 +355,67 @@ enum CatalogMigration {
     /// belongs to the release it names and comes back the moment that release
     /// is selected again.
     ///
-    /// The stem has to be one the catalog has named, so a user's own
-    /// `my-v0-3.5.1.img` is never hidden. The cost of that caution is one stray
-    /// row: an image published only under a later release - 3.6.0 adds four
-    /// stems 3.5.1 does not have - is not in this table, so under 3.5.1 it
-    /// shows as a user-added disk under its own name. Harmless, and it says
-    /// which release it is for right in the name.
+    /// The stem has to be one a catalog has named, so a user's own
+    /// `my-v0-3.5.1.img` is never hidden.
+    ///
+    /// `knownStems` is that test, and it defaults to `catalogDiskStems` only so
+    /// the pure-value tests have a fixture. **A runtime caller must pass the
+    /// stems it has actually seen published**, because `catalogDiskStems` is a
+    /// frozen record of the twenty PRE-v0 names and cannot answer for anything
+    /// published since. Five ids exist under 3.6.0 and not 3.5.1 -
+    /// `hd1k_cobol`, `hd1k_dos65`, `hd1k_infocom`, `hd1k_msx`, `hd1k_wp`, all
+    /// of them bootable - so against the frozen table a downloaded
+    /// `hd1k_msx-v0-3.6.0.img` reads as a user-added disk under 3.5.1 and is
+    /// offered as a system disk for a 3.5.1 machine. That is precisely the
+    /// pairing the versioned filenames exist to keep apart, and every disk
+    /// romwbw_disks adds from here on would arrive with the same flaw - which
+    /// would make "add a disk with no client release" true only in the
+    /// paperwork.
     static func belongsToAnotherRelease(_ filename: String,
-                                        romwbwVersion: String = bundledRomWBWVersion) -> Bool {
-        let folded = fold(filename)
-        guard folded.hasSuffix(".\(diskExtension)") else { return false }
-        let stem = String(folded.dropLast(diskExtension.count + 1))
+                                        romwbwVersion: String = legacyRomWBWVersion,
+                                        knownStems: Set<String> = catalogDiskStems) -> Bool {
+        guard let (stem, release) = versionedParts(of: filename) else { return false }
+        guard knownStems.contains(stem) else { return false }
+        return release != fold(romwbwVersion)
+    }
 
-        let marker = "-\(interface)-"
-        guard let range = stem.range(of: marker, options: .backwards) else { return false }
-        guard catalogDiskStems.contains(String(stem[stem.startIndex..<range.lowerBound])) else {
-            return false
+    /// The catalog id a stored disk name refers to, across releases.
+    ///
+    /// `hd1k_combo-v0-3.5.1.img` and the pre-v0 `hd1k_combo.img` both answer
+    /// "hd1k_combo", so a saved profile written under one release resolves under
+    /// another - which it has to, because a profile records a machine and not a
+    /// RomWBW release, and the release is in every catalog filename now.
+    ///
+    /// nil for a name no catalog published, so a user's own `mine.img` matches
+    /// only itself. That is the whole safety property: a profile naming a user's
+    /// disk must not silently resolve to a catalog disk with a similar name.
+    static func catalogID(ofDiskNamed filename: String,
+                          knownStems: Set<String> = catalogDiskStems) -> String? {
+        if let parts = versionedParts(of: filename) {
+            return knownStems.contains(parts.stem) ? parts.stem : nil
         }
-        return String(stem[range.upperBound...]) != fold(romwbwVersion)
+        // A pre-v0 name, from a profile written before the migration ran or
+        // deferred. Only the twenty names that catalog ever had.
+        let folded = fold(filename)
+        guard folded.hasSuffix(".\(diskExtension)") else { return nil }
+        let stem = String(folded.dropLast(diskExtension.count + 1))
+        return catalogDiskStems.contains(stem) ? stem : nil
+    }
+
+    /// Split `hd1k_msx-v0-3.6.0.img` into ("hd1k_msx", "3.6.0"), both folded.
+    ///
+    /// nil for anything that is not a `.img` carrying the interface marker -
+    /// a pre-v0 name, a `.incoming` staging file, a user's own `mine.img`.
+    /// Split at the LAST marker so a user's `weird-v0-thing-v0-3.5.1.img` is
+    /// read the way the writer of that name would read it.
+    static func versionedParts(of filename: String) -> (stem: String, release: String)? {
+        let folded = fold(filename)
+        guard folded.hasSuffix(".\(diskExtension)") else { return nil }
+        let stem = String(folded.dropLast(diskExtension.count + 1))
+        let marker = "-\(interface)-"
+        guard let range = stem.range(of: marker, options: .backwards) else { return nil }
+        return (String(stem[stem.startIndex..<range.lowerBound]),
+                String(stem[range.upperBound...]))
     }
 
     // MARK: - The files
@@ -367,7 +439,7 @@ enum CatalogMigration {
     /// before each move: the first rename in such a pair CREATES the second's
     /// destination, and this listing was taken before either happened.
     static func renames(in directoryContents: [String],
-                        romwbwVersion: String = bundledRomWBWVersion) -> [Rename] {
+                        romwbwVersion: String = legacyRomWBWVersion) -> [Rename] {
         let present = Set(directoryContents.map(fold))
         var renames: [Rename] = []
         for name in directoryContents.sorted() {

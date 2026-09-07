@@ -257,31 +257,34 @@ extension RomWBWIndex {
     ///
     /// In order:
     ///
-    ///   1. the one already in play, if it is still offered. A user who chose
-    ///      3.6.0 does not get moved off it because the index changed.
-    ///   2. the release the BUNDLED ROM declares. The app CAN fetch another
-    ///      release's ROM now, so this is no longer "the only one it can
-    ///      boot" - it is the only one it can boot with nothing downloaded,
-    ///      which is what a fresh install has. Ranking it above the index's
-    ///      `default` is therefore a choice rather than a limitation, and one
-    ///      worth revisiting: `default` is romwbw_disks' recommendation, it is
-    ///      3.6.0 today, and a fresh install has to download disks in any case.
-    ///      See todo.txt.
-    ///   3. `default: true`. The index promises exactly one, and
+    ///   1. `current`, if it is still offered. A user who chose 3.6.0 does not
+    ///      get moved off it because the index changed.
+    ///
+    ///      **`current` is a CHOICE, not "whatever the view model happens to
+    ///      hold".** The caller decides which, and getting that wrong is what
+    ///      made `default: true` unreachable for a year: `romwbwVersion` is
+    ///      seeded with the pre-v0 release so that keys resolve before any index
+    ///      arrives, and passing that seed here matched this rule on every
+    ///      launch. See `romWBWVersionToKeep` in EmulatorViewModel, which is
+    ///      where the distinction lives.
+    ///   2. `default: true`. The index promises exactly one, and
     ///      romwbw_disks' release check enforces it, but this still picks the
     ///      first if it ever saw two.
-    ///   4. the first survivor, so a list that is somehow all unflagged still
+    ///   3. the first survivor, so a list that is somehow all unflagged still
     ///      selects something.
+    ///
+    /// There used to be a rule between 1 and 2: "the release the BUNDLED ROM
+    /// declares", ranked above the index's own recommendation because it was the
+    /// one release a fresh install could boot with nothing downloaded. That rule
+    /// went with the bundled ROM on 2026-09-08, which settles the question
+    /// todo.txt had left open in the direction that note already argued for: a
+    /// fresh install has to download disks either way, so there is nothing left
+    /// to rank above `default: true`.
     static func preferred(among offered: [RomWBWIndexEntry],
-                          keeping current: String?,
-                          bundledROMRelease: String?) -> RomWBWIndexEntry? {
+                          keeping current: String?) -> RomWBWIndexEntry? {
         if let current = current,
            let kept = offered.first(where: { $0.romwbwVersion == current }) {
             return kept
-        }
-        if let bundled = bundledROMRelease,
-           let bootable = offered.first(where: { $0.romwbwVersion == bundled }) {
-            return bootable
         }
         if let flagged = offered.first(where: { $0.isDefault == true }) {
             return flagged
@@ -294,11 +297,11 @@ extension RomWBWIndex {
 
 /// One ROM the release publishes.
 ///
-/// This is what the app loads. The ROM in the bundle is still shipped and is
-/// still what a first offline launch boots (docs/ROM_ATTESTATION.md is an App
-/// Store filing naming `emu_avw.rom`), but it is one release's ROM and the
-/// release is a choice - so the ROM for any other release comes from here,
-/// under this `filename`, checked against this `size` and this `sha256`.
+/// This is what the app loads, and since build 66 it is the ONLY thing the app
+/// loads: there is no ROM in the bundle any more. Every ROM arrives under this
+/// `filename` and is refused unless its bytes match this `size` and this
+/// `sha256`, so which RomWBW release is running is a fact about a downloaded
+/// file that has been checked, and not a second claim compiled into the app.
 struct CatalogROM: Decodable, Equatable {
     let id: String
     let filename: String
@@ -369,8 +372,7 @@ extension CatalogROM {
     /// release. §6.1 of the schema says to key on `id` for precisely this
     /// reason: not on array position, and not by parsing a filename.
     ///
-    /// Static because the bundled `emu_avw.rom` has no catalog entry and has to
-    /// be matched by the same rule - and because it is what makes a build that
+    /// Static because a stored name has to be matched by this rule - and because it is what makes a build that
     /// stored `"emu_avw.rom"` before ROMs came from the catalog resolve to
     /// `emu_avw-v0-3.5.1.rom` now instead of to nothing.
     static func refers(_ storedName: String, toID romID: String,

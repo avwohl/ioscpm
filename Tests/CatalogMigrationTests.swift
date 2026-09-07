@@ -141,6 +141,17 @@ func runAllTests() {
     check(migratedStore.lastUsedName == "Work",
           "the last-used profile is still the last-used profile")
 
+    check(migratedProfile?.romwbwVersion == "3.5.1",
+          "and the profile is stamped with the release its slots are now named for - a "
+            + "profile written before the picker existed carries no release, and without "
+            + "one applyProfile can only report an unresolved slot as a bare filename")
+    let alreadyStamped = ProfileStore(profiles: [
+        EmulatorProfile(name: "kept", diskFilenames: ["hd1k_combo.img", "", "", ""],
+                        romwbwVersion: "3.6.0")])
+    check(CatalogMigration.migrated(alreadyStamped).profiles.first?.romwbwVersion == "3.6.0",
+          "a profile that already names a release keeps it - it was saved by a build that "
+            + "knew which one, and overwriting that would file it under the wrong release")
+
     let short = ProfileStore(profiles: [EmulatorProfile(name: "Short",
                                                         diskFilenames: [legacyCombo])])
     check(CatalogMigration.migrated(short).profile(named: "Short")?.diskFilenames.count == 4,
@@ -251,6 +262,72 @@ func runAllTests() {
     check(CatalogMigration.belongsToAnotherRelease("HD1K_COMBO-V0-3.5.1.IMG",
                                                    romwbwVersion: "3.6.0"),
           "matched case-insensitively, like every other filename comparison here")
+
+    // MARK: -
+
+    section("A stem published after this app was built")
+
+    // hd1k_msx exists under 3.6.0 and not under 3.5.1, and it is bootable. It is
+    // one of five - hd1k_cobol, hd1k_dos65, hd1k_infocom, hd1k_msx, hd1k_wp -
+    // and no build of this app can have them in a frozen table, because they
+    // were published after it. The whole point of the catalog is that more will
+    // follow.
+    let laterRelease = "hd1k_msx-v0-3.6.0.img"
+
+    check(!CatalogMigration.belongsToAnotherRelease(laterRelease, romwbwVersion: "3.5.1"),
+          "against the frozen pre-v0 table a 3.6.0-only disk reads as a user import, which "
+            + "is how a 3.6.0 system disk gets offered to a 3.5.1 machine")
+    check(CatalogMigration.belongsToAnotherRelease(
+              laterRelease, romwbwVersion: "3.5.1",
+              knownStems: CatalogMigration.catalogDiskStems.union(["hd1k_msx"])),
+          "once the app has SEEN the 3.6.0 catalog publish it, the same file is correctly "
+            + "another release's - which is why the runtime caller passes what it observed")
+    check(!CatalogMigration.belongsToAnotherRelease(
+              laterRelease, romwbwVersion: "3.6.0",
+              knownStems: CatalogMigration.catalogDiskStems.union(["hd1k_msx"])),
+          "and under 3.6.0 it is this release's disk, so it stays in the picker")
+    check(!CatalogMigration.belongsToAnotherRelease(
+              "mine-v0-3.6.0.img", romwbwVersion: "3.5.1",
+              knownStems: CatalogMigration.catalogDiskStems.union(["hd1k_msx"])),
+          "observing more stems never widens it to a name no catalog published")
+
+    check(CatalogMigration.versionedParts(of: laterRelease)?.stem == "hd1k_msx",
+          "versionedParts reads the stem back out, which is how the app records what it saw")
+    check(CatalogMigration.versionedParts(of: laterRelease)?.release == "3.6.0",
+          "and the release")
+    check(CatalogMigration.versionedParts(of: "HD1K_MSX-V0-3.6.0.IMG")?.stem == "hd1k_msx",
+          "folded, so a case-insensitive volume records one stem and not two")
+    check(CatalogMigration.versionedParts(of: legacyCombo) == nil,
+          "a pre-v0 name has no release in it to read")
+    check(CatalogMigration.versionedParts(of: "hd1k_combo-v0-3.5.1.img.incoming") == nil,
+          "and a staging file is not an image")
+    check(CatalogMigration.versionedParts(of: "odd-v0-x-v0-3.6.0.img")?.stem == "odd-v0-x",
+          "split at the LAST marker, so a name that contains one reads the way it was written")
+
+    // MARK: -
+
+    section("The catalog id a stored disk name means, across releases")
+
+    check(CatalogMigration.catalogID(ofDiskNamed: "hd1k_combo-v0-3.5.1.img") == "hd1k_combo",
+          "a saved profile names one release's file and means the disk under any of them")
+    check(CatalogMigration.catalogID(ofDiskNamed: "hd1k_combo-v0-3.6.0.img") == "hd1k_combo",
+          "so the two releases' files answer to the same id - which is what lets a profile "
+            + "saved on 3.5.1 resolve its slots on 3.6.0 instead of reporting four failures")
+    check(CatalogMigration.catalogID(ofDiskNamed: legacyCombo) == "hd1k_combo",
+          "a pre-v0 name resolves too, for a profile written before the migration ran")
+    check(CatalogMigration.catalogID(ofDiskNamed: "mine.img") == nil,
+          "a user's own disk answers to no catalog id, so it can only ever match itself")
+    check(CatalogMigration.catalogID(ofDiskNamed: "my-v0-3.5.1.img") == nil,
+          "and neither does one that merely looks versioned")
+    check(CatalogMigration.catalogID(ofDiskNamed: "hd1k_msx-v0-3.6.0.img") == nil,
+          "a stem published after this build knows nothing about is not guessed at")
+    check(CatalogMigration.catalogID(ofDiskNamed: "hd1k_msx-v0-3.6.0.img",
+                                     knownStems: CatalogMigration.catalogDiskStems
+                                         .union(["hd1k_msx"])) == "hd1k_msx",
+          "until the app has seen it published, which is the same observed set "
+            + "belongsToAnotherRelease uses")
+    check(CatalogMigration.catalogID(ofDiskNamed: "hd1k_combo.img.incoming") == nil,
+          "a staging file is not an image")
 
     // MARK: -
 

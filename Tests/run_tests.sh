@@ -192,8 +192,22 @@ run_suite WindowFrameTests \
 # hash comparison in the view model is in DiskLedger.swift: a downloaded disk is
 # a writable CP/M volume, so "its bytes differ from the catalog" is not evidence
 # that it is stale, and acting on it as though it were destroys user data.
+# DiskLedger.swift and CatalogMigration.swift are mutually dependent and have to
+# be compiled together: DiskLedger.action() calls
+# CatalogMigration.isEquivalentPriorImage() to recognise the one migrated image
+# whose hash disagrees with the catalog naming it, and CatalogMigration in turn
+# rewrites a DiskLedger. So this list is the same eight files
+# CatalogMigrationTests uses below, and the duplication is not something to
+# tidy away - dropping either half stops the other compiling.
 run_suite DiskLedgerTests \
+    "$ROOT/iOSCPM/Views/CGAColor.swift" \
+    "$ROOT/iOSCPM/Views/TerminalRendition.swift" \
+    "$ROOT/iOSCPM/Views/TerminalDialect.swift" \
+    "$ROOT/iOSCPM/Views/TerminalScreen.swift" \
+    "$ROOT/iOSCPM/Views/DiskSize.swift" \
+    "$ROOT/iOSCPM/Views/EmulatorProfile.swift" \
     "$ROOT/iOSCPM/Views/DiskLedger.swift" \
+    "$ROOT/iOSCPM/Views/CatalogMigration.swift" \
     "$ROOT/Tests/DiskLedgerTests.swift"
 
 # Named machine configurations: what a profile carries, and what it does when
@@ -261,6 +275,100 @@ run_core_suite CoreHostFileTests \
 #
 # It cannot join run_core_suite, which falls back to plain `c++` off a Mac and
 # would then try to compile Objective-C++ with no Foundation.
+# What ContentView.swift asks of the view model, checked by name.
+#
+# The type-check below covers EmulatorViewModel itself; it cannot cover the file
+# that drives it, because ContentView imports UIKit and there is no iOS SDK here.
+# So a deleted or renamed member is invisible to every check in this repo until
+# somebody opens Xcode. This closes that, for the one question it can answer.
+sh "$ROOT/Tests/check_view_bindings.sh" || status=1
+echo
+
+# EmulatorViewModel.swift, type-checked.
+#
+# The 4,500-line file the catalog migration was written into, and the only one
+# in the repo whose bridge calls cross into Objective-C. Every suite above
+# compiles the small types that were SPLIT OUT of it; none of them compiles it.
+#
+# That gap shipped a hard compile error. Build 65 moved the ROM load onto
+# `emulator?.loadROM(fromData: romImage)`, but `- (BOOL)loadROMFromData:(NSData*)`
+# imports into Swift as `loadROM(from:)` - the importer drops "Data" from the
+# label because it names the parameter's type - so the app target could not
+# build. Nothing caught it: the pbxproj was correct, every other file compiled,
+# and the only tool that compiles this one is Xcode, which the machine the
+# migration was written on did not have.
+#
+# It type-checks against the macosx SDK because it imports SwiftUI, Combine,
+# AVFoundation, CryptoKit and Network and no UIKit; Tests/ViewModelHostStubs.swift
+# supplies the two symbols that do come from a UIKit-importing file. The
+# bridging header is passed so every Objective-C call is checked against the real
+# RomWBWEmulator.h rather than assumed.
+#
+# A type-check and not a run: nothing here observes what the code does. The five
+# files that DO import UIKit - ContentView, TerminalView, CatalystWindow,
+# HelpView, iOSCPMApp - still need an iOS SDK and are checked only by Xcode.
+printf '%s\n' "=== EmulatorViewModelTypechecks ==="
+if command -v xcrun >/dev/null 2>&1; then
+    if xcrun --sdk macosx swiftc -typecheck -parse-as-library \
+            -import-objc-header "$ROOT/iOSCPM/iOSCPM-Bridging-Header.h" \
+            -I "$ROOT/iOSCPM/Bridge" -I "$ROOT/iOSCPM/Core" \
+            "$ROOT/iOSCPM/Views/CGAColor.swift" \
+            "$ROOT/iOSCPM/Views/TerminalRendition.swift" \
+            "$ROOT/iOSCPM/Views/TerminalDialect.swift" \
+            "$ROOT/iOSCPM/Views/TerminalScreen.swift" \
+            "$ROOT/iOSCPM/Views/TerminalSelection.swift" \
+            "$ROOT/iOSCPM/Views/DiskSize.swift" \
+            "$ROOT/iOSCPM/Views/EmulatorProfile.swift" \
+            "$ROOT/iOSCPM/Views/DiskLedger.swift" \
+            "$ROOT/iOSCPM/Views/CatalogMigration.swift" \
+            "$ROOT/iOSCPM/Views/CatalogDocument.swift" \
+            "$ROOT/iOSCPM/Views/ControlKey.swift" \
+            "$ROOT/iOSCPM/Views/KeyMap.swift" \
+            "$ROOT/iOSCPM/Views/ExportPath.swift" \
+            "$ROOT/iOSCPM/Views/WindowFrame.swift" \
+            "$ROOT/iOSCPM/Views/EmulatorViewModel.swift" \
+            "$ROOT/Tests/ViewModelHostStubs.swift" 2>&1; then
+        echo "PASS: EmulatorViewModel.swift type-checks, bridge calls included"
+    else
+        echo "FAIL: EmulatorViewModel.swift does not type-check"
+        status=1
+    fi
+else
+    echo "SKIP: no Swift toolchain (needs a Mac)"
+    skipped=$((skipped + 1))
+fi
+echo
+
+# The Swift/Objective-C bridge, compiled.
+#
+# `EmulatorViewModelTypechecks` above checks the Swift SIDE of every bridge call
+# against RomWBWEmulator.h, which is what catches a wrong argument label. It
+# does not compile the implementation, so a header and a .mm that disagree - a
+# method declared and not defined, or defined and not declared - passed
+# everything in this repository. Build 66 removed `loadROMFromBundle:` and
+# `romWBWReleaseOfBundledROM:` from both files with nothing checking that both
+# halves moved together.
+#
+# -std=c++17 and not the c++11 the core suites use: this file calls
+# std::make_unique, which is C++14.
+printf '%s\n' "=== BridgeCompiles ==="
+if command -v xcrun >/dev/null 2>&1; then
+    if xcrun --sdk macosx clang++ -fsyntax-only -Wall \
+            -Wundeclared-selector -Werror=undeclared-selector \
+            -x objective-c++ -std=c++17 -fobjc-arc \
+            -I "$ROOT/iOSCPM/Core" -I "$ROOT/iOSCPM/Bridge" \
+            "$ROOT/iOSCPM/Bridge/RomWBWEmulator.mm" 2>&1; then
+        echo "PASS: RomWBWEmulator.mm compiles clean against its own header"
+    else
+        echo "FAIL: RomWBWEmulator.mm does not compile"
+        status=1
+    fi
+else
+    echo "SKIP: no Objective-C toolchain (needs a Mac)"
+    skipped=$((skipped + 1))
+fi
+echo
+
 printf '%s\n' "=== EmuIOBackendCompiles ==="
 if command -v xcrun >/dev/null 2>&1; then
     if xcrun --sdk macosx clang++ -fsyntax-only -Wall \

@@ -1,0 +1,123 @@
+#!/bin/sh
+#
+# Every `viewModel.<member>` ContentView.swift asks for, checked against what
+# EmulatorViewModel.swift actually declares.
+#
+# WHY THIS EXISTS
+#
+# Five files import UIKit or use a SwiftUI macro and therefore cannot be
+# type-checked on a machine that has only Command Line Tools: ContentView,
+# TerminalView, CatalystWindow, HelpView and iOSCPMApp. Of those, exactly one
+# reaches into the view model - ContentView - and it does so 90-odd times. So
+# renaming or deleting a member of EmulatorViewModel is invisible to every check
+# in this repo until somebody opens Xcode.
+#
+# That is not hypothetical. Build 65's ROM work shipped `loadROM(fromData:)`,
+# which does not compile, and nothing noticed for two days. Removing the bundled
+# ROM deleted `bundledROMFallbackRelease`, which ContentView called twice. Both
+# are the same class of bug: a cross-file symbol that only Xcode resolves.
+#
+# WHAT IT IS AND IS NOT
+#
+# It is a spelling check, not a type check. It cannot see a changed argument
+# label, a changed return type or a wrong `$binding`. It answers one question -
+# "does this member still exist?" - and that is the question that keeps being
+# answered wrong here.
+#
+# TerminalView.swift, CatalystWindow.swift and iOSCPMApp.swift do not mention the
+# view model at all (verified: grep for EmulatorViewModel and viewModel in them
+# returns nothing), so ContentView is the whole exposure. HelpView.swift's
+# `viewModel` is a HelpViewModel declared in HelpView.swift itself, so it is
+# checked against that file instead.
+#
+# Usage:  Tests/check_view_bindings.sh   (called by Tests/run_tests.sh)
+
+set -e
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+status=0
+
+# Declarations a Swift member reference can resolve to.
+#
+# Members of ONE named type, and only those. The first version of this took every
+# `var`/`let`/`func`/`case` anywhere in the file, which let a local variable
+# inside an unrelated function stand in for a member that does not exist - a
+# dictionary big enough to pass almost anything, which is the failure mode a
+# spelling check can least afford.
+#
+# The type's members are what sits at exactly four spaces of indentation between
+# its opening line and the closing brace in column 0; a local is indented deeper,
+# and a neighbouring type's members are outside the range. Extensions of the same
+# type are included, which is why the awk matches every block whose header names
+# it rather than only the first.
+#
+# Deliberately loose about access control and `static`/`class`: this is a
+# spelling check, and a member that exists but is private is the compiler's to
+# complain about on a real build.
+decls_of() { # $1 = type name, then the files declaring it
+    type=$1; shift
+    awk -v want="$type" '
+        # A top-level block header naming the type we want.
+        /^(final )?(public |internal |fileprivate |private |open )?(class|struct|enum|extension) / {
+            inside = ($0 ~ ("(class|struct|enum|extension)[[:space:]]+" want "[[:space:]:{]"))
+            next
+        }
+        /^}/ { inside = 0; next }
+        inside && /^    [^ ]/ {
+            line = $0
+            # strip attributes, access control and modifiers, then take the name
+            if (match(line, /(var|let|func|case)[[:space:]]+`?[A-Za-z_][A-Za-z0-9_]*`?/)) {
+                d = substr(line, RSTART, RLENGTH)
+                sub(/^(var|let|func|case)[[:space:]]+/, "", d)
+                gsub(/`/, "", d)
+                print d
+            }
+        }' "$@" | sort -u
+}
+
+# Every `viewModel.member` / `$viewModel.member`, first component only.
+uses_in() {
+    grep -ohE '[$]?viewModel[?!]?\.[A-Za-z_][A-Za-z0-9_]*' "$1" |
+        sed -E 's/.*\.([A-Za-z_][A-Za-z0-9_]*)/\1/' |
+        sort -u
+}
+
+check_pair() { # $1 = user file, $2 = type name, then the files declaring it
+    user=$1; label=$2; shift 2
+    used=$(uses_in "$user")
+    have=$(decls_of "$label" "$@")
+    missing=""
+    for m in $used; do
+        printf '%s\n' "$have" | grep -qx "$m" || missing="$missing $m"
+    done
+    n=$(printf '%s\n' "$used" | grep -c . || true)
+    if [ -z "$missing" ]; then
+        echo "PASS: all $n $label members $(basename "$user") asks for are declared"
+        return 0
+    fi
+    echo "FAIL: $(basename "$user") uses $label members that do not exist:"
+    for m in $missing; do echo "        viewModel.$m"; done
+    echo "      Xcode is the only other thing that would catch this."
+    status=1
+}
+
+printf '%s\n' "=== ViewBindings ==="
+check_pair "$ROOT/iOSCPM/Views/ContentView.swift" "EmulatorViewModel" \
+    "$ROOT/iOSCPM/Views/EmulatorViewModel.swift"
+check_pair "$ROOT/iOSCPM/Views/HelpView.swift" "HelpViewModel" \
+    "$ROOT/iOSCPM/Views/HelpView.swift"
+
+# The one Objective-C bridge call made from a file no compiler here can reach.
+# The view-model type-check covers every other bridge call; this one is in
+# ContentView.swift:448 and would otherwise be checked by nothing.
+for call in 'RomWBWEmulator.romWBWReleases()'; do
+    sym=$(printf '%s' "$call" | sed -E 's/RomWBWEmulator\.([A-Za-z_][A-Za-z0-9_]*).*/\1/')
+    if grep -q "$call" "$ROOT/iOSCPM/Views/ContentView.swift" &&
+       ! grep -qE "NS_SWIFT_NAME\($sym|[+-][[:space:]]*\([^)]*\)[[:space:]]*$sym" \
+            "$ROOT/iOSCPM/Bridge/RomWBWEmulator.h"; then
+        echo "FAIL: ContentView calls $call, which RomWBWEmulator.h does not declare"
+        status=1
+    fi
+done
+[ "$status" -eq 0 ] && echo "PASS: the bridge call ContentView makes is declared"
+
+exit $status

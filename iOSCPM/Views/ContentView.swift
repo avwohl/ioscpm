@@ -326,15 +326,12 @@ struct ContentView: View {
                 Text(viewModel.errorMessage)
             }
             .alert("ROM Not Available", isPresented: $viewModel.showingROMProblem) {
-                // Two honest choices, which is why this is not showError's
-                // alert: the machine does not start on this release without its
-                // ROM, and an OK button on its own would leave a Play button
-                // that refuses with nothing to do about it.
-                if let fallback = viewModel.bundledROMFallbackRelease {
-                    Button("Use RomWBW \(fallback)") {
-                        viewModel.switchToBundledROMRelease()
-                    }
-                }
+                // One button, and it says nothing more than OK, because there is
+                // nothing more this app can offer. It used to carry a "Use
+                // RomWBW 3.5.1" escape backed by a bundled ROM; that ROM is gone
+                // and inventing a substitute would boot a release the user did
+                // not pick. `romProblemMessage` carries the two real ways out -
+                // a connection, or the other ROM this release publishes.
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(viewModel.romProblemMessage)
@@ -916,11 +913,6 @@ struct SettingsView: View {
                 // The same alert the terminal screen carries, for the same
                 // reason showingError is on both: whichever view is on top has
                 // to be the one that can present it.
-                if let fallback = viewModel.bundledROMFallbackRelease {
-                    Button("Use RomWBW \(fallback)") {
-                        viewModel.switchToBundledROMRelease()
-                    }
-                }
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(viewModel.romProblemMessage)
@@ -1259,23 +1251,45 @@ extension View {
 
 /// Which ROM boots, where its bytes come from, and how to get them.
 ///
-/// The rows are the selected release's `roms[]` now rather than one bundled
-/// file: the ROM has to match the release the disks come from, and which of the
-/// two published ROMs to use is a choice. The line under the picker says where
-/// the bytes actually are, because "this app already carries them" and "512 KB
-/// to download" are the difference between a machine that starts offline and
-/// one that does not.
+/// The rows are the selected release's `roms[]` rather than one bundled file:
+/// the ROM has to match the release the disks come from, and which of the two
+/// published ROMs to use is a choice. The line under the picker says where the
+/// bytes actually are - not fetched yet, or downloaded and re-checked on every
+/// use - because pressing Play on a ROM that is not here yet starts a download
+/// before it starts a machine, and that is worth knowing in advance rather than
+/// discovering as a pause.
 struct ROMSection: View {
     @ObservedObject var viewModel: EmulatorViewModel
 
     var body: some View {
         Section(header: Text("ROM Image")) {
-            Picker("ROM", selection: $viewModel.selectedROM) {
-                ForEach(viewModel.availableROMs) { rom in
-                    Text(rom.name).tag(rom as ROMOption?)
+            // A row, or a sentence - never an empty menu. `availableROMs` is
+            // built from the selected release's `roms[]`, so it is `[]` until a
+            // catalog has been fetched, and a `Picker` with no rows and a nil
+            // selection draws its title with a blank value and opens on nothing.
+            // The two other pickers in this Form were both given a floor for
+            // exactly this reason: `availableDisks` starts at one "None" row and
+            // `romwbwVersions` is seeded with a placeholder. This app used to
+            // have a third floor here without meaning to - the bundled ROM was
+            // the fallback row - and removing the ROM removed it.
+            //
+            // A sentence rather than a disabled placeholder row, because the two
+            // states are not the same: an empty list means the catalog has not
+            // arrived, which is a thing to wait for or to fix, not a ROM to pick.
+            if viewModel.availableROMs.isEmpty {
+                Text("No ROM yet - the RomWBW \(viewModel.romwbwVersion) catalog "
+                     + "has not been read. Every ROM is downloaded, so this needs "
+                     + "a connection.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                Picker("ROM", selection: $viewModel.selectedROM) {
+                    ForEach(viewModel.availableROMs) { rom in
+                        Text(rom.name).tag(rom as ROMOption?)
+                    }
                 }
+                .pickerStyle(.menu)
             }
-            .pickerStyle(.menu)
 
             Text(viewModel.romStatusDescription)
                 .font(.caption)
