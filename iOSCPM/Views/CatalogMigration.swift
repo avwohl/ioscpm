@@ -68,6 +68,70 @@ enum CatalogMigration {
     /// filename and of every key scoped to a RomWBW release.
     static let interface = "v0"
 
+    // MARK: - Which catalog is in play
+
+    /// The index this build ships with, and the only URL it compiles in.
+    ///
+    /// Everything else - which releases exist, which ROMs and disks each one
+    /// has, where they live and what they hash to - is read out of a document
+    /// at run time. That is what lets romwbw_disks publish a new ROM or disk
+    /// and have it reach an installed client with no app release.
+    static let defaultIndexURL =
+        "https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json"
+
+    /// Where a user-supplied index URL is remembered. Empty or absent means
+    /// "use the one this build ships with"; it is deliberately not seeded with
+    /// `defaultIndexURL`, so that a default which moves in a later build is
+    /// picked up rather than frozen into every existing install.
+    static let indexURLOverrideKey = "catalogIndexURL"
+
+    /// The index actually in use, resolved the way `romwbw-get` resolves it so
+    /// the two behave the same: an environment variable first, so a test can
+    /// point one launch somewhere without touching what the user has stored;
+    /// then the stored setting; then the built-in.
+    ///
+    /// `ROMWBW_INDEX_URL` reaches a simulator run as
+    /// `SIMCTL_CHILD_ROMWBW_INDEX_URL`, and an Xcode scheme sets it directly.
+    static var indexURL: String {
+        if let env = ProcessInfo.processInfo.environment["ROMWBW_INDEX_URL"],
+           !env.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return env.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let stored = (UserDefaults.standard.string(forKey: indexURLOverrideKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return stored.isEmpty ? defaultIndexURL : stored
+    }
+
+    /// Is this app reading somebody else's catalog?
+    static var isCustomIndex: Bool { indexURL != defaultIndexURL }
+
+    /// A short, stable, filesystem- and key-safe tag for the index in use, and
+    /// **empty for the built-in one**.
+    ///
+    /// Empty is the whole point: every key and every path this scopes must come
+    /// out byte-identical to what a device already has, or pointing at a test
+    /// catalog once and back again would strand a user's library behind a name
+    /// nothing reads. So the default index adds nothing at all, and only a
+    /// custom one gets a suffix.
+    ///
+    /// FNV-1a rather than SHA-256 because this needs to be short, stable and
+    /// dependency-free - `Tests/run_tests.sh` compiles this file on its own
+    /// against the macOS SDK - and it is a namespace tag, not a security
+    /// boundary. Two indexes colliding would share a namespace; they would
+    /// still be told apart by every sha256 the catalogs themselves carry.
+    static var indexScope: String {
+        isCustomIndex ? "@" + fnv1a(indexURL) : ""
+    }
+
+    static func fnv1a(_ s: String) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in Array(s.utf8) {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        return String(format: "%08x", UInt32(truncatingIfNeeded: hash ^ (hash >> 32)))
+    }
+
     /// The RomWBW release every PRE-v0 name belongs to.
     ///
     /// A `hd1k_combo.img` on a device is a 3.5.1 image: it is what
@@ -197,7 +261,13 @@ enum CatalogMigration {
     /// round trip; it deletes nothing now, and the scoping still has to be right.
     static func versionedKey(_ base: String,
                              romwbwVersion: String = legacyRomWBWVersion) -> String {
-        "\(base).\(interface).\(romwbwVersion)"
+        // `indexScope` is EMPTY for the built-in index, so this is byte for byte
+        // the key every existing install already has. A custom index gets its
+        // own suffix, which is what keeps a test catalog's "3.6.0" from writing
+        // over the real one's: the two publish different bytes under the same
+        // release name and the same filenames, so sharing a key would hand the
+        // user's library to whichever was fetched last.
+        "\(base).\(interface).\(romwbwVersion)\(indexScope)"
     }
 
     // MARK: - One name

@@ -534,6 +534,13 @@ struct SettingsView: View {
     @Environment(\.presentationMode) private var presentationMode
     /// Name being typed into the "Save Current As" field.
     @State private var newProfileName = ""
+    /// The catalog index URL being typed, before it is applied. A draft rather
+    /// than a direct binding because applying one tears the catalog down and
+    /// refetches, which must happen when the user says so and not on each
+    /// keystroke.
+    @State private var catalogIndexDraft = ""
+    /// Why the last attempt to apply one was refused, if it was.
+    @State private var catalogIndexError: String?
 
     var body: some View {
         NavigationView {
@@ -680,6 +687,85 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+                }
+
+                // Where the catalog itself comes from.
+                //
+                // The point of this app compiling in exactly one URL is that
+                // everything else is read from a document at run time. This is
+                // that one URL, made changeable - for testing a romwbw_disks
+                // release before it is published, and for running your own.
+                Section(header: Text("Catalog")) {
+                    if viewModel.usingCustomCatalogIndex {
+                        HStack(alignment: .top) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                            Text("Using a custom catalog. Every ROM and disk comes from "
+                                 + "whoever publishes it. Downloads are still checked "
+                                 + "against that catalog's own SHA-256, but the catalog "
+                                 + "is the thing being trusted.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    TextField("Built-in catalog", text: $catalogIndexDraft)
+                        .font(.caption)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                        .keyboardType(.URL)
+                        .disabled(viewModel.isRunning
+                                  || viewModel.catalogIndexURLIsFromEnvironment)
+
+                    if viewModel.catalogIndexURLIsFromEnvironment {
+                        Text("ROMWBW_INDEX_URL is set for this launch and wins over "
+                             + "anything set here.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else if viewModel.isRunning {
+                        Text("Stop the emulator to change the catalog.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let error = catalogIndexError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+
+                    HStack {
+                        Button("Use This Catalog") {
+                            catalogIndexError = viewModel.applyCatalogIndexURL(catalogIndexDraft)
+                        }
+                        .disabled(viewModel.isRunning
+                                  || viewModel.catalogIndexURLIsFromEnvironment
+                                  || catalogIndexDraft.trimmingCharacters(in: .whitespaces)
+                                      == viewModel.catalogIndexURLText)
+                        Spacer()
+                        Button("Use Built-In") {
+                            catalogIndexDraft = ""
+                            catalogIndexError = viewModel.applyCatalogIndexURL("")
+                        }
+                        .disabled(viewModel.isRunning
+                                  || viewModel.catalogIndexURLIsFromEnvironment
+                                  || !viewModel.usingCustomCatalogIndex)
+                    }
+
+                    // The URL actually in use, whatever its source. Worth
+                    // showing even when it is the built-in one: a bug report
+                    // that names the catalog is worth more than one that does
+                    // not, and this is the only place it appears.
+                    Text("In use: \(viewModel.effectiveCatalogIndexURL)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+
+                    Text("Each catalog keeps its own downloads and its own slot, ROM and "
+                         + "boot-string settings, so switching costs a fetch and never "
+                         + "your library. Switching back finds it as you left it.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
 
                 // Download Disk Images Section
@@ -918,6 +1004,15 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            // Seeded on appear rather than initialised once: Settings is a
+            // sheet, so this struct is rebuilt each time it opens, and the
+            // stored value may have been changed by a profile or by another
+            // sheet in between. Empty means "the built-in one", which is what
+            // the placeholder says.
+            .onAppear {
+                catalogIndexDraft = viewModel.catalogIndexURLText
+                catalogIndexError = nil
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {

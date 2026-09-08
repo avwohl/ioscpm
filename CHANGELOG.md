@@ -1,5 +1,104 @@
 # Changelog
 
+## Version 1.6.1 (Build 69)
+
+**The catalog index can be pointed somewhere else.**  `MARKETING_VERSION` does
+not move; `CURRENT_PROJECT_VERSION` goes 68 -> 69 because build 68's entry
+records "21 suites and 1,210 assertions" and this build makes that 1,223.
+
+The point of compiling in exactly one URL is that everything else - which
+releases exist, which ROMs and disks each has, where they live and what they
+hash to - is read out of a document at run time.  This makes that one URL
+changeable: to test a romwbw_disks release before it is published, and to run
+your own.
+
+`romwbw-get` already had this, so the precedence is copied rather than invented,
+and one set of instructions now covers both: **`ROMWBW_INDEX_URL` first**, so a
+single test run needs nothing stored; **then the setting**; **then the built-in
+URL**.  The setting is empty by default and is deliberately NOT seeded with the
+built-in URL - storing a copy would freeze this install onto whatever the default
+was the day it was written, where empty picks up a default that moves.
+
+### The hazard that shaped it, and what it cost to answer
+
+Two catalogs both publish `3.6.0`.  Same release name, same filenames, different
+bytes: `hd1k_combo-v0-3.6.0.img` means one thing in romwbw_disks and another in a
+fork.  Pointing at a test catalog with one storage area would therefore write the
+test images over the user's library and their saved work with it, and pointing
+back would do it again in the other direction.
+
+So the scope moves with the URL.  `CatalogMigration.indexScope` is the whole
+mechanism: **empty for the built-in index**, and `@<tag>` for anything else.  It
+is appended by `versionedKey()`, which every per-release key already goes
+through - `selectedDisks`, `emulatorNvram`, `catalogGeneration`, the ROM choice -
+and by `disksDirectoryURL`, so the downloads land in `Disks@<tag>` beside
+`Disks` rather than in it.
+
+Empty for the built-in index is the property the whole thing rests on, and it is
+what the new tests are mostly about: every key and path has to come out
+byte-identical to what a device already holds, or one visit to a test catalog
+would strand a user's library behind a name nothing reads afterwards.  Six
+assertions cover it, and the one that matters says that clearing the setting
+returns the ORIGINAL key exactly.
+
+### Measured on a simulator, not asserted
+
+Launched with `SIMCTL_CHILD_ROMWBW_INDEX_URL` pointing at
+`https://example.invalid/mine/index-v0.json`, the container afterwards held:
+
+    Documents/Disks/            the real library - 51,380,224-byte combo,
+                                emu_avw-v0-3.6.0.rom, both catalogs, untouched
+    Documents/Disks@78f588f0/   the custom index's own, empty
+
+and `emulatorNvram.v0.3.6.0@78f588f0` written BESIDE `emulatorNvram.v0.3.6.0`
+rather than over it.
+
+### One tag, three clients
+
+The tag is FNV-1a folded to 32 bits, chosen over SHA-256 because it has to be
+short, stable and dependency-free - `Tests/run_tests.sh` compiles
+`CatalogMigration.swift` on its own - and because it is a namespace tag rather
+than a security boundary.  Two indexes colliding would share a namespace and
+would still be told apart by every sha256 their catalogs carry.
+
+z80cpmw computes the same tag in C++ and cpmdroid in Kotlin, from the same
+function folded the same way, so one index URL produces one scope on every
+client and a bug report naming one means the same thing in each.  Checked by
+running both: `https://example.invalid/mine/index-v0.json` is `78f588f0` in
+Swift and in C++, and z80cpmw's suite now pins that value against this one.
+
+### What it does not do
+
+It does not weaken any verification.  Every ROM and disk is still checked against
+the size and sha256 its own catalog publishes, and each catalog against the hash
+the index gives.  What moves is the ROOT of that chain: the index is trusted
+because it is the one this build names, so naming another is a decision to trust
+whoever publishes it.  Settings says that in as many words, shows the URL in use
+whatever its source, and refuses anything that is not `https://` or `file://` -
+a plain-http index is the root of trust for every byte that follows.
+
+Changing it is refused while the emulator is running, for the same reason a
+release switch is: `saveDownloadedDisks()` writes the guest's live image back to
+the file the slot names.
+
+### A bug in this build's own edit
+
+`disksDirectoryURL` lost its `return` when the body went from one expression to
+several, and the compiler caught it as an unused-result warning rather than an
+error.  Fixed before it left the machine, and named here because a computed
+property that silently returns the wrong path is the shape of defect this
+directory scoping exists to prevent.
+
+### Measured
+
+`sh Tests/run_tests.sh` exits 0 at **21 suites and 1,223 assertions**, none
+failing - 1,210 plus the thirteen added here.  `Tests/check_view_bindings.sh`
+resolves **99** EmulatorViewModel members, up from 94.  `xcodebuild` for
+`platform=iOS Simulator,name=iPhone 17` reports **BUILD SUCCEEDED** with no
+errors and no warnings, and the app was installed and launched.  `plutil -lint`
+on the pbxproj is OK.  The Store still serves 1.5.1, at most build 61, which
+nothing here changes.
+
 ## Version 1.6.1 (Build 68)
 
 **A documentation build, plus six code and comment fixes.**  Nothing here

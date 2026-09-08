@@ -441,8 +441,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // hardwired to https://github.com/avwohl/ioscpm/releases/download/v1.4.12/
     // and GitHub release asset URLs cannot be redirected. Migrating this app
     // does not free v1.4.5 or v1.4.12; only the last user uninstalling does.
-    private static let indexURL =
-        "https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json"
+    // The URL itself, and the rules for pointing it somewhere else, are in
+    // `CatalogMigration` - beside the key and filename scoping that has to move
+    // with it, so that "which catalog" and "where its files live" cannot drift
+    // apart. This stays as the name the fetch path already uses.
+    private static var indexURL: String { CatalogMigration.indexURL }
 
     /// Which RomWBW release the cached catalog was fetched under used to be a
     /// UserDefaults stamp, because the parser rebuilt every URL from the
@@ -3063,6 +3066,112 @@ class EmulatorViewModel: NSObject, ObservableObject {
         if refetch { fetchDiskCatalog() }
     }
 
+    // MARK: - Pointing the app at another catalog
+
+    /// The index URL as the settings field should show it: the user's own if
+    /// they have set one, and EMPTY otherwise.
+    ///
+    /// Empty rather than the built-in URL, so the field means "no preference"
+    /// rather than "pinned to whatever the default was on the day you opened
+    /// Settings". A default that moves in a later build then reaches this
+    /// install, where a copy taken into the field would have frozen it.
+    @Published var catalogIndexURLText: String =
+        UserDefaults.standard.string(forKey: CatalogMigration.indexURLOverrideKey) ?? ""
+
+    /// The index actually in use, whatever its source.
+    var effectiveCatalogIndexURL: String { CatalogMigration.indexURL }
+
+    /// Is this app reading a catalog that is not the one it ships with?
+    var usingCustomCatalogIndex: Bool { CatalogMigration.isCustomIndex }
+
+    /// Is the URL in use one this app cannot change - i.e. set by the
+    /// environment for a test run? The field is shown disabled in that case,
+    /// because editing it would change nothing.
+    var catalogIndexURLIsFromEnvironment: Bool {
+        let env = ProcessInfo.processInfo.environment["ROMWBW_INDEX_URL"] ?? ""
+        return !env.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Point the app at another catalog index, or back at the built-in one.
+    ///
+    /// Returns a message to show the user, or nil when the change was applied.
+    ///
+    /// What makes this safe to offer at all is that it changes the STORAGE
+    /// SCOPE with it. `CatalogMigration.indexScope` is empty for the built-in
+    /// index and a tag of its own for anything else, and it is part of every
+    /// per-release key and of the Disks directory name - so a visit to somebody
+    /// else's catalog cannot write over the library this device already has,
+    /// and coming back finds it exactly as it was. Two catalogs both publishing
+    /// "3.6.0" is the ordinary case here, not a corner: the release name and the
+    /// filenames are the same and only the bytes differ.
+    ///
+    /// It does NOT weaken any verification. Every ROM and disk is still checked
+    /// against the size and sha256 its own catalog publishes, and each catalog
+    /// against the hash the index gives. What moves is the ROOT of that chain:
+    /// the index is trusted because it is the one this build names, so naming a
+    /// different one is a decision to trust whoever publishes it. The UI says
+    /// so, and `debugPrint` records it on every fetch.
+    @discardableResult
+    func applyCatalogIndexURL(_ raw: String) -> String? {
+        guard !isRunning else {
+            return "Stop the emulator before changing the catalog."
+        }
+        if catalogIndexURLIsFromEnvironment {
+            return "ROMWBW_INDEX_URL is set for this launch and takes precedence."
+        }
+
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            // Only the two schemes that can actually be fetched, and https
+            // first: a plain-http index is the trust root for every byte that
+            // follows, and iOS would refuse it under ATS anyway.
+            guard let url = URL(string: trimmed),
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "https" || scheme == "file",
+                  url.host != nil || scheme == "file" else {
+                return "That is not an https:// or file:// URL."
+            }
+        }
+
+        let before = CatalogMigration.indexURL
+        if trimmed.isEmpty {
+            UserDefaults.standard.removeObject(forKey: CatalogMigration.indexURLOverrideKey)
+        } else {
+            UserDefaults.standard.set(trimmed, forKey: CatalogMigration.indexURLOverrideKey)
+        }
+        catalogIndexURLText = trimmed
+        guard CatalogMigration.indexURL != before else { return nil }
+
+        debugPrint("[Catalog] index \(before) -> \(CatalogMigration.indexURL)")
+
+        // Everything in memory belongs to the catalog that is leaving, and so
+        // does everything the slots name: the files live in a different
+        // directory now and the keys have a different suffix. Torn down the way
+        // a release switch tears down, then re-read - restoreDiskSelections()
+        // and restoreBootString() now resolve against the new scope's keys, and
+        // find either what was left there last time or nothing at all.
+        isRestoringSelections = true
+        selectedDisks = Array(repeating: nil, count: 4)
+        isRestoringSelections = false
+
+        catalogDocument = nil
+        diskCatalog = []
+        availableDisks = [DiskOption(name: "None", filename: "")]
+        catalogFailure = nil
+        romwbwVersions = [RomWBWIndexEntry.placeholder(romwbwVersion: romwbwVersion)]
+        restoreROMSelection()
+        restoreBootString()
+
+        isRestoringSelections = true
+        restoreLocalDiskBindings()
+        isRestoringSelections = false
+
+        statusText = CatalogMigration.isCustomIndex
+            ? "Using a custom catalog" : "Using the built-in catalog"
+        fetchDiskCatalog()
+        return nil
+    }
+
     // MARK: - The release's ROM
 
     /// The release's own choice of ROM, as a row.
@@ -3980,8 +4089,18 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// because a migration that renamed files in a different directory from the
     /// one everything else reads would be silent and total.
     static var disksDirectoryURL: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Disks", isDirectory: true)
+        let documents = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask).first!
+        // "Disks" exactly, for the index this build ships with - so a device
+        // that has never been pointed anywhere else finds its library where it
+        // left it, and the v0 storage migration renames the files it already
+        // renamed. A custom index gets a directory of its own beside it,
+        // because two catalogs publish DIFFERENT BYTES under the same
+        // filenames: hd1k_combo-v0-3.6.0.img means one thing in romwbw_disks
+        // and another in a fork, and one directory would have them overwrite
+        // each other on every switch.
+        return documents.appendingPathComponent("Disks" + CatalogMigration.indexScope,
+                                                isDirectory: true)
     }
 
     /// Directory where downloaded disk images are stored

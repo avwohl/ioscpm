@@ -374,11 +374,73 @@ func runEquivalenceTests() {
           "exactly one entry: hd1k_combo is the only one of the twenty whose bytes moved")
 }
 
+func runIndexScopeTests() {
+    section("Pointing at another catalog, and coming back")
+
+    let defaults = UserDefaults.standard
+    let key = CatalogMigration.indexURLOverrideKey
+    let saved = defaults.string(forKey: key)
+    defer {
+        if let saved = saved { defaults.set(saved, forKey: key) }
+        else { defaults.removeObject(forKey: key) }
+    }
+
+    // The invariant the whole feature rests on. Every key and path this scopes
+    // has to come out byte-identical to what a device already holds, or a
+    // single visit to a test catalog would strand the user's library behind a
+    // name nothing reads afterwards.
+    defaults.removeObject(forKey: key)
+    check(CatalogMigration.indexScope.isEmpty,
+          "the built-in index adds NO suffix - an existing install must find its keys unchanged")
+    check(!CatalogMigration.isCustomIndex,
+          "and is not reported as custom")
+    let stock = CatalogMigration.versionedKey("selectedDisks", romwbwVersion: "3.6.0")
+    check(stock == "selectedDisks.v0.3.6.0",
+          "which is the key shipped builds already write: \(stock)")
+
+    // An empty or blank setting is "no preference", not "an index called ''".
+    defaults.set("   ", forKey: key)
+    check(CatalogMigration.indexURL == CatalogMigration.defaultIndexURL,
+          "whitespace is not a URL, and falls back to the built-in rather than failing every fetch")
+    check(CatalogMigration.versionedKey("selectedDisks", romwbwVersion: "3.6.0") == stock,
+          "so it changes no key either")
+
+    defaults.set("https://example.invalid/mine/index-v0.json", forKey: key)
+    check(CatalogMigration.isCustomIndex, "a real URL is reported as custom")
+    let mine = CatalogMigration.versionedKey("selectedDisks", romwbwVersion: "3.6.0")
+    check(mine != stock,
+          "and takes a namespace of its own: \(mine)")
+    check(mine.hasPrefix(stock + "@"),
+          "appended rather than rewritten, so the release scoping underneath is untouched")
+
+    // Two catalogs both publishing "3.6.0" is the case this exists for: same
+    // release name, same filenames, different bytes.
+    defaults.set("https://example.invalid/other/index-v0.json", forKey: key)
+    check(CatalogMigration.versionedKey("selectedDisks", romwbwVersion: "3.6.0") != mine,
+          "a DIFFERENT custom index gets a different namespace again - two forks publishing "
+            + "3.6.0 must not write over each other")
+
+    defaults.set("https://example.invalid/mine/index-v0.json", forKey: key)
+    check(CatalogMigration.versionedKey("selectedDisks", romwbwVersion: "3.6.0") == mine,
+          "and the tag is stable, so returning to a catalog finds what was left there")
+
+    defaults.removeObject(forKey: key)
+    check(CatalogMigration.versionedKey("selectedDisks", romwbwVersion: "3.6.0") == stock,
+          "clearing the setting returns the ORIGINAL key exactly - this is the one that "
+            + "decides whether a user gets their library back")
+
+    check(CatalogMigration.fnv1a("a") != CatalogMigration.fnv1a("b"),
+          "the tag distinguishes inputs at all")
+    check(CatalogMigration.fnv1a(CatalogMigration.defaultIndexURL).count == 8,
+          "and is 8 hex characters, short enough to sit in a path")
+}
+
 @main
 enum CatalogMigrationTestMain {
     static func main() {
         runAllTests()
         runEquivalenceTests()
+        runIndexScopeTests()
         print("\n" + String(repeating: "=", count: 60))
         print("Results: \(checks - failures) passed, \(failures) failed")
         if failures > 0 {
