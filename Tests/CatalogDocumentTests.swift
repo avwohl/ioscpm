@@ -37,6 +37,16 @@ func section(_ title: String) {
 // core will admit to supporting and a fourth with nothing to fetch. The last
 // two are not hypothetical shapes: an index that lists a release this build
 // cannot run is the normal case the moment romwbw_disks publishes 3.7.0.
+//
+// `default: true` is deliberately on the SECOND entry, not the first, and that
+// placement is the whole point of the "Which one is selected" section below.
+// It used to sit on 3.5.1, which is also `romwbw_versions[0]`, so every
+// assertion about the flagged default passed just as well for a `preferred()`
+// that had quietly reverted to taking the first entry offered - the guard on
+// the one decision a fresh install makes could not fail. The live index has
+// flagged the later release since 2026-09-05 anyway, so this is also the more
+// faithful shape. Nothing couples `status` to `default`: a preview release may
+// be flagged, and keeping 3.6.0 preview here keeps the pickerLabel coverage.
 let indexJSON = """
 {
   "schema": "romwbw-disks-index",
@@ -48,7 +58,7 @@ let indexJSON = """
       "romwbw_version": "3.5.1",
       "label": "RomWBW 3.5.1",
       "status": "stable",
-      "default": true,
+      "default": false,
       "released": "2025-05-21",
       "hbios": { "major": 3, "minor": 5, "ver_byte": "0x35", "upd_byte": "0x10",
                  "sysver_de": "0x3510" },
@@ -64,7 +74,7 @@ let indexJSON = """
       "romwbw_version": "3.6.0",
       "label": "RomWBW 3.6.0",
       "status": "preview",
-      "default": false,
+      "default": true,
       "hbios": { "ver_byte": "0x36", "upd_byte": "0x00" },
       "catalog_url": "https://example.invalid/v0-romwbw-3.6.0/catalog-v0-3.6.0.json",
       "catalog_sha256": "3907ba2f23f2307fdbc220fd20e3209b877357b5df1057b86db86a905090191f",
@@ -185,9 +195,11 @@ func runAllTests() {
     check(index.romwbwVersions.first?.romwbwVersion == "3.5.1",
           "romwbw_version is snake_case in the document and camelCase here - the one "
             + "mapping that decides whether anything at all is found")
-    check(index.romwbwVersions.first?.isDefault == true,
+    check(index.romwbwVersions.first?.isDefault == false
+            && index.romwbwVersions[1].isDefault == true,
           "`default` is a Swift keyword and needs its CodingKey, or the preselection "
-            + "silently becomes 'the first entry'")
+            + "silently becomes 'the first entry' - and the flag is on the SECOND entry "
+            + "precisely so that 'the first entry' is a different answer")
     check(index.romwbwVersions.first?.catalogSize == 11826
             && index.romwbwVersions.first?.catalogSHA256?.hasPrefix("7a5411b3") == true,
           "the two values the second hop is verified against are read")
@@ -239,15 +251,17 @@ func runAllTests() {
 
     section("Which one is selected")
 
-    check(RomWBWIndex.preferred(among: offered, keeping: "3.6.0")?.romwbwVersion == "3.6.0",
-          "a release already in play is kept, even against the flagged default")
-    check(RomWBWIndex.preferred(among: offered, keeping: nil)?.romwbwVersion == "3.5.1",
+    check(RomWBWIndex.preferred(among: offered, keeping: "3.5.1")?.romwbwVersion == "3.5.1",
+          "a release already in play is kept, even against the flagged default - and 3.5.1 "
+            + "is the one that is NOT flagged, so this cannot pass by agreeing with it")
+    check(RomWBWIndex.preferred(among: offered, keeping: nil)?.romwbwVersion == "3.6.0",
           "with no preference, the entry flagged default: true - this app carries no ROM "
-            + "of its own, so there is no release it can boot more cheaply than any other")
-    check(RomWBWIndex.preferred(among: offered, keeping: "")?.romwbwVersion == "3.5.1",
+            + "of its own, so there is no release it can boot more cheaply than any other. "
+            + "3.6.0 is offered SECOND, so 'the first entry' would answer 3.5.1 and fail")
+    check(RomWBWIndex.preferred(among: offered, keeping: "")?.romwbwVersion == "3.6.0",
           "an empty stored choice is no choice, and falls through to the flagged default "
             + "rather than matching an entry whose version is somehow empty too")
-    check(RomWBWIndex.preferred(among: offered, keeping: "9.9.9")?.romwbwVersion == "3.5.1",
+    check(RomWBWIndex.preferred(among: offered, keeping: "9.9.9")?.romwbwVersion == "3.6.0",
           "a stored choice the index no longer offers does not select nothing; it falls "
             + "through to the flagged default")
     check(RomWBWIndex.preferred(among: [], keeping: "3.5.1") == nil,

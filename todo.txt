@@ -63,10 +63,10 @@ It is released.  The tree is five builds past it, and compiled at last.
 
   z80cpmw/FEATURE_PARITY.md's sibling-readings block records `shipped:61` and
   the column was re-read at af0b9b2, which IS build 61, so that gate is answered
-  and nothing here has to move it.  check-sibling-drift.sh now reports the ioscpm
-  column as DRIFTED - the reading is nineteen commits and five builds behind the
-  tree - which is a z80cpmw-side re-read, not an ioscpm task, and it must not be
-  cleared by moving `shipped:` above 61.
+  and nothing here has to move it.  THE FENCE IS THE POINT: that field must not
+  be cleared by moving `shipped:` above 61, whatever check-sibling-drift.sh
+  reports, because no tree knows what a store is serving.  Re-reading the column
+  itself is a z80cpmw-side job and is in z80cpmw/todo.txt.
 
   The upload was done by a person, not from here.  This machine still cannot do
   it - see KNOWN_PROBLEMS.md "Releasing" - so a re-submission is a person with
@@ -120,49 +120,22 @@ It is released.  The tree is five builds past it, and compiled at last.
 
   MANUAL_CHECKS.md section 1 still has all six boxes unticked, and sections 8
   through 16 want a person driving the app.  Sections 18, 19 and 20 came in with
-  builds 63, 64 and 65 and say in as many words what they are: the storage
-  migration has never executed a moveItem, the interface-v0 fetch has never made
-  a network request, and nothing has fetched or verified a ROM.  Those three
-  want Xcode, a real container and a network before they want a person; the rest
-  want only a person.  Build 66 raised the stakes on section 20 without touching
-  it: with no ROM in the bundle, the fetch it describes is the ONLY way any
-  release boots, so a check that used to cover a second-release convenience now
-  covers the boot path for every user of the next build.
+  builds 63, 64 and 65 saying the storage migration had never executed a
+  moveItem, the interface-v0 fetch had never made a network request, and nothing
+  had fetched or verified a ROM.  All three were DRIVEN at build 67 on an iPhone
+  17 simulator and their headers now say so; what is still unticked in them is
+  the FAILURE half - a hash mismatch, a truncated ROM, a first launch with no
+  network - plus section 20's boxes that only a device can answer.  Build 66
+  raised the stakes on section 20 permanently: with no ROM in the bundle the
+  fetch it describes is the ONLY way any release boots, so a check that used to
+  cover a second-release convenience now covers the boot path for every user.
 
   Whether Xcode is on the machine you are reading this on is not something this
   file can tell you, and it has been written down wrongly here in both
-  directions.  Measure it: `ls -d /Applications/Xcode.app` settles it and costs
-  nothing, because bare `xcodebuild` prints the same "requires Xcode, but active
-  developer directory ... is a command line tools instance" whether Xcode is
-  merely unselected or absent.  If it is present but unselected, DEVELOPER_DIR
-  works and needs no sudo.  On 2026-09-07 it was present (Xcode 26.6) and builds
-  62 to 67 were built there; on 2026-09-08's reading it was absent.  Both were
-  true of the machine that measured them.  CLAUDE.md carries the commands.
+  directions.  Do not record a reading in this file at all - it is a fact about
+  the machine and the repository is shared.  CLAUDE.md carries the one command
+  that settles it and the trap that makes the obvious reading wrong.
 
-
-- [DONE 2026-09-08] the bracket tools/check-store-version.sh prints got looser
-  the moment this tree was compiled: narrowing by the "**NOT COMPILED" marker
-  alone, it reported "at most build 66" and then "The tree and the Store agree
-  on what users have", three days after a release build 66 postdates.  The
-  script does the date comparison now.  It already had the release date, and the
-  missing evidence was on the other side: when a heading entered CHANGELOG.md,
-  which git can answer.  A heading that is not committed at all has never left
-  this machine and cannot be what Apple serves; one first committed after the
-  Store published this version cannot be either.  Both narrowings are silent off
-  a checkout, so an exported tree gets the old wider answer rather than a wrong
-  one.  It reports "at most build 61" again and names 66 as compiled-but-not-
-  committed-in-time, so the reason is on screen rather than in this file.
-
-- [DONE 2026-09-07] this tree has been BUILT, and run.  Build 67 was made with
-  Xcode 26.6 and xcodebuild succeeded for all three destinations that matter -
-  iOS Simulator Debug, generic/platform=iOS Release for arm64, and Mac Catalyst -
-  with no errors and one benign AppIntents note.  The five files that no host
-  swiftc can reach (ContentView.swift, TerminalView.swift, CatalystWindow.swift,
-  HelpView.swift, iOSCPMApp.swift) compiled for the first time and needed no
-  change.  The Release .app for arm64 contains no .rom and no .img, so that
-  property is now a fact about the artifact and not only about git ls-files.
-  MANUAL_CHECKS.md sections 18, 19 and 20 were driven on a simulator; see the
-  build 67 CHANGELOG entry for what was measured.
 
 - [DEVICE] no build of this app has ever run on physical iOS hardware.  Every
   measurement in this repository was made on a simulator or on a Mac, and that
@@ -214,7 +187,9 @@ It is released.  The tree is five builds past it, and compiled at last.
 - [MAC] found by the build-67 audit and NOT fixed, in severity order.  Each was
   raised by a reviewer and survived three adversarial verifiers; each names a
   symbol rather than a line.  Four siblings of these WERE fixed in build 67 and
-  are in the CHANGELOG, so this is the remainder, not the whole list.
+  are in the CHANGELOG, so this is the remainder, not the whole list.  Two more
+  came off it on 2026-09-08 - waitForDownloadCompletion's endless poll and
+  CatalogDocument.isPreview's docstring - and are in the CHANGELOG too.
 
   * loadCachedCatalog adopts a cached catalog with NONE of the parser's
     verification gates.  The cache lives in Documents/Disks, which is
@@ -232,9 +207,6 @@ It is released.  The tree is five builds past it, and compiled at last.
     ROM-and-disk download window, so a second press starts a second fetch/boot
     sequence over the first.
 
-  * waitForDownloadCompletion polls for ever on .notDownloaded, so cancelling a
-    download started from the Play path leaves the overlay up permanently.
-
   * CatalogMigration.renames(in:) does not record a rename skipped because the
     destination already exists, so notMoved misses it and the stored names are
     rewritten to a file that was never created.  MANUAL_CHECKS 18's "a
@@ -251,20 +223,29 @@ It is released.  The tree is five builds past it, and compiled at last.
     CatalogMigration.isEquivalentPriorImage the way DiskLedger.freshness does.
     Cosmetic, and it contradicts the row beside it.
 
-  * CatalogDocument.isPreview's docstring says 3.6.0 is published as a preview.
-    The live index has said "status": "stable" and "default": true since
-    2026-09-05.  Docstring only; the code reads the field.
-
   * Tests/CatalogDocumentTests.swift asserts that an empty `keeping:` is treated
     as "no choice".  RomWBWIndex.preferred does not implement that - an empty
     string simply matches no release and falls through - so the test passes for
     a reason it does not state.
 
-- [ANY] 58 measurement claims across 14 files are dated 2026-09-08, which is one
-  day AFTER the commit that wrote them.  docs/ROM_ATTESTATION.md is the one that
-  matters: it is a document to be filed with Apple and it is dated in the
-  future.  Re-date it to the day it is actually filed, and treat the rest as a
-  reminder that a date written by a session is the session's idea of the date.
+- [ANY] 58 measurement claims across 14 files are dated 2026-09-08, one day
+  AFTER the commit that wrote them.  The date has since caught up, so nothing is
+  in the future any more and the urgency is gone; what remains is that
+  docs/ROM_ATTESTATION.md is a document to be filed with Apple carrying a date
+  nobody chose.  Re-date it to the day it is actually filed, and treat the rest
+  as a reminder that a date written by a session is the session's idea of the
+  date rather than a measurement.
+
+- [ANY] the iOS-15 network API measurement is not wired into any suite.  WIP.md
+  records that `xcrun --sdk macosx swiftc -target arm64-apple-ios15.0-macabi`
+  accepts allowsExpensiveNetworkAccess, allowsConstrainedNetworkAccess,
+  NWPathMonitor, path.isConstrained and URLError.networkUnavailableReason with no
+  availability guard, against an IPHONEOS_DEPLOYMENT_TARGET of 15.0 where every
+  one of them is iOS 13.  `grep -c macabi Tests/run_tests.sh` answers 0, and so
+  does a grep for any of those symbols, so it is a measurement somebody made once
+  and not a check that would notice a regression.  Adding the target to a suite
+  is a small job; the value is that raising the deployment floor, or adding an
+  API that is newer than it, would then fail here rather than at a user's device.
 
 - [ANY] check-store-version.sh sets status=2 for "could not verify" in the
   "WHICH BUILD USERS HAVE COULD NOT BE ESTABLISHED" arm, but the trailing
@@ -280,7 +261,7 @@ Open questions
 - [MAC] disk sizes larger than 8 MB: whether DiskSize.swift's hd512 multi-slice
   shape actually comes up as several drive letters, or whether it needs the hd1k
   shape with a hand-written type-0x2E MBR.  Both readings agree on what
-  emu_check_disk_size() accepts and disagree about what HBF_EXTSLICE does with a
+  emu_validate_disk_image() accepts and disagree about what HBF_EXTSLICE does with a
   0xE5 image over 8 MB.  WIP.md carries the argument on both sides and the reason
   the current code is believed right; MANUAL_CHECKS.md section 12 is the check
   that answers it.

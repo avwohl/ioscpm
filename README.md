@@ -61,9 +61,14 @@ distributed by [romwbw_disks](https://github.com/avwohl/romwbw_disks), which pub
 catalog per RomWBW release. The app compiles in a single index URL and no other disk URL: the index
 lists the releases, Settings' **RomWBW Release** picker is where you choose among them, and every
 download URL comes from the chosen release's own catalog — there is no pinned tag to bump any
-more, so a corrected disk, a new disk or a whole new RomWBW release reaches users without an app
-update. Which releases are offered is decided by asking the emulator core which ones it can run;
-a release published as `preview` is marked as one in the picker. With nothing chosen the app takes
+more, so a corrected disk or a new disk reaches users without an app update. A whole new RomWBW
+release does **not**: the picker only offers releases this binary's own core can boot, because
+which releases are offered is decided by asking the emulator core which ones it can run
+(`ROMWBW_SUPPORTED_RELEASES` in `romwbw_emu`, 3.5.1 and 3.6.0 today), so a 3.7.0 entry appearing in
+the index is simply not shown until a build carries support for it. That is deliberate: bank 0 of
+an `emu_*.rom` is ours, and a release whose CBIOS called something the dispatcher does not
+implement would load and then misbehave.
+A release published as `preview` is marked as one in the picker. With nothing chosen the app takes
 the release the index flags as its default. Every download is checked against the SHA-256 the
 catalog gives, and the catalog itself is checked against the index's before it is read. Today the
 index publishes two releases, both stable, with 3.6.0 the default: 3.5.1's catalog carries 20

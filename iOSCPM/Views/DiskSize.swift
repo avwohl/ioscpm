@@ -13,7 +13,7 @@
 //
 //  ## The trap
 //
-//  The core does not take an image of any size. emu_check_disk_size() in
+//  The core does not take an image of any size. emu_validate_disk_image() in
 //  emu_init.cc rejects everything but four shapes:
 //
 //      exactly HD1K_SINGLE_SIZE                  (8388608)   one hd1k slice
@@ -110,7 +110,7 @@ struct DiskSize: Identifiable, Hashable {
         offered.first { $0.bytes == bytes } ?? .default
     }
 
-    /// The rule emu_check_disk_size() applies, in Swift.
+    /// The rule emu_validate_disk_image() applies, in Swift.
     ///
     /// Nothing in the app calls this - the offered list is fixed and every
     /// entry satisfies it. It exists so the test suite can assert that, which

@@ -20,7 +20,16 @@
 # just the one it is sitting in, so no repository can report "fixed" while its
 # neighbour's users are on an old pin.  Edit one, copy to the rest.
 #
-# THIS COPY HAS DIVERGED and the other four need the same edit.  cpmdroid no
+# THIS COPY HAS DIVERGED, in three ways now, and it is the one to copy FROM.
+# The other four are behind on all three, and each of their repositories carries
+# the item in its own todo.txt rather than here:
+#   1. the index-v0 kind described below (cpmdroid has this, the other three do not);
+#   2. the *.app arms in scan_artifact() and scan_artifact_for(), which no other
+#      copy has, so running one of those on a Mac silently skips the iOS bundle;
+#   3. the ROM arm, inverted on 2026-09-08 - see roms_in_tree() below.  The other
+#      four still ask the pre-migration question and EXIT 1 on a correct family.
+#
+# cpmdroid no
 # longer pins an ioscpm release tag: it fetches romwbw_disks' index-v0.json and
 # takes every URL out of the documents it names.  So `pin_of` finds no vX.Y.Z
 # in its source, and until this change the cpmdroid row printed NO PIN FOUND and
@@ -147,47 +156,41 @@ legacy_pin_in() { # $1 = port dir, $2 = file -> prints a vX.Y.Z still in the sou
         sed -n 's/.*"\(v[0-9]\{1,\}\.[0-9]\{1,\}\.[0-9]\{1,\}\)".*/\1/p' | head -1
 }
 
-# The RomWBW release a bundled ROM declares, read the way the emulator reads it:
-# marker 'W' 0xA8 at 0x103/0x104, then ver and upd at 0x105/0x106, where
-# ver = major<<4|minor and upd = update<<4|patch.  Asking the binary is the
-# point - a build whose ROM was swapped without its catalog selection moving is
-# exactly the drift this script exists to catch, and no constant in the source
-# can report it.
-rom_release_of() { # $1 = rom file -> prints e.g. 3.5.1
-    [ -f "$1" ] || return 1
-    command -v od >/dev/null 2>&1 || return 1
-    marker=$(od -An -tx1 -j 259 -N 2 "$1" 2>/dev/null | tr -d ' \n')
-    [ "$marker" = "57a8" ] || return 1
-    # hex() by hand rather than strtonum(): that is a gawk extension and this
-    # runs under whatever awk the machine has, mawk and BSD awk included.
-    od -An -tx1 -j 261 -N 2 "$1" 2>/dev/null | tr -d '\n' |
-        awk 'function hex(h,   i, r) { r = 0
-                 for (i = 1; i <= length(h); i++)
-                     r = r * 16 + index("0123456789abcdef", tolower(substr(h, i, 1))) - 1
-                 return r }
-             { v = hex($1); u = hex($2)
-               major = int(v / 16); minor = v % 16
-               update = int(u / 16); patch = u % 16
-               if (patch == 0) printf "%d.%d.%d\n", major, minor, update
-               else printf "%d.%d.%d.%d\n", major, minor, update, patch }'
-}
-
-# Where a port WOULD keep a bundled ROM.  One line per port so that adding the
-# next one is an edit here rather than a new function.
+# NO REPOSITORY BUT romwbw_disks MAY CARRY A ROM.
 #
-# "Would" is the operative word since the v0 migration.  A bundled ROM is now
-# optional: cpmdroid and z80cpmw deleted theirs on 2026-09-07 and fetch every ROM
-# from the catalog, which is the whole point of publishing ROMs there.  So the
-# path existing is a fact to be measured, not a precondition - see the ROM arm
-# below, which skips a port that bundles nothing and fails only for a ROM that is
-# present and unreadable.  Keeping the path listed rather than deleting the line
-# is deliberate: it means a ROM that reappears at that path gets checked again.
-bundled_rom_of() { # $1 = port name, $2 = checkout -> prints a path
-    case "$1" in
-        cpmdroid) echo "$2/app/src/main/assets/emu_avw.rom" ;;
-        ioscpm)   echo "$2/iOSCPM/Resources/emu_avw.rom" ;;
-        z80cpmw)  echo "$2/roms/emu_avw.rom" ;;
-    esac
+# Every ROM is published in the catalog and verified against its size and sha256
+# before every use, so a ROM sitting in a client tree is a second source of truth
+# about what RomWBW release is in play - which CLAUDE.md names as the bug, in
+# those words.  ioscpm build 66, cpmdroid 1.28 and z80cpmw each deleted theirs.
+#
+# THIS CHECK USED TO BE THE OPPOSITE OF ITSELF, and that is worth knowing before
+# anyone restores it.  It read a bundled ROM's HBIOS Configuration Block (marker
+# 'W' 0xA8 at 0x103, ver/upd at 0x105) and asked whether the v0 index still
+# published that release; it kept a three-line table of where each port "WOULD"
+# keep a ROM, and said so explicitly - "keeping the path listed rather than
+# deleting the line is deliberate: it means a ROM that reappears at that path
+# gets checked again".  That is backwards under the rule above.  A ROM that
+# reappears is not a case to check, it is the violation, and a table of three
+# paths could only ever catch one that came back exactly where the last one was.
+#
+# So the question is now "is there a ROM at all", asked of the whole checkout.
+# git ls-files is the authority where there is an index, because a tracked file
+# is what reaches another clone; find is the fallback for an exported tree, and
+# skips the build outputs that legitimately contain a downloaded ROM.
+roms_in_tree() { # $1 = checkout -> prints every ROM in it, one per line
+    if ( cd "$1" 2>/dev/null && git rev-parse --is-inside-work-tree >/dev/null 2>&1 ); then
+        # --cached AND --others --exclude-standard: a tracked ROM is the
+        # violation, and an untracked one that is not gitignored is a violation
+        # one `git add` away, which is the moment to say so.  Ignored paths are
+        # excluded, so a downloaded ROM under build/ or DerivedData does not
+        # trip it - those are the catalog working correctly.
+        ( cd "$1" && git ls-files --cached --others --exclude-standard ) 2>/dev/null |
+            grep -Ei '\.rom$' || true
+    else
+        find "$1" -name '*.rom' -not -path '*/.git/*' -not -path '*/build/*' \
+             -not -path '*/DerivedData*' -not -path '*/dist/*' 2>/dev/null |
+            sed "s|^$1/||" || true
+    fi
 }
 
 # --- artifacts: what users actually got ---------------------------------------
@@ -350,25 +353,21 @@ echo "$ports" | while IFS='|' read -r port file pat kind; do
             continue
         fi
 
-        # A port that bundles no ROM at all.  Not a failure and not a gap in the
-        # check: with every ROM in the catalog and verified by sha256 before use,
-        # bundling one is a choice about the first launch, and cpmdroid and
-        # z80cpmw have made the other one.  There is simply no bundled ROM to
-        # compare against the index, so the arm below has nothing to say and the
-        # index-URL and artifact checks carry the port on their own.
-        rom=$(bundled_rom_of "$port" "$dir")
-        romver=""
-        if [ -n "$rom" ] && [ -f "$rom" ]; then
-            romver=$(rom_release_of "$rom")
-            if [ -z "$romver" ]; then
-                # Present but unreadable: a real failure, and the one this arm
-                # was written for.  A 512 KB file at that path that does not
-                # carry an HBIOS Configuration Block is a corrupt or truncated
-                # ROM, and it would be loaded at first launch.
-                printf '%-10s CANNOT READ the RomWBW release out of %s\n' "$port" "$rom"
-                echo 1 > "$tmp/fail"
-                continue
-            fi
+        # The rule, enforced rather than assumed.  A tracked ROM anywhere in a
+        # client checkout fails the port outright - there is no release it could
+        # be "the right" ROM for, because the catalog is the only place a ROM is
+        # allowed to come from.
+        stray=$(roms_in_tree "$dir")
+        if [ -n "$stray" ]; then
+            printf '%-10s CARRIES A ROM, AND NO REPOSITORY BUT romwbw_disks MAY\n' "$port"
+            echo "$stray" | while read -r r; do
+                [ -n "$r" ] && printf '%-10s   %s\n' "" "$r"
+            done
+            printf '%-10s   every ROM comes from the catalog, verified by size and\n' ""
+            printf '%-10s   sha256 before every use; a ROM here is a second source\n' ""
+            printf '%-10s   of truth about which RomWBW release is in play\n' ""
+            echo 1 > "$tmp/fail"
+            continue
         fi
 
         if ! get "$idx" "$tmp/$port-index.json"; then
@@ -380,19 +379,7 @@ echo "$ports" | while IFS='|' read -r port file pat kind; do
         # Whitespace stripped first so this does not depend on how the generator
         # happens to indent.  One field, not a pair, so it does not depend on
         # field order either.
-        if [ -z "$romver" ]; then
-            printf '%-10s v0 index, no bundled ROM - every ROM comes from the catalog\n' "$port"
-        elif tr -d ' \n' < "$tmp/$port-index.json" |
-                grep -q "\"romwbw_version\":\"$romver\""; then
-            printf '%-10s v0 index, bundled ROM RomWBW %s is published\n' "$port" "$romver"
-        else
-            printf '%-10s BUNDLED ROM IS RomWBW %s, WHICH THE v0 INDEX NO LONGER PUBLISHES\n' \
-                   "$port" "$romver"
-            printf '%-10s   a first launch with no network boots that ROM and can then\n' ""
-            printf '%-10s   download nothing that matches it\n' ""
-            echo 1 > "$tmp/fail"
-            continue
-        fi
+        printf '%-10s v0 index, no ROM in the tree - every ROM comes from the catalog\n' "$port"
 
         # And what shipped?  A build made before the migration still carries the
         # old tag and none of the new URL, so the presence of the index URL is

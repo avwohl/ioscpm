@@ -344,7 +344,7 @@ beside the picker that does the crossing.
 ## 12. A multi-slice disk, and the size picker
 
 `DiskSize.offered` is 8 MB hd1k, then 2 / 4 / 7 hd512 slices (N x 8,519,680).
-The round numbers are deliberately absent: `emu_check_disk_size()` **refuses** a
+The round numbers are deliberately absent: `emu_validate_disk_image()` **refuses** a
 16, 32 or 64 MB image, which is the trap a naive picker falls into.  Before this
 the exporter wrote its own hardcoded 8 MB regardless of the choice.
 

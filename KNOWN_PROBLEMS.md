@@ -13,16 +13,34 @@ hardcoding 8 MB and the other taking a size nothing passed, so a picker wired to
 only one of them would have looked like it worked and laid down 8 MB anyway.
 
 The list is 8 MB and then 2, 4 and 7 hd512 slices, and it is emphatically not
-16/32/64 MB: `emu_check_disk_size()` accepts only four shapes and 16777216 is
+16/32/64 MB: `emu_validate_disk_image()` accepts only four shapes and 16777216 is
 none of them, so the round numbers are exactly the wrong answer.
 `DiskSize.swift` carries that reasoning and `Tests/DiskSizeTests.swift`
 re-derives the rule from the C header rather than trusting the numbers written
 in Swift. Imported disks are still accepted up to 64 MB (`maxDiskSize`), which
 is what stops the list at 7 slices.
 
-### Proper Disk Initialization
-When creating a new disk, it should be properly initialized with:
-- Correct magic numbers for the disk format
+### A created disk has no filesystem, and the core only warns about it
+`createNewDisk` and `EmptyDiskDocument` lay down 0xE5 fill at the chosen size
+and nothing else: no HD1K directory, no boot track, no MBR.  That is a real
+limitation and the workaround below is the answer, but the entry that used to
+stand here asked for "correct magic numbers for the disk format" without saying
+which, so here they are, read out of `romwbw_emu/src/emu_init.cc`
+(`emu_check_disk_mbr`) and `emu_init.h`:
+
+- `data[510] == 0x55 && data[511] == 0xAA` is the MBR signature.  **A file
+  without it is accepted**, on the reading that it is a raw hd1k slice - which
+  is exactly what a 0xE5 image is, and why creating one produces no warning.
+- `PART_TYPE_ROMWBW = 0x2E` is the partition type an hd1k image is supposed to
+  carry, at `0x1BE + p*16 + 4` for one of the four entries.
+- `data[0] == 0x18 || data[0] == 0xC3` - a Z80 `JR` or `JP` - is what a real
+  hd1k slice starts with, and is the fallback that stops a stale MBR signature
+  being reported as a bad format.
+
+So the core's check is a *warning* path, not a gate: it can tell you an image
+has an MBR naming the wrong partition type, and it deliberately says nothing
+about an image with no MBR at all.  Writing a filesystem is what would close
+this, and nothing in the app does it.
 
 ### Creating Disks on Linux (Workaround)
 
@@ -110,35 +128,15 @@ Disks downloaded from GitHub are writable, allowing users to store data in them.
 
 The trigger is broader than a download, and the user does not have to do anything at all. `disks.xml` carries a `version` attribute; on every successful catalog fetch the invalidation compared it against the stored `catalogVersion` and, on any difference, cleared downloaded images and said so afterwards. So publishing a refreshed catalog reaches every installed device with no tap and no download.
 
-**Read the build numbers in this entry as two different kinds of thing.** Builds
-up to 61 can be installed; 62 to 65 were never compiled at all, and 66 has never
-been submitted. Re-measured 2026-09-08 with `tools/check-store-version.sh`: the
-Store serves 1.5.1, released 2026-09-05, which is **at most build 61**, and the
-script says so itself. It excludes 62 through 65 by their NOT COMPILED markers,
-and 66 because its `CHANGELOG.md` heading was not committed before that release
-date — a build that did not exist on the day Apple published cannot be the build
-Apple published. So everything keyed below to 62 or later is this tree's history
-and has never deleted a file on anybody's device.
-
-**Build 63 narrowed the trigger to nothing on the XML catalog.** `checkCatalogGenerationAndInvalidate` (`EmulatorViewModel.swift`) replaced it and acted only on the interface-v0 catalog's `generation`, under a key scoped per (interface, RomWBW release). `disks.xml` carries no generation, so such a device would not be reachable this way at all — and the old `catalogVersion` value is deliberately not copied into the new key, because 13 ≠ 1 would have made the first v0 fetch delete the whole library. Every build in service still reads the attribute, so it is no less dangerous to move.
-
-**Build 64 turned it back on, deliberately, against `generation`**, on the
-reasoning that the v0 catalogs carry one and a bump therefore means the
-release's artifacts moved — still only the images the new catalog could hand
-back, still per (interface, RomWBW release), never a disk the user imported, and
-with a release switch deliberately not counting as a bump.
-
-**Build 66 removes it altogether, and the reason is a measurement rather than a
-preference.** `recordCatalogGeneration` is what stands there now: it records the
-number, logs a change, and deletes nothing; `deleteCatalogDisks(named:)` is gone
-with the wipe that was its only caller. The only generation bump this catalog
-has ever had — romwbw_disks `aab3a4f`, 1 → 2 on both releases — changed two ROM
-hashes and **zero of the twenty disk hashes**. The build 64 code would therefore
-have deleted twenty images and re-downloaded twenty byte-identical copies
-because two ROMs were rebuilt, which on a phone on cellular is gigabytes to
-arrive back where it started. `generation` says "some artifact of this release
-changed", not "your copy of every artifact is stale", and acting on the first as
-though it were the second is what that code did.
+**This tree no longer does any of that, and the builds users have still do.**
+That split is the whole of why the entry stays.  The wipe was narrowed at build
+56, replaced at build 63, deliberately reinstated against `generation` at build
+64, and removed outright at build 66; `recordCatalogGeneration` is what stands
+there now, and it records the number, logs a change and deletes nothing.  The
+build-by-build account, including the measurement that decided it - the only
+generation bump this catalog has ever had moved two ROM hashes and zero of the
+twenty disk hashes - is in `CHANGELOG.md` under each of those builds and is not
+repeated here.
 
 Nothing replaces it, because something better was already running on the same
 path. `reassessDiskFreshness()` is called immediately after, and it asks per
@@ -147,26 +145,9 @@ provenance still match the catalog's hash — routing the answer through
 `DiskLedger.action`. Per file, never destructive, and it stands down while the
 emulator is running off the file.
 
-**So the publishing rule has changed shape, and
-`romwbw_disks/docs/CATALOG_SCHEMA.md` §4 has not caught up.** It still opens
-"iOS treats a change to this value as an instruction to delete files" and names
-`checkCatalogVersionAndInvalidate` and `deleteCatalogDisks(named:)`. Neither
-exists here any more; cpmdroid's `noteCatalogGeneration` logs the change and
-keeps the images; z80cpmw parses `generation` and deletes nothing on it. So
-advancing a generation is not currently destructive on any of the three
-measured clients — but §4's reasons for computing it from content rather than by
-hand stand on their own, and a client that has not been read is not a client
-that keeps files. That section is in another repository and needs a human's
-edit; the live index publishes `generation: 2` for both releases today, which
-§4 also still reports as 1.
-
-**Narrowed in build 56, and only for build 56 and later.** This is the shape the wipe has in the builds people are running, so it is written in the present tense on purpose even though build 66 has neither function left. `deleteCatalogDisks(named:)` deletes only the `.img` files the *new* catalog lists, which is the test for whether deleting one is recoverable: a disk the catalog does not name — one imported through Files, one `createNewDisk` made — cannot be fetched back from anywhere, and is kept. The alert says how many of each. Before that, `deleteAllDownloadedDisks()` took every `.img` in `Documents/Disks` regardless.
-
-**The builds in service still read the version attribute, and that is the half of this entry that is still live.** Measured 2026-09-08: the Store serves 1.5.1, which is at most build 61, and build 61 fetches `disks.xml` from the pinned `v1.4.12` — so re-uploading that tag's catalog with a moved `<disks version="13">` reaches every one of those devices with no tap and no download. Earlier 1.5.1 builds are pinned to `v1.4.5` instead — the pin arrived at build 42/43 and moved to `v1.4.12` on 2026-09-03, with `CURRENT_PROJECT_VERSION` at 58 — and everything above is just as true of `v1.4.5`. Older installs are worse rather than gone: 1.4.9 (builds 36/37) is no longer *served*, but it is still on the phone of everyone who has not updated, and it floats on `releases/latest/download/` rather than a tag, so for those a *normal* release fires the wipe immediately. That is why the release order in `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` still governs, and why `--prerelease` on an asset carrier is load-bearing rather than cosmetic. The rules that came out of doing it are in `docs/DISK_W8FIX_RUNBOOK.md`, in the SUPERSEDED block at the top. Every version number in this paragraph is a measurement with a date on it, not a constant: re-derive it with `tools/check-store-version.sh` before relying on it.
-
-**Build 61 adds the refresh the version attribute could never safely provide, and it is deliberately narrower than a wipe.** `DiskLedger.swift` records, per filename, the catalog `<sha256>` that a *verified* download matched. "Superseded" then means *that recorded provenance differs from the catalog's current hash* — a fact about which published image the bytes came from, which local writes cannot change. That is what lets a respun image reach a device that already has the old one without the version attribute moving at all.
-
 The reason it is keyed on provenance and not on the file's own hash is this entry. Comparing installed bytes against the catalog classifies **every disk the user has saved work into** as stale, because `saveDownloadedDisks()` writes the running machine's image back over the file on every warm boot and every backgrounding. An automatic refresh keyed on that comparison would be precisely this entry's hazard, automated and unprompted. So an image proven pristine — its bytes still hash to the provenance recorded for it — may be refreshed automatically, and only on an unconstrained, inexpensive network. Anything else is offered as a button that says in as many words that files saved inside the disk will be lost. An install with no ledger yet cannot prove pristineness either way, and therefore never takes the automatic path.
+
+**The builds in service still read the version attribute, and that is the half of this entry that is still live.** Measured 2026-09-08: the Store serves 1.5.1, which is at most build 61, and build 61 fetches `disks.xml` from the pinned `v1.4.12` — so re-uploading that tag's catalog with a moved `<disks version="13">` reaches every one of those devices with no tap and no download. Earlier 1.5.1 builds are pinned to `v1.4.5` instead — the pin arrived at build 42/43 and moved to `v1.4.12` on 2026-09-03, with `CURRENT_PROJECT_VERSION` at 58 — and everything above is just as true of `v1.4.5`. Older installs are worse rather than gone: 1.4.9 (builds 36/37) is no longer *served*, but it is still on the phone of everyone who has not updated, and it floats on `releases/latest/download/` rather than a tag, so for those a *normal* release fires the wipe immediately. That is why `--prerelease` on an asset carrier is load-bearing rather than cosmetic, and the rules that came out of doing it are in `docs/DISK_W8FIX_RUNBOOK.md`, in the SUPERSEDED block at the top. `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` is where the ordering was first worked out; it now opens "Historical, and nothing here is current as of 2026-09-07", so read it for the reasoning and not for the procedure. Every version number in this paragraph is a measurement with a date on it, not a constant: re-derive it with `tools/check-store-version.sh` before relying on it.
 
 **Still open, and not foreclosed by the narrowing or by build 61:**
 - Copy-on-write: create a local copy when the user first modifies a downloaded disk. This is the only one that helps a user who kept data *in* a catalog disk, which is what the paragraph at the top of this entry is about. Build 61 warns before replacing such a disk and never replaces one unasked; it still cannot preserve the contents.
@@ -214,23 +195,13 @@ Downloaded ROMs live beside the disks under their catalog filenames
 (`emu_avw-v0-3.6.0.rom`), have both size and sha256 checked before every use
 rather than only when downloaded, and are never deleted by the app.
 
-**The other half of the old justification was a filing, and it has been
-rewritten rather than left behind.** `docs/ROM_ATTESTATION.md` accompanies an
-App Store submission, and the entry that stood here cited it as a second reason
-not to remove the ROM, because it named `emu_avw.rom` specifically: it said that
-512 KB file was what the application boots on a first launch and that an
-installed copy was fully functional with no ROM download of any kind. It now
-says the application contains no ROM of its own, carries a "What changed since
-the previous filing" section that says exactly which claims were withdrawn, and
-states that a first launch needs a network. The rights position did not move at
-all — the same bytes are still published as `emu_avw-v0-3.5.1.rom`, and the four
-sha256 values in that document were fetched from the live catalog on 2026-09-08.
-
-What a document cannot do is reach Apple on its own. **The copy filed with the
-previous submission still describes a bundled ROM**, and the rewritten one gets
-in front of a reviewer only with the next build that carries it. That is a
-submission to make, not a reason to put the ROM back: the premise it was kept
-for was false either way.
+`docs/ROM_ATTESTATION.md` was rewritten for build 66 to match — it now opens
+that the application contains no ROM of its own, and carries a "What changed
+since the previous filing" section naming the claims that were withdrawn. The
+rights position did not move: the same bytes are still published, as
+`emu_avw-v0-3.5.1.rom`. Filing it is a submission for a person to make and is
+in `todo.txt`, not a reason to put the ROM back — the premise it was kept for
+was false either way.
 
 ### The first launch after the v0 upgrade, with no network, cannot boot
 
@@ -256,35 +227,6 @@ the two to believe. Removing exactly that is what the v0 interface is for. It
 would also buy less than it looks: a device that has never had a network has no
 disk images either, so the snapshot helps only the narrow upgrade case above,
 and it would pay for it with the thing the interface was built to deliver.
-
-### `tools/check-shipped-disks.sh` answers for this port again
-
-What stood here said the script found no `vX.Y.Z` pin in a migrated client, so
-it reported `MIGRATED` for iOSCPM, skipped it and exited 2 (`CANNOT VERIFY`).
-That has been fixed and re-measured on 2026-09-08. The script now carries a
-`kind` per port and asks migrated ports the v0 form of the question instead:
-does the source still name the v0 index, is the legacy pin really gone, does the
-index still publish the release a bundled ROM declares, and does the built
-artifact name `index-v0.json`. `sh tools/check-shipped-disks.sh` exits 0 and
-prints, for all three:
-
-    ioscpm     v0 index, no bundled ROM - every ROM comes from the catalog
-    cpmdroid   v0 index, no bundled ROM - every ROM comes from the catalog
-    z80cpmw    v0 index, no bundled ROM - every ROM comes from the catalog
-
-Two things about that run are worth knowing before it is quoted as a pass. The
-ROM arm now has nothing to compare in any of the three ports, so that part of
-the gate covers nothing until some port bundles a ROM again — which is why the
-path is still listed in `bundled_rom_of` rather than deleted. And no artifact
-was inspected: the script globs local build outputs, this machine has none for
-any port, and it says so in as many words rather than reporting the artifact
-half as passed.
-
-`CLAUDE.md` no longer tells a reader that bumping the pin means editing
-`releaseTag` in `EmulatorViewModel.swift`; it says there is no `releaseTag` any
-more, that publishing to `romwbw_disks` reaches a shipped client with no app
-release at all, and that what still needs a release is a change to this app's
-own code. The request for a human's edit that stood here is discharged.
 
 ## Releasing
 

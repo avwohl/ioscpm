@@ -172,7 +172,7 @@ run_suite TerminalSelectionTests \
     "$ROOT/iOSCPM/Views/TerminalSelection.swift" \
     "$ROOT/Tests/TerminalSelectionTests.swift"
 
-# The sizes the "New Disk" picker offers, against the rule emu_check_disk_size()
+# The sizes the "New Disk" picker offers, against the rule emu_validate_disk_image()
 # applies. This suite reads the three geometry constants back out of
 # iOSCPM/Core/emu_init.h, so an upstream change to them fails here rather than
 # at a user's file picker.

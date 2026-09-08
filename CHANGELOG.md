@@ -1,5 +1,247 @@
 # Changelog
 
+## Version 1.6.1 (Build 68)
+
+**A documentation build, plus six code and comment fixes.**  Nothing here
+changes what the app does at runtime except one hang, which is the first item
+below.  `MARKETING_VERSION` does not move; `CURRENT_PROJECT_VERSION` goes 67 ->
+68 because build 67's entry records measurements ("Three destinations, no
+errors") of source that this build edits, and folding new code into it would
+leave those measurements describing files that no longer exist.
+
+### A cancelled download hung the app, and it had four triggers rather than one
+
+`waitForDownloadCompletion` polled `downloadStates[filename]` and treated
+`.notDownloaded` as "still in progress, keep polling".  It is not: it means
+"there is no installed file".  Press Play on a slot whose disk is not downloaded,
+then stop that transfer, and the poll recursed every 0.2 s for ever - the
+"Downloading" overlay stayed on screen with no control to dismiss it, and
+`start()` never completed.
+
+The item in `todo.txt` named one trigger, the user's cancel button.  There are
+**four**, and they were found by reading every site that removes a download task:
+`cancelDownload`, the `URLError.cancelled` arm, the refresh deferral that stands
+down on a constrained or expensive network, and the abandonment when the file
+changes under the transfer.  Each removes the task and then recomputes the state
+from the file rather than setting `.error`, deliberately, so that the Settings
+row keeps its hash badge instead of flashing red - which is right for the row and
+fatal for a poll.  The deferral one matters most: it needs no user action at all,
+only a metered connection.
+
+The fix asks the thing that actually knows whether a transfer is alive, which is
+the task.  It is registered synchronously by `downloadDiskFromSettings` before
+the first poll can run, a retry keeps the previous task in the slot for the whole
+1 s delay, and all four paths above remove it - so `downloadTasks[filename] ==
+nil` in that arm means no transfer, and the wait ends with `completion(false)`.
+The caller already clears `isDownloading` and reports the failure.
+
+### A test that could not fail
+
+`Tests/CatalogDocumentTests.swift` put `"default": true` on the 3.5.1 entry,
+which is also `romwbw_versions[0]`.  So every assertion about `preferred()`
+honouring the flagged default passed just as well for a `preferred()` that had
+quietly reverted to taking the first entry offered - the only automated guard on
+which RomWBW release a fresh install lands on could not fail.
+
+The flag moved to the second entry, which is also what the live index has done
+since 2026-09-05, and the four assertions moved with it.  **Verified by mutation
+rather than asserted:** deleting the `default: true` rule from
+`RomWBWIndex.preferred` so that it falls straight through to `offered.first`
+turns 82 passed / 0 failed into 79 passed / **3 failed**.  Before the change the
+same mutation produced no failures at all.
+
+### `emu_check_disk_size()` does not exist, and eight files cited it
+
+The function is `emu_validate_disk_image()`, at `romwbw_emu/src/emu_init.cc:689`.
+`emu_check_disk_size` appears nowhere in the core and never has under that name.
+It was cited in `DiskSize.swift`, `Tests/DiskSizeTests.swift`,
+`Tests/run_tests.sh`, `WIP.md`, `todo.txt`, `KNOWN_PROBLEMS.md` and
+`MANUAL_CHECKS.md` - so `todo.txt`'s own rule, "cite a function name, a symbol or
+a greppable string", was broken in seven files at once by the citation it asks
+for.  All seven now name the real symbol.  `CHANGELOG.md` carries it once more,
+under build 61, and that entry is left as it was written: it is a record of what
+was said at the time, not a live pointer.
+
+`Tests/DiskSizeTests.swift` was never actually broken by this - it reads
+`HD1K_SINGLE_SIZE`, `HD1K_PREFIX_SIZE` and `HD512_SINGLE_SIZE` back out of
+`iOSCPM/Core/emu_init.h` through the symlink and asserts they are readable, so
+the derivation it claims is real.  Only the prose around it named the wrong
+function.
+
+### Three comments and one paragraph that had stopped being true
+
+- `README.md` said a corrected disk, a new disk "or a whole new RomWBW release
+  reaches users without an app update".  The first two do; a whole new release
+  does **not**, and the next sentence in the same paragraph already said why -
+  the picker only offers releases the binary's own core can boot.  `CLAUDE.md`
+  calls this out as the easy mistake to make here, and the README was making it.
+  Narrowed, with `ROMWBW_SUPPORTED_RELEASES` named and the reason given.
+- `showingROMProblem`'s doc comment still said the alert "offers a way out -
+  switching back to the release this app carries a ROM for".  There is no such
+  release: the bundled ROM went in build 66 and the alert has had one OK button
+  since.  This was the last comment in the tree asserting the app carries a ROM,
+  which is exactly the second source of truth `CLAUDE.md` names as the bug.
+- `CatalogDocument.isPreview`'s docstring said "3.6.0 carries this today".
+  romwbw_disks promoted 3.6.0 on 2026-09-05 and the live index has published both
+  releases as `"status": "stable"` since.  The code was always right - it reads
+  the field - so this is a docstring fix, and it now says not to write a release
+  name in there again for the same reason.
+- `KNOWN_PROBLEMS.md`'s "Proper Disk Initialization" was three lines asking for
+  "correct magic numbers for the disk format" without naming any.  They are now
+  named, read out of `emu_check_disk_mbr`: the `0x55 0xAA` signature,
+  `PART_TYPE_ROMWBW = 0x2E`, and the `0x18`/`0xC3` Z80 boot byte.  The entry also
+  now says the thing that makes it a known problem rather than a bug - the core's
+  check is a warning path that deliberately accepts a file with no MBR at all,
+  which is exactly what a created 0xE5 image is.
+
+### WIP.md, from 282 lines to 129
+
+`WIP.md` had become an index of other files, and an index goes stale first.  Its
+opening paragraph announced "seven open items" against a `todo.txt` holding nine,
+and called for "an actual `xcodebuild`, which has never been run on anything past
+build 61" in a tree whose CHANGELOG entry one commit earlier describes the Xcode
+26.6 build of build 67.
+
+Worse, it carried a section headed **"This machine no longer has Xcode - measured
+2026-09-08"**, asserting "There is no `/Applications/Xcode.app` at all", in the
+same commit (342612f) as that CHANGELOG entry.  Both were written by sessions on
+different machines and both were true where they were written, which is precisely
+why neither belongs in a shared repository.  `CLAUDE.md` and
+`KNOWN_PROBLEMS.md`'s "Releasing" entry both already say so - "Whether Xcode is
+present is a property of the machine, and it changes.  Do not record it here" -
+and `WIP.md` was the file doing it.  The section is gone and is not replaced by a
+corrected reading; it is replaced by a paragraph saying the file makes no claim
+either way and pointing at the one command that settles it.
+
+What was moved out: the build 61 and build 66 accounts (already in this file
+under those builds), the release-selection narrative (already in the docstrings on
+`RomWBWIndex.preferred` and `romWBWVersionToKeep`), the host-file-open section
+(already under build 61 and in the comments at the site), the `.xcarchive`
+paragraph measuring files that no longer exist, and the `PlistBuddy`/`cfprefsd`
+traps (already `MANUAL_CHECKS.md` section 16, word for word).
+
+What stayed, because nothing else carries it: the open question about disk sizes
+larger than 8 MB, which `todo.txt` explicitly delegates here; the five view files
+that only `xcodebuild` can compile; the fact that nothing in this repository has
+ever run on physical hardware; and the verification command block, with the
+`xcodebuild` and `simctl` recipes restored rather than deleted for a machine that
+happened not to have them.
+
+One thing was added, because it was recorded here and nowhere else: the iOS-15
+network API surface type-checks at the deployment floor, and **that is a
+measurement rather than a check**.  `grep -c macabi Tests/run_tests.sh` answers 0.
+It is now also an `[ANY]` item in `todo.txt`.
+
+### KNOWN_PROBLEMS.md, from 422 lines to 365
+
+The "Data Loss Risk with GitHub Disks" entry had grown a build-by-build history -
+56, 61, 63, 64, 66 - inside a document whose job is standing facts.  The history
+is in this file under each of those builds; what the entry keeps is the split that
+makes it a standing fact at all: **this tree deletes nothing on a catalog change,
+and the builds users have still do.**  The live half - build 61 fetching
+`disks.xml` from the pinned `v1.4.12`, so a moved `<disks version>` reaches every
+installed device with no tap - is unchanged and still the reason the entry exists.
+
+The `tools/check-shipped-disks.sh` entry is gone entirely: the problem it
+describes was fixed, and the block quoted an output ("no artifact was inspected")
+that this build makes false.  `todo.txt`'s rule that a closed item is deleted
+rather than annotated applies here too.
+
+The reference to `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` as a document that
+"still governs" was corrected: that file now opens "Historical, and nothing here
+is current as of 2026-09-07", so it is cited for its reasoning and not its
+procedure.
+
+### Four repositories got their own work back
+
+`todo.txt` and `KNOWN_PROBLEMS.md` were carrying instructions about other
+repositories.  `z80cpmw/todo.txt` states the rule directly - "Notes about what
+another repository ought to do do not belong here" - and this repo was breaking
+it.  Each item was verified against the target repository before being filed, and
+each carries a line saying it was raised from here:
+
+- **romwbw_disks** - `docs/CATALOG_SCHEMA.md` section 4 describes a client that
+  no longer exists.  It opens "iOS treats a change to this value as an instruction
+  to delete files" and names `checkCatalogVersionAndInvalidate`, the
+  `"catalogVersion"` key and `deleteCatalogDisks(named:)`; none survives build 66.
+  Measured against all three clients: none deletes on a generation bump.  Three
+  numbers in it are a release behind (it says both versions are at generation 1;
+  the live index publishes 2), and one sentence is now false in the client's
+  favour - "iOS stores it under one key `emulatorNvram`", where a simulator
+  container after a 3.6.0 boot holds `emulatorNvram.v0.3.5.1` and
+  `emulatorNvram.v0.3.6.0` side by side.
+- **z80cpmw** - the ioscpm column in `FEATURE_PARITY.md` is read at the shipped
+  commit on purpose and must stay there, but its stated reason ("builds 62-65
+  exist in ioscpm and none has ever been compiled") is no longer why.  They have
+  been compiled; they have not been released.  The fence stays here; the re-read
+  is theirs.
+- **z80cpmw, romwbw_emu and cpmemu** - their copies of `check-shipped-disks.sh`
+  **exit 1 against a family that is entirely correct**, printing `CANNOT READ the
+  RomWBW release out of .../emu_avw.rom` for ROMs every port deleted on purpose.
+  Nothing is red because no repository runs it in CI; what it costs is the gate,
+  which that script's own header warns about in as many words.  Each entry says
+  in capitals not to repair it by guarding the arm, and why - see the next
+  section.  `romwbw_emu`'s existing family-wide entry also claimed the script was
+  "canonical in all five repositories" at one md5; the five copies now have five
+  md5s, and only cpmemu still matches it.
+
+### The ROM check was asking the opposite of the rule
+
+No repository but `romwbw_disks` may carry a ROM.  Measured across all six
+checkouts, that is already true and has been since build 66: **zero `.rom` files
+exist anywhere, tracked or untracked** - not in this repo, not in cpmdroid,
+z80cpmw, romwbw_emu or cpmemu, and not even in romwbw_disks, which publishes them
+as release assets rather than tracking them.  The `.com`, `.bin` and `.hex` files
+that a naive glob finds are a different thing entirely: cpmemu's fifty-odd under
+`tests/` are the Z80/8080 instruction-set vectors (`zexall`, `zexdoc`, `8080exm`,
+run by `tests/run_tests.sh --zex`), and romwbw_emu's one is a CP/M application
+under `archive/`.
+
+What was left behind was the *check*.  `bundled_rom_of()` was a table naming
+where each of three ports "WOULD" keep a ROM, feeding an arm that read the HBIOS
+Configuration Block out of that file and asked whether the v0 index still
+published the release it declared.  Every one of those three paths had been
+deleted, so the arm was dead - and it was kept alive deliberately, in its own
+words: *"keeping the path listed rather than deleting the line is deliberate: it
+means a ROM that reappears at that path gets checked again."*
+
+That is backwards under the rule.  A ROM that reappears is not a case to check;
+it is the violation.  And a table of three paths could only ever catch one that
+came back exactly where the last one was.
+
+So the arm is inverted rather than guarded.  `bundled_rom_of()` and
+`rom_release_of()` are gone.  `roms_in_tree()` asks
+`git ls-files --cached --others --exclude-standard` for any `*.rom` anywhere in
+the checkout - tracked, or untracked and one `git add` from being committed,
+while gitignored build output is skipped because a downloaded ROM under
+`DerivedData` is the catalog working correctly - and a port with one fails,
+with the path named and the reason given.
+
+**This corrects an earlier answer in this same session.**  The first reading of
+the sibling failures was that the copies needed an existence guard,
+`[ -n "$rom" ] && [ -f "$rom" ]`, which is what this repo's copy already had.
+That guard silences the arm without removing it, leaves the dead table in place,
+and would have left all five copies still unable to notice a ROM coming back
+anywhere but those three paths.  The three sibling `todo.txt` entries now say so
+in capitals.
+
+Verified by mutation: planting a 512 KB `.rom` in this checkout makes the script
+name it, explain why it is not allowed, and exit 1; removing it returns exit 0.
+
+### Measured
+
+`sh Tests/run_tests.sh` exits 0 at **21 suites and 1,210 assertions**, none
+failing - the same totals as build 67, since the CatalogDocumentTests change
+moved assertions rather than adding them.  `xcodebuild` for
+`platform=iOS Simulator,name=iPhone 17` reports **BUILD SUCCEEDED** from a clean
+derived-data path, and the resulting `iOSCPM.app` carries `CFBundleVersion 68`
+and `CFBundleShortVersionString 1.6.1`, contains no `.rom`, `.img` or `.dsk`, and
+its only romwbw_disks URL is `catalog-v0/index-v0.json`.
+`plutil -lint iOSCPM.xcodeproj/project.pbxproj` is OK.  `sh
+tools/check-shipped-disks.sh` and `sh tools/check-store-version.sh` both exit 0,
+and the second still reports the Store serving 1.5.1, at most build 61 - which
+this build does not change and nothing here records otherwise.
+
 ## Version 1.6.1 (Build 67)
 
 **BUILT, and RUN.**  Every build from 62 to 66 was written on a machine with no

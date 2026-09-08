@@ -112,7 +112,12 @@ extension RomWBWIndexEntry {
     /// fallback for an index that omits it.
     var displayLabel: String { label ?? "RomWBW \(romwbwVersion)" }
 
-    /// Published as not-yet-recommended. 3.6.0 carries this today.
+    /// Published as not-yet-recommended. **No released entry carries this
+    /// today**: 3.6.0 did until romwbw_disks promoted it on 2026-09-05, and the
+    /// live index has published both 3.5.1 and 3.6.0 as `"status": "stable"`
+    /// since. Do not write a release name in here again - the status is a fact
+    /// about what the index says this minute, and naming one in a docstring is
+    /// the second source of truth CLAUDE.md warns about.
     var isPreview: Bool { normalizedStatus == "preview" }
 
     private var normalizedStatus: String {

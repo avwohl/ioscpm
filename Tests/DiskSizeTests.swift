@@ -6,7 +6,7 @@
 //
 //  `todo.txt` carried "new disks are always 8 MB and the size is hardcoded
 //  twice" from build 51. The obvious fix - offer 8, 16, 32 and 64 MB - would
-//  have produced three images the core refuses: emu_check_disk_size() in
+//  have produced three images the core refuses: emu_validate_disk_image() in
 //  emu_init.cc takes exactly 8388608, or a 1 MB prefix plus a whole number of
 //  8 MB hd1k slices, or a whole number of 8519680-byte hd512 slices, and
 //  16777216 is none of them. So the interesting assertion is not "the picker
@@ -82,7 +82,7 @@ func runAllTests() {
         check(!DiskSize.offered.isEmpty, "the picker offers something")
         for size in DiskSize.offered {
             check(DiskSize.isAcceptableToCore(size.bytes),
-                  "\(size.label) (\(size.bytes) bytes) passes emu_check_disk_size")
+                  "\(size.label) (\(size.bytes) bytes) passes emu_validate_disk_image")
             check(size.bytes <= DiskSize.maxDiskSize,
                   "\(size.label) is within the app's own \(DiskSize.maxDiskSize)-byte ceiling")
             check(size.bytes > 0, "\(size.label) is not empty")
@@ -113,7 +113,7 @@ func runAllTests() {
 
     section("The round numbers a naive picker would have offered") {
         // These are the trap. Each is a plausible menu entry and each produces
-        // an image emu_check_disk_size() refuses.
+        // an image emu_validate_disk_image() refuses.
         check(!DiskSize.isAcceptableToCore(16 * 1024 * 1024), "a round 16 MB image is refused by the core")
         check(!DiskSize.isAcceptableToCore(32 * 1024 * 1024), "and a round 32 MB one")
         check(!DiskSize.isAcceptableToCore(64 * 1024 * 1024), "and a round 64 MB one")
@@ -122,7 +122,7 @@ func runAllTests() {
         check(!DiskSize.offered.contains { $0.bytes == 64 * 1024 * 1024 }, "nor 64 MB")
     }
 
-    section("isAcceptableToCore agrees with emu_check_disk_size on the four shapes") {
+    section("isAcceptableToCore agrees with emu_validate_disk_image on the four shapes") {
         check(DiskSize.isAcceptableToCore(DiskSize.hd1kSingleSize), "one hd1k slice is accepted")
         check(DiskSize.isAcceptableToCore(DiskSize.hd512SingleSize), "one hd512 slice is accepted")
         check(DiskSize.isAcceptableToCore(DiskSize.hd512SingleSize * 6), "six hd512 slices are accepted")

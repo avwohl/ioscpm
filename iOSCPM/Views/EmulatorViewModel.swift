@@ -213,10 +213,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
     @Published var downloadingProgress: Double = 0
 
     /// The ROM for the release in play cannot be used, and the machine is not
-    /// starting. Its own alert rather than showError's, because this one offers
-    /// a way out - switching back to the release this app carries a ROM for -
-    /// and an OK button on its own would leave the user with a Play button that
-    /// refuses and no idea what to do about it.
+    /// starting. Its own alert rather than showError's, because the message has
+    /// to name the release, the file and the way out, and an unadorned error
+    /// would leave the user with a Play button that refuses and no idea what to
+    /// do about it. The button is only OK: this app carries no ROM to fall back
+    /// to, and inventing a substitute would boot a release the user did not
+    /// pick. `romProblemText` carries the two real ways out - a connection, or
+    /// the other ROM this release publishes.
     @Published var showingROMProblem: Bool = false
     @Published private(set) var romProblemMessage: String = ""
 
@@ -2271,7 +2274,28 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 self.downloadingProgress = progress
                 self.waitForDownloadCompletion(filename, completion: completion)
             case .notDownloaded, .none:
-                // Still in progress, keep polling
+                // `.notDownloaded` means "there is no installed file", NOT "a
+                // transfer is still running" - so it cannot be polled on by
+                // itself. FOUR paths remove the task and land here rather than
+                // on `.error`, each recomputing the state from the file so the
+                // Settings row keeps its hash badge instead of flashing red:
+                // `cancelDownload`, the `URLError.cancelled` arm, the refresh
+                // deferral that stands down on a constrained or expensive
+                // network, and the abandonment when the file changes under the
+                // transfer. Polling through any of them left the "Downloading"
+                // overlay up for ever and `start()` never finished, with no
+                // control on screen to dismiss it.
+                //
+                // The task is the thing that actually says whether a transfer is
+                // alive: it is registered synchronously by
+                // `downloadDiskFromSettings` before this poll can first run, a
+                // retry keeps the previous task in the slot for the whole 1 s
+                // delay, and every one of the four paths above removes it.
+                guard self.downloadTasks[filename] != nil else {
+                    self.downloadingProgress = 0
+                    completion(false)
+                    return
+                }
                 self.waitForDownloadCompletion(filename, completion: completion)
             }
         }
