@@ -499,6 +499,142 @@ func runAllTests() {
           "trimmed first, so the stop lands against the text")
     check(CatalogTransfer.sentence("") == "",
           "and an empty reason stays empty rather than becoming a lone full stop")
+
+    runHelpTests()
+}
+
+// MARK: - The help block
+//
+// Cut from the published index, with the sizes and hashes as they are served.
+// Help is a block INSIDE index-v0.json rather than a document beside it, which
+// is what makes the tolerance below load-bearing: a shape this build cannot
+// read shares its document with romwbw_versions, so getting it wrong costs the
+// release list, the ROM and every disk rather than costing a help topic.
+
+let helpIndexJSON = """
+{
+  "schema": "romwbw-disks-index",
+  "interface": "v0",
+  "help": {
+    "base_url": "https://github.com/avwohl/romwbw_disks/releases/download/help-v0/",
+    "topics": [
+      {
+        "id": "quick_start",
+        "filename": "help_quick_start.md",
+        "name": "Quick Start Guide",
+        "description": "Getting started with the emulator",
+        "size": 7387,
+        "sha256": "5948d8f451cc80761c3234caaff8d12cb7c30e7b7b6b4a4ee0f7c86ef2d1486d"
+      },
+      {
+        "id": "cpm22",
+        "filename": "help_cpm22.md",
+        "name": "CP/M 2.2 User Guide",
+        "description": "Complete guide to CP/M 2.2 operating system",
+        "size": 6035,
+        "sha256": "4f457c250b984f37a0468ccf99aa22c9223562f55385da93071e7ad46c9572a7",
+        "future_field": 7
+      }
+    ]
+  },
+  "romwbw_versions": []
+}
+"""
+
+/// Four entries, two usable: one with no id, one with nothing to fetch, and one
+/// that is not an object at all. The last is the reason topics are decoded
+/// through a wrapper that cannot throw - a plain `try?` inside an unkeyed
+/// container does not reliably step past the element that failed.
+let helpRaggedJSON = """
+{
+  "help": {
+    "base_url": "https://example.invalid/help/",
+    "topics": [
+      {"id": "good", "filename": "good.md", "name": "Good"},
+      {"filename": "orphan.md", "name": "No id at all"},
+      {"id": "unreachable", "name": "Neither filename nor url"},
+      3,
+      {"id": "later", "filename": "later.md"}
+    ]
+  },
+  "romwbw_versions": []
+}
+"""
+
+/// `topics` is not an array, so the whole block is unreadable. The release list
+/// beside it must survive that.
+let helpBrokenJSON = """
+{
+  "help": {"base_url": "https://example.invalid/help/", "topics": 3},
+  "romwbw_versions": [
+    {"romwbw_version": "3.6.0", "catalog_url": "https://example.invalid/c.json",
+     "hbios": {"ver_byte": "0x36", "upd_byte": "0x00"}}
+  ]
+}
+"""
+
+func runHelpTests() {
+    let decoder = JSONDecoder()
+
+    section("The help topics are catalog entries in the index")
+
+    guard let index = try? decoder.decode(RomWBWIndex.self,
+                                          from: Data(helpIndexJSON.utf8)),
+          let help = index.help else {
+        check(false, "the published help block decodes")
+        return
+    }
+
+    check(help.ok, "the block is usable")
+    check(help.baseURL == "https://github.com/avwohl/romwbw_disks/releases/download/help-v0/",
+          "one base_url for all of them")
+    check(help.topics.count == 2, "both topics decode, unknown fields and all")
+
+    // Keyed on id, never on position - the rule the schema states for disks[]
+    // and roms[], and it holds here for the same reason.
+    let quickStart = help.topics.first { $0.topicID == "quick_start" }
+    check(quickStart?.filename == "help_quick_start.md", "quick_start names its file")
+    check(quickStart?.name == "Quick Start Guide", "with a display name")
+    check(quickStart?.size == 7387, "a size to check a download against")
+    check(quickStart?.sha256?.count == 64, "and a 64-character sha256")
+    check(help.assetURL(for: "help_quick_start.md")
+            == "https://github.com/avwohl/romwbw_disks/releases/download/"
+             + "help-v0/help_quick_start.md",
+          "a topic URL is base_url + filename, with nothing inserted")
+
+    section("One unusable topic does not take the others with it")
+
+    guard let ragged = try? decoder.decode(RomWBWIndex.self,
+                                           from: Data(helpRaggedJSON.utf8)),
+          let raggedHelp = ragged.help else {
+        check(false, "a ragged block still decodes")
+        return
+    }
+    let usable = raggedHelp.topics.filter { $0.usable }.map { $0.id }
+    check(usable == ["good", "later"],
+          "the entry with no id, the one with nothing to fetch and the one that is not "
+            + "an object are dropped; the other two are kept")
+    check(raggedHelp.ok, "and the block is still usable")
+
+    section("A help block this build cannot read costs help and nothing else")
+
+    // THE POINT of decoding `help` with try?. Before the block existed the
+    // index decoded with no help key at all, and it has to go on doing that;
+    // after it existed, a future shape must not take the release list with it.
+    guard let broken = try? decoder.decode(RomWBWIndex.self,
+                                           from: Data(helpBrokenJSON.utf8)) else {
+        check(false, "an index with an unreadable help block still decodes")
+        return
+    }
+    check(broken.help == nil, "the unreadable block reads as absent")
+    check(broken.romwbwVersions.count == 1,
+          "and the release beside it survives, so the app still has a catalog")
+
+    // An index published before the block existed. The client shows the topics
+    // it shipped with, which is the same thing it does with no network.
+    let noHelp = try? decoder.decode(RomWBWIndex.self, from: Data(indexJSON.utf8))
+    check(noHelp != nil && noHelp?.help == nil,
+          "an index carrying no help block at all is not an error")
 }
 
 @main

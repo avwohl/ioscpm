@@ -218,17 +218,135 @@ extension RomWBWIndexEntry {
 }
 
 /// index-v0.json itself.
+/// One in-app help topic, out of the index's optional `help` block.
+///
+/// **Shaped like a disk or a ROM on purpose.** It carries an `id`, a
+/// `filename`, a `size` and a `sha256` under a shared `base_url`, because that
+/// is what every other asset this catalog publishes carries - and help had been
+/// the one kind of content nothing verified. `size` and `sha256` are optional
+/// for the same reason they are optional on a catalog document: an index that
+/// stops publishing them must degrade to an unchecked download rather than to
+/// no help at all.
+///
+/// `id` and `filename` are optional too, and `usable` is what requires them.
+/// Decoding is where a strict field would be most expensive: help lives inside
+/// the SAME document as `romwbw_versions`, so one malformed topic throwing here
+/// would take the release list with it and leave the app with no catalog.
+struct CatalogHelpTopic: Decodable, Equatable, Identifiable {
+    let topicID: String?
+    let filename: String?
+    let name: String?
+    let topicDescription: String?
+    let size: Int64?
+    let sha256: String?
+
+    enum CodingKeys: String, CodingKey {
+        case topicID = "id"
+        case filename
+        case name
+        case topicDescription = "description"
+        case size
+        case sha256
+    }
+
+    /// Identifiable wants a non-optional id; an entry with none is dropped by
+    /// `usable` before anything can list it, so the fallback is never shown.
+    var id: String { topicID ?? "" }
+
+    /// An entry with an id and something to fetch. Everything else is display
+    /// text that a missing value only makes plainer.
+    var usable: Bool {
+        guard let topicID = topicID, !topicID.isEmpty else { return false }
+        guard let filename = filename, !filename.isEmpty else { return false }
+        return true
+    }
+}
+
+/// The index's `help` block: where the topics live and what they are.
+///
+/// **It is in the index and not in a per-version catalog**, which is the other
+/// place it could have gone. The topics are about CP/M and about the
+/// application, not about RomWBW 3.5.1 versus 3.6.0; putting them in a
+/// per-version catalog would copy them into every release and make fixing a
+/// typo mean re-cutting a 200 MB tag.
+///
+/// **Absent is not an error.** An index published before this block existed has
+/// no `help` key at all, and this app then shows the topics it shipped with,
+/// exactly as it does with no network.
+struct CatalogHelp: Decodable, Equatable {
+    let baseURL: String?
+    let topics: [CatalogHelpTopic]
+
+    enum CodingKeys: String, CodingKey {
+        case baseURL = "base_url"
+        case topics
+    }
+
+    /// Usable when there is somewhere to fetch from and something to fetch.
+    var ok: Bool { !(baseURL ?? "").isEmpty && !topics.filter({ $0.usable }).isEmpty }
+
+    /// `base_url` + `filename`, with NOTHING between them.
+    ///
+    /// The document's `base_url` ends in "/" - that is the field's whole job,
+    /// since the three clients used to disagree about the separator, this one
+    /// by appending a "/" of its own in `didEndElement`. So nothing is inserted
+    /// here and nothing "fixes" a base that lacks one: a base_url without its
+    /// slash is a broken document, and it had better produce a URL that visibly
+    /// fails rather than one that quietly works in this client alone.
+    func assetURL(for filename: String) -> String { (baseURL ?? "") + filename }
+
+    /// Decoded one topic at a time, so a shape this build does not understand
+    /// costs that row and not the list. `topics` failing entirely - `"topics":
+    /// 3`, say - throws, and `RomWBWIndex` catches that so the release list
+    /// survives it.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        baseURL = try? container.decodeIfPresent(String.self, forKey: .baseURL)
+        let wrapped = try container.decode([FailableTopic].self, forKey: .topics)
+        topics = wrapped.compactMap { $0.topic }
+    }
+
+    /// Never throws, which is what makes the array decode survive a bad element
+    /// AND keep its place - a `try?` around a plain `decode` inside an unkeyed
+    /// container does not reliably advance past the entry that failed.
+    private struct FailableTopic: Decodable {
+        let topic: CatalogHelpTopic?
+        init(from decoder: Decoder) throws {
+            topic = try? CatalogHelpTopic(from: decoder)
+        }
+    }
+}
+
 struct RomWBWIndex: Decodable {
     let schema: String?
     let schemaVersion: Int?
     let interface: String?
     let romwbwVersions: [RomWBWIndexEntry]
+    let help: CatalogHelp?
 
     enum CodingKeys: String, CodingKey {
         case schema
         case schemaVersion = "schema_version"
         case interface
         case romwbwVersions = "romwbw_versions"
+        case help
+    }
+
+    /// Written out rather than synthesised for one reason: `try?` on `help`.
+    ///
+    /// The help block shares this document with the release list, so a `help`
+    /// key this build cannot read - a future shape, a truncation, anything -
+    /// must cost the help list and nothing else. With the synthesised
+    /// initialiser it would throw, `fetchIndex` would report the index as
+    /// unreadable, and the app would offer no releases, no ROM and no disks
+    /// because a help topic was malformed.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schema = try container.decodeIfPresent(String.self, forKey: .schema)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
+        interface = try container.decodeIfPresent(String.self, forKey: .interface)
+        romwbwVersions = try container.decode([RomWBWIndexEntry].self, forKey: .romwbwVersions)
+        help = try? container.decodeIfPresent(CatalogHelp.self, forKey: .help)
     }
 }
 

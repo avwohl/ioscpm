@@ -1025,3 +1025,42 @@ this.
       Charles or the console: there must be no `.rom` request.  A fetch on every
       launch would be 512 KB of somebody's data for a file that is already there
       and already verified.
+
+## 21. Help comes from the catalog, on a device
+
+Build 70 pointed `HelpViewModel` at `CatalogMigration.indexURL` and deleted the
+last ioscpm URL in the app.  None of it has been compiled - there was no Xcode
+on the machine that wrote it - so this is a first sighting rather than a
+regression check, and the first thing to establish is that Help opens at all.
+
+- [ ] **The list is the published one.**  Open Help with a network.  Seven
+      topics, and the descriptions are romwbw_disks' wording - "Getting started
+      with the emulator", "Transfer files between host and CP/M".  Open Quick
+      Start: it must begin "The first launch needs a network connection.  The
+      app carries no ROM and no disk image."  The copy this app used to serve
+      said two disk images are automatically selected, so that opening sentence
+      is the whole difference between reading the catalog and reading the old
+      release assets.
+- [ ] **A topic that does not match what the index published is refused.**  With
+      Charles or a local index, serve a topic body of the right length and the
+      wrong content, or edit one byte.  The reader must get the cached or
+      bundled copy, NOT the served one - and the bundled copy is byte-identical
+      to the published text, so tell them apart by making the served body
+      visibly different rather than by reading the wording.
+- [ ] **Airplane mode, twice.**  With help never opened on that install, the
+      seven topics still list and open from the bundle.  Then online once,
+      offline again: the cache answers.  The cached index is written in this
+      app's own shape rather than as the bytes that arrived, so this is the
+      check that the re-encode round-trips.
+- [ ] **A custom index moves help with it.**  Point the catalog index setting at
+      another index and reopen Help: it must read that index's `help` block,
+      and its cache must land beside the default one rather than on top of it -
+      `Caches/help@<tag>` next to `Caches/help`.  Clear the field and the
+      original topics come back.
+- [ ] **An index with no help block, and one with a broken block.**  Serve an
+      index whose `help` key is absent: the app falls back to its bundled
+      topics and the release picker still works.  Then serve one where `help`
+      is malformed - `"topics": 3` - and confirm the RELEASE LIST still loads.
+      That is the whole point of decoding that key with `try?`, and it is the
+      one failure in this change that would cost the user their catalog rather
+      than their help.

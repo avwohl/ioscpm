@@ -1,5 +1,82 @@
 # Changelog
 
+## Version 1.6.1 (Build 70)
+
+**This app compiles in no ioscpm URL at all now.**  The in-app help was the last
+one.  `HelpViewModel.indexURL` was
+`avwohl/ioscpm/releases/latest/download/help_index.json` - a second index, in
+this app's own release area, in a shape of its own, for the one subsystem that
+had no reason to be special.  It meant a typo fix in a help topic needed an App
+Store release, and it kept whichever ioscpm release carried the Latest flag
+load-bearing for as long as any install existed.  `MARKETING_VERSION` does not
+move; the build number does, because build 69's entry describes an app that
+fetches help from here.
+
+The topics are a `help` block inside `index-v0.json` now, beside the RomWBW
+releases - `base_url` plus an `id`, a `filename`, a `name`, a `size` and a
+`sha256` per topic, the same shape `disks[]` and `roms[]` already had.  So a
+fetched topic is checked against what the catalog published, and romwbw_disks can
+re-cut, rename or move its help tag with no release on any platform.  cpmdroid
+1936bab and z80cpmw did this first; this is the third and last client.
+
+It reads from `CatalogMigration.indexURL`, the same document the disk catalog
+already reads, so `ROMWBW_INDEX_URL` and the catalog index setting move help with
+them: a device pointed at a test catalog reads that catalog's help, and a fork
+gets its own for free.  The help cache directory takes
+`CatalogMigration.indexScope` for the same reason the disks do - two catalogs
+publish different bytes under the same topic filenames - and that scope is empty
+for the default index, so the path does not move for anyone who has not asked for
+it to.
+
+### The tolerance this needed, and why it is not optional
+
+Help shares a document with `romwbw_versions` now.  A strict decode of the block
+would therefore throw for the whole index, `fetchIndex` would report it
+unreadable, and the app would offer no releases, no ROM and no disks **because a
+help topic was malformed**.  So `RomWBWIndex` gets a written-out `init(from:)`
+whose only job is `try?` on that one key, `CatalogHelpTopic` makes `id` and
+`filename` optional with a `usable` filter rather than requiring them, and
+`CatalogHelp` decodes topics through a wrapper that cannot throw - a plain `try?`
+inside an unkeyed container does not reliably step past the element that failed.
+
+That is deliberately looser than `RomWBWIndexEntry.payloadProblem`, which refuses
+a catalog document carrying no `catalog_sha256`.  That gate stands in front of a
+512 KB ROM and 49 MB of disk images; a help topic is a few kilobytes of text that
+is rendered and never executed, and the legacy document carries no hashes at all,
+so refusing on that basis would leave a reader with no topics rather than
+unverified ones.
+
+### Two defects found on the way
+
+- **A body that was not an index ended the search.**  The parse failure reported
+  itself and never consulted the cache or the bundle, although the same function
+  reaches them from its network-error, non-200 and empty-body arms.  A truncated
+  response and a 404 are the same thing to a reader.
+- **A topic that failed to decode as UTF-8 did the same.**  Now it falls back
+  like every other failure here.
+
+### The bundled copies moved in 83d68b1
+
+`release_assets/` now holds the seven rewritten topics, byte-identical to what
+the catalog publishes.  They are still the last tier, behind the cache, and this
+build is the one that makes the tier above them correct again: until now the
+bundled text was NEWER than what this app downloaded, which is the inversion
+83d68b1's own message flagged.
+
+### Not compiled
+
+There is no Xcode on this machine, and no Swift toolchain at all.  What that
+leaves: `Tests/CatalogDocumentTests.swift` gains a help section - the published
+block, a ragged one where the entry with no id, the entry with nothing to fetch
+and an entry that is not an object are dropped while the other two survive, and
+an index whose help block is unreadable proving the release beside it still
+decodes.  Those run under `Tests/run_tests.sh` on a Mac and were written, not
+run.  The shorthand `if let x,` form is deliberately not used anywhere in the
+change, because the project is `SWIFT_VERSION = 5.0` and nothing else in the tree
+uses it.
+
+`HelpView.swift` itself reached no compiler and no device.
+
 ## Version 1.6.1 (Build 69)
 
 **The catalog index can be pointed somewhere else.**  `MARKETING_VERSION` does
