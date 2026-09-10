@@ -14,7 +14,7 @@ QP/M (Quick P/M) was developed by MICROCode Consulting as an enhanced alternativ
 
 ## Getting Started
 
-1. Download the "QPM" disk image in Settings
+1. Download the "QPM" disk image in Settings (on Android, stop the emulator first - Settings will not open while it is running)
 2. At the boot prompt `Boot [H=Help]:`, type the unit number of the disk and press Enter. Units 0 and 1 are the RAM and ROM memory disks, so the first attached hard disk is unit `2`.
 3. You'll see the familiar `A>` prompt
 

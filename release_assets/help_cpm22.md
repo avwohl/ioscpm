@@ -6,10 +6,12 @@ This guide covers using CP/M 2.2 in the emulator.
 
 ### First Boot
 
-1. Open the app and go to **Settings**
-2. Scroll to **Download Disk Images** and download "CP/M 2.2" (or "Combo" for more software)
+1. Stop the emulator if it is running, then open **Settings**. On Android Settings will not open while the emulator runs - it answers "Stop emulator before changing settings" and does nothing else
+2. Open the disk catalog (on Android, **Browse Disk Catalog**, or **Select disk** beside a disk slot) and download "CP/M 2.2", or "Combo" for more software
 3. Return to the main screen and start the emulator
-4. At the boot prompt `Boot [H=Help]:`, type the unit number of the disk and press Enter. Units 0 and 1 are the RAM and ROM memory disks, so the first attached hard disk is unit `2`.
+4. At the boot prompt `Boot [H=Help]:`, type the unit number of the disk and press Enter. Units 0 and 1 are the RAM and ROM memory disks, so the first attached hard disk is unit `2`. Typing `0` answers `*** No system image on disk`.
+
+The Combo image is downloaded into disk slot 0 on first launch - the catalog marks it as the default for that slot - so a fresh install can skip to step 3 and type `2` there.
 
 You'll see the CP/M prompt:
 
@@ -259,7 +261,7 @@ CP/M disk images are stored in the app's own data folder on the host. Any files 
 
 ### Multiple Disks
 
-You can have up to 4 disk units loaded. Use Settings to assign different disk images to different units.
+You can have up to 4 disk units loaded. Use Settings to assign different disk images to different units (stop the emulator first on Android).
 
 ## Common Tasks
 

@@ -20,6 +20,12 @@ This copies `MYFILE.TXT` from the host into the current CP/M drive. Give the
 name of a file that is already in the folder for your platform — R8 reports an
 error if it cannot find that name, and never substitutes another file.
 
+Android has one exception, and it is not a fallback for a name you typed: an
+`R8` with no name at all sends the app no name, the app reads that as no
+preference, and it hands over one of the files already sitting in **Imports**.
+Which one is whatever order the filesystem returns, not the first
+alphabetically, so type the name you mean unless you truly do not care.
+
 ## W8 - Write to Host
 
 Sends a file out from CP/M to the host.
@@ -35,6 +41,11 @@ A>W8 OUTPUT.TXT
 ```
 
 This copies `OUTPUT.TXT` from the current CP/M drive out to the host.
+
+On Android, W8 prints the full host path it wrote to and the app raises a
+**W8: Saved ...** toast naming the file. Read the path: it is the one place the
+Exports folder is spelled out on the device itself, and the folder is not one
+the stock Files app will show you.
 
 ## Folder Locations
 
@@ -69,6 +80,23 @@ Android 11 and later hide `Android/data` from the stock Files app, so that app
 cannot browse there no matter how you navigate. Reach the folders with a
 third-party file manager, over USB in MTP mode, or with `adb push` and
 `adb pull`.
+
+The app has its own view of both folders, and it is the way round all of that:
+the **File transfer** button in the toolbar lists what is in Imports and
+Exports, imports a file with a picker, and saves or shares an exported one out
+to anywhere on the device. CPMDroid is also a share target, so another app can
+send it a file directly. An imported name is rewritten to something CP/M can
+address - `My Long Archive.tar.gz` becomes `my-long-.gz`, and the app tells you
+which name it got.
+
+Staging files by hand still works. A copyable form of the last one:
+
+```
+adb pull /storage/emulated/0/Android/data/com.awohl.cpmdroid/files/Exports/OUTPUT.TXT
+```
+
+To import that way, put the file into the matching **Imports** folder, then run
+`R8 FILENAME.EXT`.
 
 ### Windows
 There is no Imports/Exports split. One flat data folder holds the disk images

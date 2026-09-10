@@ -17,7 +17,7 @@ ZSDOS is a drop-in replacement for the CP/M 2.2 BDOS (Basic Disk Operating Syste
 
 ## Getting Started
 
-1. Download the "ZSDOS" disk image in Settings
+1. Download the "ZSDOS" disk image in Settings (on Android, stop the emulator first - Settings will not open while it is running)
 2. At the boot prompt `Boot [H=Help]:`, type the unit number of the disk and press Enter. Units 0 and 1 are the RAM and ROM memory disks, so the first attached hard disk is unit `2`.
 3. You'll see the familiar `A>` prompt
 
@@ -134,7 +134,7 @@ For most users, ZSDOS offers the best balance of compatibility and features. If 
 
 ### Using with Other Disks
 
-ZSDOS can read/write all CP/M 2.2 format disks. Attach a games or applications disk as another unit in Settings, then switch to one of its drive letters - the drive map printed at boot shows which letter each slice got:
+ZSDOS can read/write all CP/M 2.2 format disks. Attach a games or applications disk as another unit in Settings (stop the emulator first on Android), then switch to one of its drive letters - the drive map printed at boot shows which letter each slice got:
 
 ```
 A>G:

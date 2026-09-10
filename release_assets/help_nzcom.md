@@ -14,7 +14,7 @@ NZCOM provides ZCPR3 features as a loadable system that runs on CP/M 2.2:
 
 ## Getting Started
 
-1. Download the "NZCOM" disk image in Settings
+1. Download the "NZCOM" disk image in Settings (on Android, stop the emulator first - Settings will not open while it is running)
 2. At the boot prompt `Boot [H=Help]:`, type the unit number of the disk and press Enter. Units 0 and 1 are the RAM and ROM memory disks, so the first attached hard disk is unit `2`.
 3. Run NZCOM to load the Z-System:
    ```
