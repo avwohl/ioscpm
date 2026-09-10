@@ -1,0 +1,83 @@
+name: Help assets
+
+# WHAT THIS ASKS. Do the help topics bundled into the app still match the ones
+# the catalog publishes?
+#
+# release_assets/*.md is the offline floor under the help system: the Xcode
+# project bundles this directory into the app, and z80cpmw's .rc compiles the
+# same files in from this checkout at build time. One directory, two ports.
+# Neither tree can answer this on its own, because the answer is not in either
+# tree - it is in avwohl/romwbw_disks' published index.
+#
+# It has already gone stale once. romwbw_disks 5ac4afe rewrote all seven
+# topics; these copies stayed as they were until somebody noticed and restored
+# them by hand in 83d68b1. That restore recorded having "checked rather than
+# assumed" - by hand, once. This is the same question asked on a schedule.
+#
+# SCHEDULE, not just push, for the same reason store-version.yml gives: the
+# catalog moves without anybody committing here. That IS the failure mode, so
+# the daily run is the point and the push trigger is a convenience for the
+# files that carry the copies.
+#
+# WHAT IT DOES NOT COVER. HelpView fetches from the catalog and verifies each
+# topic's sha256 itself (9fd1841), so the downloaded path is already checked at
+# run time. This is only about the copy that ships.
+#
+# EXIT CODES, the same three tools/check-store-version.sh uses:
+#   0  the bundled copies match the catalog                 -> green
+#   1  they contradict it                                   -> RED, run the
+#      tool with no --check and commit the refresh
+#   2  could not verify (network, rate limit, a shape)      -> green with a
+#      warning annotation and a NOT VERIFIED line in the summary.
+#
+# Exit 2 does not fail the job, deliberately, and for the reason spelled out in
+# store-version.yml: a gate that goes red every time GitHub hiccups is a gate
+# people learn to ignore. It does not report success either - the annotation
+# says NOT VERIFIED, so a run that never managed to measure is visible rather
+# than silently green.
+
+on:
+  schedule:
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'release_assets/**'
+      - 'tools/check-help-assets.py'
+      - '.github/workflows/help-assets.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out ioscpm
+        uses: actions/checkout@v7
+
+      - name: Compare the bundled help topics with the catalog
+        run: |
+          set +e
+          for attempt in 1 2; do
+            python3 tools/check-help-assets.py --check > out.txt 2>&1
+            rc=$?
+            [ "$rc" != 2 ] && break
+            [ "$attempt" = 1 ] && { echo "could not verify; retrying once"; sleep 20; }
+          done
+          cat out.txt
+          {
+            echo '### Help assets'
+            echo
+            echo '```'
+            cat out.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          case "$rc" in
+            0) echo "the bundled help topics match the catalog" ;;
+            2) echo "NOT VERIFIED - the catalog could not be read" >> "$GITHUB_STEP_SUMMARY"
+               echo "::warning::NOT VERIFIED: could not read the catalog (exit 2)" ;;
+            *) echo "::error::release_assets/ contradicts the help topics the catalog publishes"
+               exit 1 ;;
+          esac
