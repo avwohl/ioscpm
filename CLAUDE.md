@@ -189,3 +189,22 @@ pkill -9 -f "Simulator" 2>/dev/null; pkill -9 -f "simctl" 2>/dev/null; xcrun sim
 ```
 
 Do NOT run these as separate steps - always run as one combined command.
+
+## What is finished but not shipped
+
+`tools/unreleased.sh` reports the gap between written, compiled, submitted and
+released — the distinction `CLAUDE.md`'s "archiving is not uploading" rule is
+about, reported rather than gated. It measures the App Store with
+`check-store-version.sh` and anchors on the commit that first set
+`MARKETING_VERSION` to the served value.
+
+That anchor is the FLOOR of the builds that version covers, so **the list is an
+upper bound**: if Apple served a later build of the same version, some of what
+it reports has already reached users. Over-counting is the safe direction for
+"what might I still owe a user", but it is over-counting. It separates
+`iOSCPM/` (needs a submission) from `release_assets/` (published to the catalog,
+reaches installed clients on their next fetch).
+
+**It is not a gate and must not become one.** No exit 1: 0 even when work is
+unreleased, 2 only when it could not measure.
+
