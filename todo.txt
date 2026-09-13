@@ -266,10 +266,16 @@ number.
 - [ANY] check-store-version.sh sets status=2 for "could not verify" in the
   "WHICH BUILD USERS HAVE COULD NOT BE ESTABLISHED" arm, but the trailing
   `if [ "$status" != 0 ]` collapses every non-zero status to `exit 1`.  So a
-  could-not-verify is reported to CI as a contradicted shipped state - red,
-  where the workflow's own documented contract says exit 2 is a yellow NOT
-  VERIFIED that does not fail the job.  The shallow-checkout false RED fixed in
-  build 67 reached CI through this same arm.
+  could-not-verify is reported as a contradicted shipped state.
+  This used to matter because a workflow turned it red against its own
+  documented contract, and the shallow-checkout false RED fixed in build 67
+  reached CI through this same arm.  The workflow is gone (removed 2026-09-13,
+  store versions are not CI's business), which makes the bug WORSE rather than
+  moot: the script is run by hand now, so its exit code is read by a person who
+  is told "something contradicts the App Store" when the truth is "I could not
+  reach the App Store".  That is the one confusion this script was written to
+  prevent.  Keep the three-way contract: 0 measured, 1 contradicted, 2 could not
+  check.
 
 Open questions
 --------------

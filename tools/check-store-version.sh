@@ -17,6 +17,14 @@
 #
 #   sh tools/check-store-version.sh
 #
+# HOW THIS RUNS: BY HAND.  Nothing schedules this.  A GitHub Actions workflow
+# used to run it daily and mail on failure; it was removed on 2026-09-13,
+# because CI is for building and testing this repository and what a store is
+# serving is neither.  The consequence is the thing to keep in mind: a claim
+# this script would have caught now goes stale silently until somebody runs it.
+# Run it before writing any number down about what users have, and when you do,
+# record the DATE beside the number - that date is the whole of its authority.
+#
 # Exit 0 = measured, and nothing recorded in this tree or its siblings claims a
 #          shipped build the Store does not serve.  The tree being AHEAD of the
 #          Store is normal and is never a failure - you always build before you
@@ -203,8 +211,10 @@ builds=$(awk -v v="$live" '
 # a reader to audit two dozen markers that are all correct.  Measured
 # 2026-09-07: `git clone --depth 1` of this repository, then this script, exits
 # 1 where the same script in the full checkout exits 0 and says "at most build
-# 61".  `.github/workflows/store-version.yml` now asks for full history, and
-# this guard means the script is right even where something does not.
+# 61".  `.github/workflows/store-version.yml` asked for full history, and this
+# guard means the script is right even where something does not.  That workflow
+# was removed on 2026-09-13 - see HOW THIS RUNS at the top - so the guard now
+# earns its keep against a shallow clone made by hand rather than by CI.
 # `git -C "$root"`, not a bare `git`: every other path in this script is
 # deliberately independent of the working directory ($root comes from the
 # script's own location, and $PBX/$CHANGELOG are absolute), and a bare `git` here

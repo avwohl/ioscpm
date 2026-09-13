@@ -14,8 +14,9 @@
 # topics; these copies stayed as they were until somebody noticed and restored
 # them by hand in 83d68b1, which recorded that it had "checked rather than
 # assumed" - by hand, once.  That is the gap this closes.  The catalog moves
-# without anybody committing here, which is the same reason store-version.yml
-# runs on a schedule rather than only on push.
+# without anybody committing here, which is why this runs on a schedule rather
+# than only on push.  (That reason used to cite store-version.yml, removed
+# 2026-09-13.)
 #
 # It does NOT check what the app fetches at run time.  HelpView reads the
 # catalog directly and verifies each topic's sha256 itself (9fd1841), so the

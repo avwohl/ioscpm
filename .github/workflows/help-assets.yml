@@ -14,10 +14,14 @@ name: Help assets
 # them by hand in 83d68b1. That restore recorded having "checked rather than
 # assumed" - by hand, once. This is the same question asked on a schedule.
 #
-# SCHEDULE, not just push, for the same reason store-version.yml gives: the
-# catalog moves without anybody committing here. That IS the failure mode, so
-# the daily run is the point and the push trigger is a convenience for the
-# files that carry the copies.
+# SCHEDULE, not just push, because the catalog moves without anybody committing
+# here. That IS the failure mode, so the daily run is the point and the push
+# trigger is a convenience for the files that carry the copies. (This reason
+# used to be quoted from store-version.yml, which was removed on 2026-09-13 as
+# not being CI's business. This check is a different question - it compares two
+# sets of bytes this repository publishes, not what a store is serving - but it
+# is the same SHAPE, a scheduled external monitor, so if the daily mail is the
+# objection then this is the other one to look at.)
 #
 # WHAT IT DOES NOT COVER. HelpView fetches from the catalog and verifies each
 # topic's sha256 itself (9fd1841), so the downloaded path is already checked at
@@ -30,9 +34,10 @@ name: Help assets
 #   2  could not verify (network, rate limit, a shape)      -> green with a
 #      warning annotation and a NOT VERIFIED line in the summary.
 #
-# Exit 2 does not fail the job, deliberately, and for the reason spelled out in
-# store-version.yml: a gate that goes red every time GitHub hiccups is a gate
-# people learn to ignore. It does not report success either - the annotation
+# Exit 2 does not fail the job, deliberately: a gate that goes red every time
+# GitHub hiccups is a gate people learn to ignore.  (The reasoning was spelled
+# out in store-version.yml, which is gone; it is restated here so it does not
+# leave with it.) It does not report success either - the annotation
 # says NOT VERIFIED, so a run that never managed to measure is visible rather
 # than silently green.
 
