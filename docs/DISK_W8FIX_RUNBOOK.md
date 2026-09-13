@@ -75,6 +75,41 @@ concluding that a rule was broken.
    `latest/download/hd1k_combo.img` hashes `89b8ae1a…`, matching the catalog;
    `latest/download/help_index.json` matches the repo.
 
+### 2026-09-13: the seven help topics, again
+
+The same operation as the 2026-09-04 section below, for the same reason, and it
+is recorded here because "the help set on v1.4.12 is current" has now been false
+twice.
+
+All seven `help_*.md` on `v1.4.12` were stale - every one of them, not just the
+`help_quick_start.md` the todo named. The tree's `release_assets/` copies are
+byte-identical to what `romwbw_disks` publishes in the interface-v0 catalog, so
+the tree was the correct text and the ioscpm release was the laggard. Replaced
+with `gh release upload v1.4.12 --clobber`, seven files.
+
+`help_index.json` was NOT uploaded: it was already byte-identical, and the
+served index carries no hashes or sizes, only id/title/description/filename, so
+a topic can be replaced without it. Re-uploading it would have burned a new
+asset id for no change.
+
+Verified against `repos/avwohl/ioscpm/releases/tags/v1.4.12`: all 21 disk assets
+and `disks.xml` kept their original asset ids and 2026-09-01 timestamps, and
+`help_index.json` kept its id too. Only the seven topics are new.
+
+**The download URL lied for a while, and the API did not.** Immediately after the
+upload the API reported `help_quick_start.md` at 7,387 bytes while
+`releases/download/v1.4.12/help_quick_start.md` still served the old 3,271. That
+is the staleness the section below warns about, and it applies to the TAG url as
+well as the `latest` redirect. Verify against the API first; the bytes catch up.
+Both the tag and the `latest` redirect were re-checked afterwards and all seven
+match the tree.
+
+**Who this reaches.** Builds 67-69 fetch help from
+`releases/latest/download/`, so they get it on their next fetch. Build 70 reads
+help out of the `romwbw_disks` catalog instead, which already had the current
+text - so this upload is what closes the gap for everyone who is not on the
+newest build, and the App Store does not say which build that is.
+
 **Why `--clobber` was used, when the rule above forbids it.** The rule exists to
 stop published *disk* bytes changing under a client pinned to them — the
 retroactive arming that is not undoable. Help is the deliberately floating half:
