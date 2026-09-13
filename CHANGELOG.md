@@ -1,5 +1,115 @@
 # Changelog
 
+## Version 1.6.1 (Build 71)
+
+**The entire source diff of this build is two integers.**  `git diff --stat`
+reports one file, two insertions, two deletions: `CURRENT_PROJECT_VERSION` goes
+70 -> 71 at lines 360 and 400 of `iOSCPM.xcodeproj/project.pbxproj`, Debug and
+Release.  `MARKETING_VERSION` does not move and is still 1.6.1 at lines 379 and
+419, because the build number is the only thing that moves between submissions
+of one version.  No Swift file, no C++ file and no bundled resource differs from
+build 70, so nothing in the app looks or behaves differently to anyone.
+
+The number moves anyway, because a build number here keys a set of measurements
+rather than a diff.  Build 70's entry ends under the heading "Not compiled":
+there was no Xcode on that machine and no Swift toolchain at all, its new tests
+"were written, not run", and "`HelpView.swift` itself reached no compiler and no
+device".  This machine has **Xcode 26.6** (17F113), so build 71 is where that
+code met a compiler, and it was archived twice and uploaded to App Store Connect
+- once for Mac Catalyst and once for iOS.  Folding that into build 70's entry
+would leave one heading making two contradictory claims about one number, which
+is the same reason build 69 moved its own.
+
+### Three commits landed after build 70 and none of them is in a binary
+
+`git diff 9fd1841..HEAD` touches exactly four files: `.gitattributes` from
+2f4b6ad, `.github/workflows/help-assets.yml` and `tools/check-help-assets.py`
+from 3e7c49a, and `tools/check-shipped-disks.sh` as rewritten in b64de1b.  None
+of the four is compiled and none ships in the bundle - a workflow that asks on a
+schedule whether the bundled help topics still match the catalog is in no build
+at all - and none of them took an entry here, which is right: repository tooling
+has never had one.  Build 71 carries exactly the app code build 70 describes.
+
+### The five files no test script can compile have now been compiled
+
+`xcodebuild` under `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
+built the project clean for `platform=iOS Simulator,name=iPhone 17`, for
+`platform=macOS,variant=Mac Catalyst` and for `generic/platform=iOS`.  No errors
+and no compiler warnings in any of the three: the single `warning:` line in each
+log is `appintentsmetadataprocessor` reporting that metadata extraction was
+skipped for want of an `AppIntents.framework` dependency, which is not a
+compiler diagnostic.
+
+That is what this build number is for.  `ContentView.swift`,
+`TerminalView.swift`, `CatalystWindow.swift`, `HelpView.swift` and
+`iOSCPMApp.swift` are compiled by Xcode and by nothing else - `run_tests.sh`
+cannot reach them - and `HelpView.swift` is the file build 70 changed most.
+
+### The reason `run_tests.sh` gives for that list is wrong about one file
+
+Its comment calls them "the five files that DO import UIKit".  `HelpView.swift`
+does not: its imports are `CryptoKit` and `SwiftUI`, and it names no
+`UI`-prefixed type anywhere.  The conclusion holds and the reason does not.
+Type-checking it against the macosx SDK stops at `HelpView.swift:124`, where
+`.listStyle(.insetGrouped)` is unavailable in macOS - one iOS-only API on one
+line is the whole of why that file needs an iOS SDK.  Three of the five do
+import UIKit, `iOSCPMApp.swift` is the `@main` entry point, and `HelpView.swift`
+is there for `.insetGrouped`.
+
+### Measured
+
+`sh Tests/run_tests.sh` exits 0 at **21 suites and 1,244 assertions**, none
+failing - 1,223 at build 69 and 1,210 at build 68 by the same count.  The only
+commit to touch `Tests/` since build 69 is 9fd1841, so all 21 of those new
+assertions are build 70's help block, the one its own entry called written and
+not run.  It has now been run.
+
+The uploaded iOS bundle is 1,369,566 bytes across 16 files, reads
+`CFBundleShortVersionString` 1.6.1 and `CFBundleVersion` 71, and `find` over it
+matches no `.rom`, `.img`, `.bin`, `.com` or `.dsk`: the seven help topics,
+`help_index.json`, `Assets.car`, two icons, the binary, `Info.plist`, `PkgInfo`,
+`embedded.mobileprovision` and `_CodeSignature/CodeResources`, and nothing else.
+`git ls-files` matches none of those five extensions either.
+
+`strings` finds three `https` URLs in that binary: the catalog index at
+`avwohl/romwbw_disks/releases/latest/download/index-v0.json`, and
+`avwohl/ioscpm` and `wwarthen/RomWBW`, which are `Link` destinations in
+`ContentView.swift` and are fetched by nothing.  Build 70's headline - that this
+app compiles in no ioscpm URL at all - is a claim about what it fetches, and a
+`strings` run that turns up the repository link is not a counterexample to it.
+
+`sh tools/check-shipped-disks.sh` exits 0, but read what it checked: the six
+artifacts it found are older builds sitting in `build/`, neither of them an
+archive from today.  It speaks for the tree; the paragraph above speaks for what
+was uploaded.
+
+### Uploaded is not released
+
+Both archives carry a `Distributions` entry with `uploadDestination` App Store,
+`uploadedBuildNumber` 71, and an `uploadEvent` of `state = success` titled
+"Uploaded to Apple" with an empty `errors` array and an empty `warnings` array:
+
+| archive            | architectures      | prepared   | uploaded   |
+|--------------------|--------------------|------------|------------|
+| 4.05 PM (Catalyst) | `x86_64`, `arm64`  | 20:05:34Z  | 20:06:54Z  |
+| 4.07 PM (iOS)      | `arm64`            | 20:07:54Z  | 20:09:35Z  |
+
+That is the whole of it.  An upload is not a submission and a submission is not
+a release, so nothing here may move a field that records what users have.  `sh
+tools/check-store-version.sh` exits 0: the Store serves 1.5.1, released
+2026-09-05, which it maps to at most build 61, and `z80cpmw/FEATURE_PARITY.md`
+carries `shipped:61` to match.  Ten builds ahead of the Store is the normal
+state.  Both binaries were built from a working tree whose only modification was
+that two-line bump, and it was still uncommitted when they were uploaded.
+
+### Not run
+
+Everything above is a compile, an archive or a file inspection.  Nothing here
+observes running software: no simulator was launched for build 71, neither
+archived app was opened, and nothing in this tree has ever run on physical iOS
+hardware.  A build Apple has accepted for processing does not change that - see
+`MANUAL_CHECKS.md` for what only a device answers.
+
 ## Version 1.6.1 (Build 70)
 
 **This app compiles in no ioscpm URL at all now.**  The in-app help was the last
