@@ -278,3 +278,5 @@ Open questions
   0xE5 image over 8 MB.  WIP.md carries the argument on both sides and the reason
   the current code is believed right; MANUAL_CHECKS.md section 12 is the check
   that answers it.
+
+- [MAC] 4 commits touch iOSCPM/ since build 67, unshipped unless Apple served 69 or 70.
