@@ -2,8 +2,8 @@
 # check-store-version.sh - what does the App Store actually serve, and does
 # anything in this tree claim otherwise?
 #
-# WHY THIS EXISTS.  A tick in a feature table, a "shipped" column, a release
-# note and a changelog heading all describe the TREE.  None of them knows what a
+# WHY THIS EXISTS.  A tick in a feature table, a release note and a changelog
+# heading all describe the TREE.  None of them knows what a
 # user can install.  On 2026-09-03 the tree was at build 58 and the Store was
 # serving 1.4.9 - builds 36/37, released 2026-03-19 - so twenty-one builds and
 # six months of true statements about this repository were false statements
@@ -41,7 +41,6 @@ LOOKUP="https://itunes.apple.com/lookup?bundleId=$BUNDLE_ID&country=us"
 
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here" && git rev-parse --show-toplevel 2>/dev/null) || root=$(dirname "$here")
-SRC=$(dirname "$root")
 
 PBX="$root/iOSCPM.xcodeproj/project.pbxproj"
 CHANGELOG="$root/CHANGELOG.md"
@@ -329,40 +328,13 @@ else
 fi
 
 # --- what the siblings claim ships ---------------------------------------------
-# z80cpmw/FEATURE_PARITY.md carries an ioscpm 'shipped:<build>' in its
-# sibling-readings block, and check-sibling-drift.sh scores every tick in the
-# ioscpm column against it.  That field is hand-maintained because no tree knows
-# what a store is serving - this is the measurement it is supposed to be set
-# from.  It failing because the tree is ahead is CORRECT and must not be
-# "fixed" by editing the number.
-fp="$SRC/z80cpmw/FEATURE_PARITY.md"
-if [ -f "$fp" ]; then
-    claim=$(awk '/^ioscpm[[:space:]]/ { for (i = 1; i <= NF; i++)
-                    if ($i ~ /^shipped:/) { print substr($i, 9); exit } }' "$fp")
-    echo
-    if [ -z "$claim" ]; then
-        echo "z80cpmw/FEATURE_PARITY.md  no shipped: field on the ioscpm line"
-    elif [ "$claim" = unknown ]; then
-        echo "z80cpmw/FEATURE_PARITY.md  shipped:unknown - set it from the reading above"
-        status=1
-    elif [ -n "$ceiling" ] && [ "$claim" -gt "$ceiling" ] 2>/dev/null; then
-        echo "z80cpmw/FEATURE_PARITY.md  CLAIMS shipped:$claim, BUT $live cannot be past build $ceiling"
-        echo "  Every tick in the ioscpm column is being scored against software"
-        echo "  no user has.  Set it back to what this script measured."
-        status=1
-    elif [ -n "$floor" ] && [ "$claim" -lt "$floor" ] 2>/dev/null; then
-        echo "z80cpmw/FEATURE_PARITY.md  CLAIMS shipped:$claim, BUT $live starts at build $floor"
-        echo "  This is the stale direction of the same error, and the ceiling"
-        echo "  check above cannot see it.  Users are running something NEWER"
-        echo "  than the claim, so every tick the ioscpm column withholds is"
-        echo "  being withheld from software they already have.  Set it to what"
-        echo "  this script measured."
-        status=1
-    else
-        echo "z80cpmw/FEATURE_PARITY.md  shipped:$claim agrees with what the Store serves"
-    fi
-fi
-
+# NOTHING, ANY MORE.  FEATURE_PARITY.md used to carry a shipped:<build> field per
+# port in its sibling-readings block, and this script compared the store's answer
+# against it - which is how a stale column was caught twice.  The field was
+# removed on 2026-09-13 along with the CI jobs that checked it, because what a
+# store serves is not something a repository can be gated on.  So this script
+# reports the measurement and stops: comparing it with what any document claims
+# is a job for the person reading the output.
 echo
 if [ "$status" != 0 ]; then
     echo "Something records a shipped state the Store does not support."
