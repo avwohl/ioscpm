@@ -279,5 +279,4 @@ Open questions
   the current code is believed right; MANUAL_CHECKS.md section 12 is the check
   that answers it.
 
-- [MAC] Mac Store serves build 72; this tree and origin/main top out at 70 - find that checkout and push it.
 - [ANY] check-store-version.sh brackets builds from CHANGELOG headings; the iTunes lookup carries no build number, so it cannot see a build newer than the tree.
