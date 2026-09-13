@@ -104,15 +104,17 @@ These five need no Xcode and are the floor:
 
     sh Tests/run_tests.sh
     sh tools/check-store-version.sh            # needs the network
-    sh tools/check-shipped-disks.sh            # needs the network
     xcrun --sdk macosx swiftc -parse iOSCPM/Views/*.swift iOSCPM/iOSCPMApp.swift
     plutil -lint iOSCPM.xcodeproj/project.pbxproj
 
-`-parse` covers every Swift file, the five above included, precisely because it
+`-parse` covers every Swift file, the four above included, precisely because it
 is a syntax check and stops before a name has to resolve — which is also the
-whole of what it proves. `check-shipped-disks.sh` reports the tree half and the
-artifact half separately and says in as many words when it inspected no built
-package; a run with nothing built is not a pass of the second half.
+whole of what it proves.
+
+`check-shipped-disks.sh` was a fifth until 2026-09-13. It reported the tree half
+and the artifact half separately and said in as many words when it had inspected
+no built package. It is deleted; whether the image a user downloads carries the
+fixed `r8.com` is now something a person establishes by fetching it.
 
 Where Xcode is present, these reach what the five cannot:
 

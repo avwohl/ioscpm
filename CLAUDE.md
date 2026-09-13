@@ -150,10 +150,11 @@ Three rules follow from it, and each has been broken here at least once:
 
   What still needs a release is a change to this app's own code, and it reaches
   users only through a build that carries the edit *and* that Apple has actually
-  released.  `tools/check-shipped-disks.sh` inspects the
-  built artifact as well as the tree for exactly this reason, and it now checks
-  that the tree names the v0 index rather than grepping for a version pin that
-  no longer exists.
+  released.  `tools/check-shipped-disks.sh` inspected the built artifact as well as the
+  tree for exactly this reason.  It was deleted on 2026-09-13 with the rest of
+  the release-checking tooling, so the distinction it enforced is now one to
+  hold in your head: the tree naming the v0 index is not the same claim as a
+  shipped binary doing so.
 - **Archiving is not uploading.**  Do not report a build as submitted, shipped
   or released on the strength of a clean archive.  See "Releasing" in
   `KNOWN_PROBLEMS.md` for what this machine cannot do.

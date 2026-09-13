@@ -217,10 +217,11 @@ rather than a post-change sanity check.
    `size` and `sha256` are verified against the catalog every time it is used,
    and `loadSelectedResources()` will not start a machine whose ROM image's own
    HCB bytes name a release other than the selected one. The mismatch banner is
-   prevented rather than watched for. `sh tools/check-shipped-disks.sh` is the
-   standing check that no port's tree has drifted from the published catalog —
-   note what it says about packages, since a tree agreeing with the catalog is
-   not a user having the tree.
+   prevented rather than watched for. `sh tools/check-shipped-disks.sh` was the
+   standing check that no port's tree had drifted from the published catalog; it
+   was deleted from all four ports on 2026-09-13. Its warning about packages is
+   the part worth keeping in mind without it: **a tree agreeing with the catalog
+   is not a user having the tree.**
 
 ---
 

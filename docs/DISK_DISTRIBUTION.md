@@ -301,8 +301,9 @@ that fails is fetched again once and then reported; nothing here deletes a ROM.
 and its four `project.pbxproj` references with it; `git ls-files` now matches no
 `.rom`, `.img`, `.bin`, `.com` or `.dsk` at all. ioscpm was the last of the five
 repositories to carry one — cpmdroid and z80cpmw deleted theirs on 2026-09-07 —
-and `sh tools/check-shipped-disks.sh` reads "v0 index, no bundled ROM - every ROM
-comes from the catalog" for all three ports, exit 0.
+and `sh tools/check-shipped-disks.sh` read "v0 index, no bundled ROM - every ROM
+comes from the catalog" for all three ports, exit 0 — the last such run before
+that script was deleted on 2026-09-13.
 
 **The reason it was kept was not true, and this document was one of the places
 that repeated it.** The claim was that the bundled ROM is what makes the app

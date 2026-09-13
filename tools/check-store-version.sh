@@ -10,10 +10,11 @@
 # about the product.  The gap is normal; asserting it away is not.  This
 # measures the gap instead of inferring it.
 #
-# It is the companion to check-shipped-disks.sh, which asks the same question one
-# layer down: that one checks the image users download, this one checks the app
-# users run.  Neither is answerable from inside the tree, which is why both go
-# out to the network and why both exit 2 rather than 0 when they cannot.
+# It had a companion, check-shipped-disks.sh, which asked the same question one
+# layer down: that one checked the image users download, this one checks the app
+# users run.  It was deleted on 2026-09-13 and this is what is left.  Neither was
+# answerable from inside the tree, which is why this goes out to the network and
+# why it exits 2 rather than 0 when it cannot reach it.
 #
 #   sh tools/check-store-version.sh
 #
