@@ -121,13 +121,16 @@ sh tools/check-store-version.sh
 
 Three rules follow from it, and each has been broken here at least once:
 
-- **Do not move a "shipped" field on the strength of a submission.**
-  `z80cpmw/FEATURE_PARITY.md` carries an ioscpm `shipped:<build>` in its
-  `sibling-readings` block, and `z80cpmw/tools/check-sibling-drift.sh` fails the
-  whole ioscpm column until that number and the tree agree.  **It is right to
-  keep failing.**  Setting it to the tree's build certifies every tick in the
-  column against software nobody can install.  That field is hand-maintained
-  precisely because no tree knows what a store is serving.
+- **Do not write a "shipped" claim on the strength of a submission.**
+  `z80cpmw/FEATURE_PARITY.md` used to carry an ioscpm `shipped:<build>` field
+  that `check-sibling-drift.sh` failed the whole column over until the number and
+  the tree agreed, and **it was right to keep failing**: recording the tree's
+  build certifies every tick in the column against software nobody can install.
+  The field, the check and the script were all removed on 2026-09-13, so the rule
+  now has nothing enforcing it and needs stating instead.  Which build the column
+  was read at is prose under that block.  Submitted is not released, released is
+  not what every user has yet, and the only way to find out is
+  `sh tools/check-store-version.sh` — by hand, since nothing schedules it.
 - **Publishing is not shipping it.**  There is no `releaseTag` in
   `EmulatorViewModel.swift` any more — the app compiles in one index URL and
   reads everything else out of the catalog — so the shape of this rule changed
