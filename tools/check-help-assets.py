@@ -14,9 +14,15 @@
 # topics; these copies stayed as they were until somebody noticed and restored
 # them by hand in 83d68b1, which recorded that it had "checked rather than
 # assumed" - by hand, once.  That is the gap this closes.  The catalog moves
-# without anybody committing here, which is why this runs on a schedule rather
-# than only on push.  (That reason used to cite store-version.yml, removed
-# 2026-09-13.)
+# without anybody committing here.
+#
+# HOW THIS RUNS: BY HAND.  It ran daily from .github/workflows/help-assets.yml
+# until 2026-09-13, when that workflow was removed along with every other job
+# that reached out to a published release.  Nothing schedules it now, so the
+# drift it was written to catch - the catalog republishing a topic while the
+# copies bundled here stay as they were - will go unnoticed until somebody runs
+# this.  Run it before cutting a build that ships help.
+
 #
 # It does NOT check what the app fetches at run time.  HelpView reads the
 # catalog directly and verifies each topic's sha256 itself (9fd1841), so the
