@@ -185,6 +185,36 @@ func runAllTests() {
         check(next.count <= EmulatorProfile.maxNameLength, "and it still fits")
     }
 
+    // The line under "New profile name" in Settings computes exactly these two
+    // calls on every keystroke, to say what pressing Save will actually produce.
+    // Nothing in this repo can drive that view - ContentView.swift needs UIKit -
+    // so this is where the predicate behind the sentence gets checked, and the
+    // sentence is only as true as these are.
+    section("What the Save hint promises, before the tap") {
+        var store = ProfileStore()
+        store.save(sampleProfile("Games"))
+
+        check(EmulatorProfile.sanitized(name: "  Games  ") == "Games",
+              "the hint trims before it compares, so trailing space is not a different name")
+        check(store.uniqueName(basedOn: "  Games  ") == "Games 2",
+              "a name already taken saves under another one - which is what the hint has to "
+                + "say in advance, because Save does it without asking")
+        check(store.uniqueName(basedOn: "Fresh") == EmulatorProfile.sanitized(name: "Fresh"),
+              "and an unused name saves as itself, which is the hint's ordinary case")
+
+        // The one that makes it safe to ask this question from a view body.
+        check(store.names == ["Games"],
+              "asking what a save WOULD produce saved nothing - uniqueName only reads the "
+                + "store, so the hint cannot append a profile per character typed")
+
+        check(EmulatorProfile.sanitized(name: "   ") == "Untitled",
+              "a blank name is not refused downstream, it becomes Untitled")
+        check(ProfileStore().uniqueName(basedOn: "   ") == "Untitled",
+              "and then Untitled 2, Untitled 3 - so ProfileSection's .disabled(trimmedName"
+                + ".isEmpty), and the same test on its .onSubmit, are what keep a Return key "
+                + "on an empty field from manufacturing a pile of them")
+    }
+
     section("The store: bytes in, bytes out") {
         var store = ProfileStore()
         store.save(sampleProfile("Games"))

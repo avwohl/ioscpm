@@ -272,6 +272,33 @@ func runAllTests() {
     check(RomWBWIndex.preferred(among: unflagged, keeping: nil)?.romwbwVersion == "3.6.0",
           "an index with no default at all still selects its first entry")
 
+    check(RomWBWIndex.preferred(among: Array(unflagged.reversed()), keeping: nil)?
+            .romwbwVersion == "3.7.0",
+          "and that last rule is order-sensitive, which is the whole reason `preferred` is "
+            + "handed the INDEX order and never the picker's: give it the newest-first "
+            + "order the picker draws and 'the first entry' becomes 'the newest published "
+            + "entry', which is exactly where a beta gets appended")
+
+    // MARK: -
+
+    section("What order the picker draws them in")
+
+    check(RomWBWIndex.displayOrder(offered).map { $0.romwbwVersion } == ["3.6.0", "3.5.1"],
+          "newest published first - the index's last entry is the picker's top row, so a "
+            + "release added to the index is where a hand reaching for this control lands")
+    check(offered.map { $0.romwbwVersion } == ["3.5.1", "3.6.0"],
+          "and the array the decisions read is untouched by that: display order is a "
+            + "separate function precisely so reversing rows cannot reach `preferred`")
+    check(RomWBWIndex.displayOrder(offered).map { $0.romwbwVersion }
+            != offered.map { $0.romwbwVersion },
+          "the two orders really do differ, so neither check above can pass by accident "
+            + "on a list that was already in the order it was being compared against")
+    check(RomWBWIndex.displayOrder([]).isEmpty,
+          "an empty list reorders to an empty list rather than trapping")
+    check(RomWBWIndex.displayOrder([entry351]).map { $0.romwbwVersion } == ["3.5.1"],
+          "and one row is its own order - which is what a first offline launch shows, "
+            + "where the only row is the placeholder for the release in play")
+
     // MARK: -
 
     section("A preview release is marked as one")

@@ -41,6 +41,18 @@ struct ContentView: View {
             || viewModel.showingROMProblem || showingResetConfirm
     }
 
+    /// A flag the terminal screen may only present an alert on while Settings
+    /// is closed.
+    ///
+    /// Reading it through this is what keeps the two views from presenting the
+    /// same alert at once. Writing goes straight through: the OK button on
+    /// SettingsView's copy clears the flag for both, which is right - there is
+    /// one condition, not two, and it has been acknowledged.
+    private func whileSettingsClosed(_ flag: Binding<Bool>) -> Binding<Bool> {
+        Binding(get: { flag.wrappedValue && !showingSettings },
+                set: { flag.wrappedValue = $0 })
+    }
+
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
@@ -320,12 +332,30 @@ struct ContentView: View {
             // showError() put up nothing at all. Measured, not deduced: build 56's
             // catalog-invalidation alert fired and no alert appeared, while the
             // manifest warning on the same screen worked. The newer API stacks.
-            .alert(viewModel.errorTitle, isPresented: $viewModel.showingError) {
+            //
+            // All three are ALSO declared on SettingsView, and that is what
+            // `whileSettingsClosed` is for. They bind the same three @Published
+            // flags, so with Settings up as a full-screen cover both views tried
+            // to present the same alert - and an alert presented from the root
+            // takes the cover down with it. Measured on 2026-09-11: pressing
+            // "Use This Catalog" on a URL that does not resolve put up "Could
+            // not fetch the list of RomWBW releases" AND threw the user out of
+            // Settings onto the terminal screen. SettingsView's own copy already
+            // said "whichever view is on top has to be the one that can present
+            // it"; nothing had ever stopped the one underneath from trying too.
+            //
+            // Reachable before this, but rare - the fetch it reports ran at
+            // launch. Enabling "Use This Catalog" made a failing fetch something
+            // the user asks for on purpose, which is what turned a corner into
+            // the ordinary way to use the control.
+            .alert(viewModel.errorTitle,
+                   isPresented: whileSettingsClosed($viewModel.showingError)) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(viewModel.errorMessage)
             }
-            .alert("ROM Not Available", isPresented: $viewModel.showingROMProblem) {
+            .alert("ROM Not Available",
+                   isPresented: whileSettingsClosed($viewModel.showingROMProblem)) {
                 // One button, and it says nothing more than OK, because there is
                 // nothing more this app can offer. It used to carry a "Use
                 // RomWBW 3.5.1" escape backed by a bundled ROM; that ROM is gone
@@ -336,7 +366,8 @@ struct ContentView: View {
             } message: {
                 Text(viewModel.romProblemMessage)
             }
-            .alert("Disk May Be Overwritten", isPresented: $viewModel.showingManifestWriteWarning) {
+            .alert("Disk May Be Overwritten",
+                   isPresented: whileSettingsClosed($viewModel.showingManifestWriteWarning)) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file.")
@@ -542,6 +573,31 @@ struct SettingsView: View {
     /// Why the last attempt to apply one was refused, if it was.
     @State private var catalogIndexError: String?
 
+    /// One line of guidance under a control, in the shape every "why can I not
+    /// use this" sentence in Settings should take: caption, secondary, full
+    /// width so it reads as a row rather than a stray word, and phrased as
+    /// something to DO. A reason that only names the condition leaves the user
+    /// exactly as stuck as silence does, so the sentence has to end in an
+    /// action.
+    /// True when "Use Built-In" genuinely has nothing to do: the built-in
+    /// catalog is already in use AND nothing is typed in the field.
+    ///
+    /// One property, read by both the button's `.disabled` and the caption that
+    /// explains it, so the two cannot drift apart. That drift is the whole
+    /// defect this section was reported for - a control that was off for a
+    /// condition no sentence on screen covered.
+    private var useBuiltInHasNothingToDo: Bool {
+        !viewModel.usingCustomCatalogIndex
+            && catalogIndexDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func catalogHint(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     var body: some View {
         NavigationView {
             Form {
@@ -657,7 +713,15 @@ struct SettingsView: View {
                 // and comes back on switching back.
                 Section(header: Text("RomWBW Release")) {
                     Picker("Release", selection: $viewModel.romwbwVersion) {
-                        ForEach(viewModel.romwbwVersions) { entry in
+                        // Newest published first, by index position alone - see
+                        // `RomWBWIndex.displayOrder`. The view model keeps the
+                        // index's own order for everything that decides which
+                        // release to be on, so a preview appended to the index
+                        // shows up at the top of this menu without becoming
+                        // what a fresh install selects. Order here is a display
+                        // choice and nothing more: the Picker matches its
+                        // selection by tag, not by row position.
+                        ForEach(viewModel.romwbwVersionsNewestFirst) { entry in
                             // pickerLabel carries the status, so a preview
                             // release says so where the choice is made rather
                             // than in a note further down the screen.
@@ -709,23 +773,70 @@ struct SettingsView: View {
                         }
                     }
 
+                    // A bare TextField in a Form draws no border, and `.caption`
+                    // grey is exactly what the four prose rows around it look
+                    // like - so the one editable control in this section read as
+                    // another line of explanation, with a greyed-out button on
+                    // either side of it as apparent proof the whole section was
+                    // off. Measured, not guessed: on 2026-09-11 a tap on this
+                    // row in the simulator was reported as landing on a disabled
+                    // control, and only a second tap further right found the
+                    // caret. `.roundedBorder` is what the key-binding fields at
+                    // "Customize Keys" already use, and in a Form it is the only
+                    // thing that says a row is typable.
                     TextField("Built-in catalog", text: $catalogIndexDraft)
-                        .font(.caption)
+                        .font(.system(.caption, design: .monospaced))
+                        .textFieldStyle(.roundedBorder)
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
                         .keyboardType(.URL)
+                        .submitLabel(.go)
+                        // Return applies it too. `applyCatalogIndexURL` carries
+                        // the same two refusals this field's `.disabled` does,
+                        // so a hardware Return cannot get past a guard the
+                        // button honours.
+                        .onSubmit {
+                            // The button's guard, repeated: a keyboard does not
+                            // consult a button's disabled state, and the field
+                            // stays typable during a fetch so that a URL can be
+                            // got ready while one is in flight.
+                            guard !viewModel.catalogLoading else { return }
+                            catalogIndexError = viewModel.applyCatalogIndexURL(catalogIndexDraft)
+                        }
                         .disabled(viewModel.isRunning
                                   || viewModel.catalogIndexURLIsFromEnvironment)
 
+                    // Every state this section can be greyed in, said on screen
+                    // and said as an INSTRUCTION.
+                    //
+                    // The rule is that a stopped emulator can always set the
+                    // catalog, and anything that is off anyway owes the user the
+                    // sentence that turns it on. The third branch is the one
+                    // that was missing, and it is the ordinary resting state of
+                    // a fresh install - stopped, built-in catalog, no env var -
+                    // so the only screen that explained nothing was the screen
+                    // everybody starts on. The other two branches render only
+                    // when their condition holds, which is why the section could
+                    // look most disabled while saying least.
                     if viewModel.catalogIndexURLIsFromEnvironment {
-                        Text("ROMWBW_INDEX_URL is set for this launch and wins over "
-                             + "anything set here.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        catalogHint("ROMWBW_INDEX_URL is set for this launch and wins over "
+                                    + "anything set here. To type a catalog in, relaunch "
+                                    + "without it - clear it from the scheme's environment "
+                                    + "variables in Xcode, or drop SIMCTL_CHILD_ROMWBW_INDEX_URL "
+                                    + "from the simctl launch.")
                     } else if viewModel.isRunning {
-                        Text("Stop the emulator to change the catalog.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        catalogHint("Stop the emulator - Stop on the main screen - and this "
+                                    + "field and both buttons come back.")
+                    } else if viewModel.catalogLoading {
+                        catalogHint("Reading the catalog now. Wait for it to finish - a "
+                                    + "second fetch started on top of this one would race "
+                                    + "it, and whichever answered first would decide.")
+                    } else if useBuiltInHasNothingToDo {
+                        catalogHint("The built-in catalog is already in use and the field is "
+                                    + "empty, so \"Use Built-In\" has nothing to undo and is "
+                                    + "off. Type an index URL and it turns on - either to "
+                                    + "clear what you typed, or to come back here after "
+                                    + "\"Use This Catalog\".")
                     }
 
                     if let error = catalogIndexError {
@@ -735,21 +846,66 @@ struct SettingsView: View {
                     }
 
                     HStack {
+                        // Deliberately NOT disabled when the field matches the
+                        // URL already in use. It used to be, and that single
+                        // clause is why both buttons in this section were grey
+                        // the instant Settings opened, before a key was pressed:
+                        // an empty field equals an empty setting on every fresh
+                        // install. Pressing it on an unchanged URL now means
+                        // "read that index again", which is the right thing to
+                        // offer somebody who has just re-published a
+                        // romwbw_disks release under the same URL with different
+                        // bytes - the case this field exists for. See the guard
+                        // in `applyCatalogIndexURL`, which had to learn to
+                        // re-fetch rather than return early, or enabling this
+                        // would have traded a visibly dead button for an
+                        // invisibly dead one.
+                        // Bordered for the reason ProfileSection's Save button
+                        // is: this row sits directly under a text field, and a
+                        // borderless button that dims to grey text is
+                        // indistinguishable from the field's grey placeholder
+                        // above it. A capsule that dims still reads as a button.
                         Button("Use This Catalog") {
                             catalogIndexError = viewModel.applyCatalogIndexURL(catalogIndexDraft)
                         }
+                        .buttonStyle(.bordered)
+                        // `catalogLoading` too, and the hint above says so.
+                        // `fetchDiskCatalog()` has no in-flight guard, so
+                        // pressing this during the launch fetch would put a
+                        // second index hop in the air beside the first and let
+                        // whichever answered last overwrite the other - and
+                        // before this button was enabled on a fresh install
+                        // there was no way to reach that from the UI at all.
                         .disabled(viewModel.isRunning
                                   || viewModel.catalogIndexURLIsFromEnvironment
-                                  || catalogIndexDraft.trimmingCharacters(in: .whitespaces)
-                                      == viewModel.catalogIndexURLText)
+                                  || viewModel.catalogLoading)
                         Spacer()
+                        // This one stays conditional, and the hint above now
+                        // says why: with the built-in catalog in use there is
+                        // nothing for it to switch back to, and two buttons
+                        // doing the same thing is a worse screen than one button
+                        // and one sentence.
                         Button("Use Built-In") {
                             catalogIndexDraft = ""
                             catalogIndexError = viewModel.applyCatalogIndexURL("")
                         }
+                        .buttonStyle(.bordered)
+                        // Off ONLY when there is genuinely nothing to undo:
+                        // already on the built-in catalog AND nothing typed in
+                        // the field.
+                        //
+                        // `!usingCustomCatalogIndex` alone was wrong, and wrong
+                        // in the state where this button is most wanted. Type a
+                        // URL and do not press Use This Catalog: the catalog in
+                        // use is still the built-in one, so that clause held and
+                        // greyed the button - yet its action is exactly "clear
+                        // the field and go back", which is the one way out of a
+                        // half-typed URL short of selecting the text and
+                        // deleting it by hand.
                         .disabled(viewModel.isRunning
                                   || viewModel.catalogIndexURLIsFromEnvironment
-                                  || !viewModel.usingCustomCatalogIndex)
+                                  || viewModel.catalogLoading
+                                  || useBuiltInHasNothingToDo)
                     }
 
                     // The URL actually in use, whatever its source. Worth
@@ -1010,7 +1166,21 @@ struct SettingsView: View {
             // sheet in between. Empty means "the built-in one", which is what
             // the placeholder says.
             .onAppear {
-                catalogIndexDraft = viewModel.catalogIndexURLText
+                // The stored setting, which is EMPTY for the built-in catalog -
+                // see `catalogIndexURLText`, which is empty on purpose so that a
+                // default moving in a later build reaches this install.
+                //
+                // The exception is a launch under ROMWBW_INDEX_URL. Then the
+                // stored setting is not what is in force, and showing it left
+                // the field reading "Built-in catalog" while "In use:" named the
+                // env URL - two answers to one question, with the misleading one
+                // in the more prominent place. Seen on screen on 2026-09-11.
+                // Safe to show the resolved URL only here: in this state the
+                // field and both buttons are disabled, so there is nothing that
+                // could store it back and freeze this install onto it.
+                catalogIndexDraft = viewModel.catalogIndexURLIsFromEnvironment
+                    ? viewModel.effectiveCatalogIndexURL
+                    : viewModel.catalogIndexURLText
                 catalogIndexError = nil
             }
             .toolbar {
@@ -1446,6 +1616,56 @@ struct ProfileSection: View {
         newProfileName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The name the last save actually used, which is not always the name that
+    /// was typed.
+    @State private var lastSavedName: String?
+
+    /// What the line under the field says: why Save is off, or what pressing it
+    /// will actually produce.
+    ///
+    /// The second half earns its place as much as the first. `saveCurrentProfile`
+    /// does not refuse a name already taken - it saves "Games 2" and returns the
+    /// name it used - and the caller here threw that return value away, so
+    /// typing a name that existed produced a profile under a different name with
+    /// nothing on screen saying so. Saying it before the tap is cheaper than
+    /// explaining it afterwards, and it points at the gesture that does
+    /// overwrite.
+    ///
+    /// Safe to compute on every keystroke: `uniqueName(basedOn:)` only reads
+    /// `profiles`. Tests/EmulatorProfileTests.swift asserts that it saves
+    /// nothing, because a future "reserve this name" variant called from a view
+    /// body would append a profile per character typed.
+    private var saveHint: String {
+        guard !trimmedName.isEmpty else {
+            return "Type a name to save the current ROM, disks, boot string, "
+                + "terminal settings and key map as a profile."
+        }
+        let clean = EmulatorProfile.sanitized(name: trimmedName)
+        let actual = viewModel.profileStore.uniqueName(basedOn: trimmedName)
+        if actual != clean {
+            // NOT "load it and use Update". Update overwrites a profile with
+            // the machine as it stands, but loading one first REPLACES the
+            // machine as it stands - `applyProfile` reassigns the ROM, all four
+            // slots, the boot string, the key map and the terminal settings -
+            // so following that advice destroys the very setup the user is
+            // trying to save. Deleting the old one leaves the current machine
+            // untouched, and the next save then takes the name back.
+            return "\"\(clean)\" is already a profile. This saves as \"\(actual)\" - "
+                + "to reuse the name instead, swipe the old one away in the list above "
+                + "first."
+        }
+        if clean != trimmedName {
+            return "Saves as \"\(clean)\" - a name is cut to "
+                + "\(EmulatorProfile.maxNameLength) characters so it fits the list."
+        }
+        return "Saves as \"\(clean)\"."
+    }
+
+    private func saveNamedProfile() {
+        lastSavedName = viewModel.saveCurrentProfile(named: trimmedName)
+        newProfileName = ""
+    }
+
     var body: some View {
         Section(header: Text("Configuration Profiles")) {
             if viewModel.profileStore.profiles.isEmpty {
@@ -1472,15 +1692,83 @@ struct ProfileSection: View {
                     .foregroundColor(.secondary)
             }
 
-            HStack {
-                TextField("New profile name", text: $newProfileName)
-                    .autocorrectionDisabled(true)
-                    .textInputAutocapitalization(.words)
-                Button("Save Current") {
-                    viewModel.saveCurrentProfile(named: trimmedName)
-                    newProfileName = ""
+            // The field and the button that makes a profile.
+            //
+            // Three things here exist because the field and the button were
+            // reported together as "disabled with no reason given", and only one
+            // of them was ever disabled. The field never was. A bare TextField
+            // in a Form row draws no border, so all it puts on screen is grey
+            // placeholder text beside a button that is grey every time Settings
+            // opens - `newProfileName` is a fresh `@State ""` and this sheet is
+            // rebuilt on each presentation - and grey beside grey reads as "not
+            // for you" rather than "type here".
+            //
+            // `.buttonStyle(.borderless)` is the disk row's fix for the disk
+            // row's reason: inside a Form row the automatic style takes the
+            // whole row as its tap target, so a tap aimed at the field could be
+            // routed to the disabled button and do nothing, silently - which is
+            // indistinguishable from the field being dead.
+            //
+            // And the button now says why it is off. It is off for the most
+            // trivial reason a control can be off, which is exactly the kind a
+            // user cannot guess, because they are looking for a hard one.
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    TextField("New profile name", text: $newProfileName)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled(true)
+                        .textInputAutocapitalization(.words)
+                        .submitLabel(.done)
+                        // Return saves too, but only through the same emptiness
+                        // test the button uses: the keyboard does not consult a
+                        // button's disabled state, and without this Return on an
+                        // empty field saves "Untitled", then "Untitled 2",
+                        // because sanitized(name:) refuses to produce a blank
+                        // name and uniqueName refuses to reuse one.
+                        .onSubmit { if !trimmedName.isEmpty { saveNamedProfile() } }
+
+                    // `.bordered`, not `.borderless`, and the reason is the
+                    // whole point of this row: placeholder text and a disabled
+                    // button label were BOTH grey text with no container, so
+                    // "New profile name" and "Save Current" looked like the
+                    // same kind of thing. They are not - one is a prompt inside
+                    // a field you can type in, the other is a control that is
+                    // unavailable - and an element's KIND and an element's
+                    // STATE must not be carried by the same visual property.
+                    // Grey was carrying both.
+                    //
+                    // Containers settle it on each side. The field's border
+                    // says "text in a box is a field", and a bordered button
+                    // keeps its capsule when it dims, which is what makes a
+                    // disabled control read as a faded button rather than as
+                    // more prose. It also keeps the hit-target fix `.borderless`
+                    // was added for: in a Form row the automatic style takes the
+                    // whole row, and both of these styles scope the tap to the
+                    // button, so a tap aimed at the field reaches the field.
+                    Button("Save Current") { saveNamedProfile() }
+                        .buttonStyle(.bordered)
+                        .disabled(trimmedName.isEmpty)
                 }
-                .disabled(trimmedName.isEmpty)
+
+                Text(saveHint)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                // Said here rather than only in `statusText`: the status line
+                // lives on the terminal screen, behind this full-screen cover,
+                // so a user who saves and keeps working in Settings would
+                // otherwise see no confirmation at all.
+                //
+                // Gated on the profile still EXISTING, not merely on having
+                // saved one. The list it confirms is directly above this line
+                // and is swipe-deletable, so "Saved "Games"." would otherwise go
+                // on asserting a profile that the user had just removed while
+                // looking at it.
+                if let saved = lastSavedName, viewModel.profileStore.names.contains(saved) {
+                    Text("Saved \"\(saved)\".")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
 
             if let current = viewModel.profileStore.lastUsedName {

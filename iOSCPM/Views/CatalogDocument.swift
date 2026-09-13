@@ -414,6 +414,29 @@ extension RomWBWIndex {
         }
         return offered.first
     }
+
+    /// The same releases in the order a PICKER should list them: newest
+    /// published first, which is the index's last entry first.
+    ///
+    /// The reordering is by INDEX POSITION and by nothing else. It does not
+    /// parse "3.6.0", does not compare it with "3.5.1", and does not read
+    /// `status` or `generation`. romwbw_disks appends, so the last entry is the
+    /// newest thing published; comparing version strings would be a second
+    /// source of truth about release order - the index's own order is the
+    /// first - and it is the one that sorts "3.10.0" under "3.6.0" and lifts
+    /// whatever "3.7.0-rc1" happens to sort above.
+    ///
+    /// **This is display order, and only the view may read it.** Everything
+    /// that DECIDES which release to be on reads the index order:
+    /// `preferred(among:keeping:)` above falls back to `offered.first`, so
+    /// handing it this array would redefine "the first entry" as "the newest
+    /// published entry" - and select exactly the preview release that showing
+    /// newest-first is meant to make visible without making it the default.
+    /// A separate function rather than a reversal in place, so that rule has
+    /// somewhere to be written down and somewhere to be tested.
+    static func displayOrder(_ offered: [RomWBWIndexEntry]) -> [RomWBWIndexEntry] {
+        offered.reversed()
+    }
 }
 
 // MARK: - catalog-v0-<ver>.json

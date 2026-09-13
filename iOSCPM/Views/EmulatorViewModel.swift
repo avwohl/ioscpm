@@ -566,6 +566,24 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// offline launch the index never arrives at all.
     @Published private(set) var romwbwVersions: [RomWBWIndexEntry] = []
 
+    /// The rows the picker draws: the same releases, newest published first.
+    ///
+    /// `RomWBWIndex.displayOrder` is where the rule and the reason live, and it
+    /// is a pure function so that `Tests/CatalogDocumentTests.swift` can assert
+    /// the order without a view model - which matters, because this file is
+    /// only ever type-checked by `run_tests.sh` and never instantiated, and
+    /// ContentView.swift has no compiler outside Xcode. Between them that would
+    /// have left row order as a thing nothing but an eyeball could check.
+    ///
+    /// Computed rather than a second `@Published` array: a stored copy would
+    /// have to be kept in step with four assignments to `romwbwVersions` plus
+    /// the placeholder insert in `adoptIndex`, and it would be the one that
+    /// goes stale. SwiftUI re-reads this whenever `romwbwVersions` announces a
+    /// change, which is what makes one stored array enough.
+    var romwbwVersionsNewestFirst: [RomWBWIndexEntry] {
+        RomWBWIndex.displayOrder(romwbwVersions)
+    }
+
     /// Which release is in play. The picker binds straight to this.
     @Published var romwbwVersion: String = EmulatorViewModel.initialRomWBWVersion() {
         didSet {
@@ -3140,7 +3158,28 @@ class EmulatorViewModel: NSObject, ObservableObject {
             UserDefaults.standard.set(trimmed, forKey: CatalogMigration.indexURLOverrideKey)
         }
         catalogIndexURLText = trimmed
-        guard CatalogMigration.indexURL != before else { return nil }
+
+        // An unchanged URL is not "nothing to do". The user pressed a button
+        // that says "use this catalog", and the honest reading of that on a URL
+        // already in use is "read it again" - a romwbw_disks release
+        // re-published under the same URL has the same name and different
+        // bytes, and there is no other way to ask for it from here. This used
+        // to `return nil` and do nothing, which was safe only because the
+        // button was disabled in exactly that case; that disabling is what made
+        // the whole Catalog section look dead on a fresh install, so it went,
+        // and this had to learn what to do when it is pressed.
+        //
+        // Only the fetch runs. Nothing is torn down, because nothing moved:
+        // the teardown below exists because `CatalogMigration.indexScope` is
+        // part of every per-release key and of the Disks directory name, and an
+        // unchanged URL is an unchanged scope. Tearing down here would drop the
+        // live slot bindings and re-derive them from the same keys for nothing.
+        guard CatalogMigration.indexURL != before else {
+            statusText = CatalogMigration.isCustomIndex
+                ? "Re-reading the custom catalog" : "Re-reading the built-in catalog"
+            fetchDiskCatalog()
+            return nil
+        }
 
         debugPrint("[Catalog] index \(before) -> \(CatalogMigration.indexURL)")
 
@@ -3552,6 +3591,34 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// catalog before it ever checks whether anything needs downloading) and
     /// would drop the user's own imported images with it, since
     /// `refreshAvailableDisks()` is the only thing that scans the directory.
+    /// A request for one of the two catalog documents, with the URL loading
+    /// system's own cache taken out of the path.
+    ///
+    /// This app already caches both documents itself - `indexCacheURL` and
+    /// `loadCachedCatalog()` - with staleness rules it can state and fall back
+    /// on when the network is gone. A URLCache underneath that is a SECOND
+    /// cache with different rules, invisible from here, and it can answer a
+    /// fetch with bytes this code has no way to know are old. `downloadSession`
+    /// took exactly this position for every ROM and disk
+    /// (`.reloadIgnoringLocalAndRemoteCacheData`, line 799); the two catalog
+    /// hops were the ones still going through `URLSession.shared` on its
+    /// default policy.
+    ///
+    /// It became load-bearing when "Use This Catalog" learned to re-read a URL
+    /// already in use. The case that button exists for is a romwbw_disks
+    /// release re-published under the same URL with different bytes - and
+    /// `releases/latest/download/index-v0.json` is a redirect to a CDN asset
+    /// served with a positive max-age, so on the default policy the "re-read"
+    /// could be answered from cache and decode the very bytes the user pressed
+    /// the button to get past. A button that promises a fetch has to make one.
+    ///
+    /// Affordable because these are the two SMALL documents: the live index is
+    /// a few KB and the largest published catalog is 15,062 bytes. Every asset
+    /// they point at is hash-checked and downloaded once.
+    private static func uncachedRequest(_ url: URL) -> URLRequest {
+        URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData)
+    }
+
     func fetchDiskCatalog() {
         catalogLoading = true
         catalogFailure = nil
@@ -3566,7 +3633,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         debugPrint("[Catalog] Fetching index: \(Self.indexURL)")
 
-        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+        URLSession.shared.dataTask(with: Self.uncachedRequest(url)) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self = self else { return }
 
@@ -3674,6 +3741,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 // no row matching the picker's selection, and a SwiftUI Picker
                 // whose selection matches no tag renders blank. Put its row back.
                 // The user is still ON this release and will be until they stop.
+                //
+                // `at: 0` is still right and it is now the BOTTOM row, because
+                // the picker reads `romwbwVersionsNewestFirst`. That is where a
+                // release the index has stopped offering belongs: it has no
+                // published position any more, so it must not sit above the
+                // newest release that does. Nothing turns on the position - the
+                // Picker matches its selection by tag - so this row stops the
+                // menu rendering blank wherever it sits.
                 if !romwbwVersions.contains(where: { $0.romwbwVersion == romwbwVersion }) {
                     romwbwVersions.insert(
                         RomWBWIndexEntry.placeholder(romwbwVersion: romwbwVersion), at: 0)
@@ -3705,7 +3780,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         debugPrint("[Catalog] Fetching catalog: \(urlString)")
 
-        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+        URLSession.shared.dataTask(with: Self.uncachedRequest(url)) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self = self else { return }
 

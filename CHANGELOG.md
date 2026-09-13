@@ -1,5 +1,231 @@
 # Changelog
 
+## Version 1.6.1 (Build 72)
+
+**Settings' one new feature did not work, and nothing here could have noticed.**
+Build 69 made the catalog index changeable - the whole point of compiling in
+exactly one URL is that everything else is read from a document at run time, so
+that URL is the one thing worth making settable.  Opened on a fresh install,
+that section showed a line of grey prose, two grey buttons and no explanation of
+either.  It was reported as "Catalog says Use built-in but all the options are
+grey", and the report was right.
+
+`MARKETING_VERSION` does not move.  `CURRENT_PROJECT_VERSION` goes 71 -> 72
+because build 71's entry says its entire source diff is two integers and records
+it as archived and uploaded; 500-odd lines of Swift under that number would make
+that entry permanently false.
+
+### Why "measured on a simulator" missed it
+
+Build 69's entry has a section called **"Measured on a simulator, not asserted"**,
+and it is honest about what it measured: storage scoping.  It launched with
+`SIMCTL_CHILD_ROMWBW_INDEX_URL` set and checked that a visit to another catalog
+wrote beside the user's library rather than over it, which it did.
+
+But `ROMWBW_INDEX_URL` being set is precisely the one condition under which
+`catalogIndexURLIsFromEnvironment` is true and **every control in that section is
+disabled by design**.  The only run that ever exercised this feature ran in the
+only configuration where the feature is switched off.  The storage underneath was
+proved; the controls on top were never pressed.  That is the gap, and it is not a
+gap a compiler can close: `Tests/run_tests.sh` cannot compile `ContentView.swift`
+at all, and `xcodebuild` says a disabled button compiles exactly as well as an
+enabled one.
+
+### The four things wrong, and what each one actually was
+
+**1. The release picker listed the oldest release first.**  The index publishes
+3.5.1 then 3.6.0, `offered` is a `filter` and preserves that, and the `ForEach`
+read it straight - so the newest release was the bottom row and the checked one
+was furthest from the finger.
+
+The reversal is `RomWBWIndex.displayOrder`, and it reverses **by index position
+and by nothing else**.  It does not parse "3.6.0" or compare it with "3.5.1": the
+index's own order is the first source of truth about release order and a version
+comparison would be a second one - the one that sorts "3.10.0" under "3.6.0" and
+lifts whatever "3.7.0-rc1" happens to sort above.
+
+It is a separate function rather than a reversal in place because index order is
+load-bearing four lines away.  `preferred(among:keeping:)` falls back to
+`offered.first` when no entry carries `default: true`, so handing it the picker's
+order would redefine "the first entry" as "the newest published entry" - which is
+exactly where romwbw_disks appends a preview.  A beta can now appear at the top of
+the menu without becoming what a fresh install selects, and
+`Tests/CatalogDocumentTests.swift` pins both halves: `displayOrder(offered)` is
+`["3.6.0", "3.5.1"]`, `offered` is still `["3.5.1", "3.6.0"]`, and
+`preferred(among: unflagged.reversed(), keeping: nil)` answers "3.7.0" - the
+failure the split exists to prevent, asserted rather than described.
+
+**2. Both Catalog buttons were dead on arrival, for a condition nothing said.**
+"Use This Catalog" carried `catalogIndexDraft.trimmed == viewModel.catalogIndexURLText`,
+and on a fresh install an empty field equals an empty setting, so it was grey
+before a key was pressed.  "Use Built-In" carried `!usingCustomCatalogIndex`, true
+whenever the built-in catalog is in use.  The section had two explanatory
+sentences and both of them render only under conditions that were false - so the
+screen said least exactly when it looked most disabled.
+
+The equality clause is gone.  Pressing "Use This Catalog" on the URL already in
+use now means "read that index again", which is the right offer to somebody who
+has just re-published a romwbw_disks release under the same URL with different
+bytes - the case this field exists for.  `applyCatalogIndexURL` had to learn to
+do it: its `guard CatalogMigration.indexURL != before else { return nil }`
+returned success and fetched nothing, which was safe only while the button was
+disabled in that exact case.  Nothing is torn down on that path, because
+`CatalogMigration.indexScope` is a pure function of the URL and an unchanged URL
+is an unchanged scope.
+
+"Use Built-In" is now off only when it has nothing to undo: the built-in catalog
+in use **and** the field empty.  `!usingCustomCatalogIndex` alone was wrong in the
+state where the button is most wanted - type a URL, change your mind, and the one
+control whose action is "clear the field and go back" was greyed out.
+
+**3. A prompt in a field and a disabled button looked the same.**  Reported as
+"one field says 'New profile name', the next 'Save Current'; one is a prompt text
+in a fill-in field, the other a disabled button - but they look the same".
+
+They did, and the rule is that an element's **kind** and an element's **state**
+must not be carried by the same visual property.  A bare `TextField` in a Form
+draws no border, so a placeholder is grey text on the card; a `.borderless` Button
+dims to grey text on the card.  Two meanings, one appearance - and colour alone
+carrying meaning is the thing WCAG 1.4.1 is about.
+
+Containers settle it on both sides, and the measurement is the proof.  The field
+is a hollow rounded rectangle: interior `#FFFFFF`, identical to the card, a 1 px
+`#CCCCCC` hairline, corner radius about 5 pt, text left-aligned.  The button is a
+filled pill: `#E9E9EB` ground, no stroke, corner radius half its 103 px height,
+label centred.  Both are the same height, so height is not the cue.
+
+Worth writing down because it is the point: **the text greys did not change.**
+The darkest placeholder pixel is `(197,197,199)` and the darkest disabled-label
+pixel is `(189,189,191)`, which are still indistinguishable to a reader looking
+only at glyphs.  What separates them now is entirely the grey capsule the dead
+label sits on versus the white box the placeholder sits in - shape and ground,
+not colour.  Enabling the button changes the label to `#0088FF` and leaves the
+capsule exactly as it was, which is what makes a dimmed one read as a button that
+is off rather than as another line of prose.
+
+`.bordered` also keeps the reason `.borderless` was reached for first: inside a
+Form row the automatic button style takes the whole row as its tap target, so a
+tap aimed at the text field could be routed to the disabled button and do nothing.
+
+**4. "Save Current" was grey every time Settings opened, and said nothing.**  It
+is `.disabled(trimmedName.isEmpty)` and `newProfileName` is a fresh `@State ""` on
+each presentation, so the user's first sight of the row is always a dead button.
+The line under it now says why, or - once there is a name - what pressing it will
+produce, which is not always what was typed: `saveCurrentProfile` does not refuse
+a name already taken, it saves "Games 2" and returns the name it used, and the
+caller threw that return value away.
+
+That sentence first said "to overwrite it instead, load it and use Update below",
+which is advice that destroys the thing being saved: `applyProfile` reassigns the
+ROM, all four slots, the boot string, the key map and the terminal settings, so
+loading the old profile is exactly how you lose the machine you were trying to
+keep.  It now says to swipe the old one away first.
+
+### Four more, found by pressing the controls rather than by reading the code
+
+- **The "re-read" could be answered from cache.**  `fetchDiskCatalog` went through
+  `URLSession.shared` on its default policy, while `downloadSession` has set
+  `.reloadIgnoringLocalAndRemoteCacheData` for every ROM and disk since it was
+  written.  `releases/latest/download/index-v0.json` redirects to a CDN asset with
+  a positive `max-age`, so the button added above could have decoded the very
+  bytes the user pressed it to get past.  Both catalog hops now bypass the URL
+  loading system's cache; this app already caches both documents itself, with
+  staleness rules it can state, and a second invisible cache underneath that can
+  only lie to it.  Affordable because these are the two small documents: the live
+  index is a few KB and the largest published catalog is 15,062 bytes.
+- **An alert took the Settings sheet down with it.**  All three alerts are
+  declared on `ContentView` *and* on `SettingsView` and bind the same three
+  `@Published` flags, so with Settings up as a full-screen cover both views tried
+  to present, and an alert presented from the root dismisses the cover.
+  `SettingsView`'s own copy already said "whichever view is on top has to be the
+  one that can present it"; nothing had ever stopped the one underneath from
+  trying.  Reachable before, but rare - the fetch it reports ran at launch.
+  Enabling "Use This Catalog" made a failing fetch something a user asks for on
+  purpose, which turned a corner into the ordinary way to use the control.
+  `whileSettingsClosed` now gates the terminal screen's three.
+- **A second fetch could race the first.**  `fetchDiskCatalog` has no in-flight
+  guard, and before this the button was disabled in exactly the fresh-install
+  state, so there was no way to reach it from the UI at all.  Both buttons are now
+  off while `catalogLoading`, with a sentence saying so.
+- **Under `ROMWBW_INDEX_URL` the field showed the wrong thing.**  It rendered the
+  placeholder "Built-in catalog" while "In use:" named the environment URL - two
+  answers to one question, with the misleading one in the more prominent place.
+  It now shows the URL actually in force.  Safe only there, and only because the
+  field and both buttons are disabled in that state, so nothing can store it back
+  and freeze this install onto a default that a later build is supposed to move.
+
+### The invariant this section now holds
+
+Every `.disabled` condition on either Catalog control has a branch in the hint
+chain that covers it - `isRunning`, `catalogIndexURLIsFromEnvironment`,
+`catalogLoading`, `useBuiltInHasNothingToDo` - and each sentence ends in something
+to DO, because a reason that only names the condition leaves the reader as stuck
+as silence does.  `useBuiltInHasNothingToDo` is one property read by both the
+button and the caption that explains it, so the two cannot drift apart.  That
+drift was the whole defect.
+
+### Measured
+
+`sh Tests/run_tests.sh` exits 0 at **16 suites and 1,248 assertions**, none
+failing - 1,236 before, plus twelve: five on `displayOrder`, one on
+`preferred` handed the reversed order, and six on the predicate behind the
+profile save hint.  Those twelve exist because neither `ContentView.swift` nor an
+instantiated `EmulatorViewModel` can be reached by any test here, so the rules had
+to be moved somewhere that could: a pure function on `RomWBWIndex`, and
+`sanitized`/`uniqueName`, which the caption calls and which the suite now pins as
+read-only - a hint computed on every keystroke must not be able to save anything.
+
+`xcodebuild` under `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
+built clean for `platform=iOS Simulator,name=iPhone 17`, for
+`platform=macOS,variant=Mac Catalyst` and for `generic/platform=iOS`.  No errors
+and no compiler warnings in any of the three; the single `warning:` line in each
+log is `appintentsmetadataprocessor` reporting skipped metadata extraction, which
+is not a compiler diagnostic.
+
+### Measured on a simulator, by pressing the controls
+
+`tools/simdrive.py` drove an iPhone 17 running the build whose own status bar
+reads `v1.6.1.72`.  Seen on screen, not deduced:
+
+- the Release menu lists **RomWBW 3.6.0 above RomWBW 3.5.1**, checkmark on 3.6.0
+- the Catalog field takes a caret; "Use This Catalog" is an enabled capsule and
+  pressing it with the field empty replaced the disk list with a spinner and
+  "Loading disk catalog..." in three consecutive frames 0.28 s, 0.42 s and 0.55 s
+  after the press - the re-fetch is real
+- typing a URL without pressing anything turns "Use Built-In" blue and removes the
+  caption; pressing it empties the field, restores the caption, returns the button
+  to dim and leaves `In use:` on the built-in URL with the real disk list intact
+- a tap on the profile name field focuses the FIELD; typing "T" turns "Save
+  Current" blue with its capsule unchanged; saving adds the row and a
+  `Saved "Test".` line; typing "Test" again reads `"Test" is already a profile.
+  This saves as "Test 2" - to reuse the name instead, swipe the old one away in
+  the list above first.`
+- pressing "Use This Catalog" on an unresolvable URL leaves **Settings open behind
+  the alert**, and OK returns to Settings
+- under `SIMCTL_CHILD_ROMWBW_INDEX_URL` the field shows the environment URL, its
+  interior goes `#FAFAFA` instead of white, taps at two x positions produce no
+  caret, both buttons are dimmed capsules, and taps on them change nothing outside
+  the clock
+
+### Not verified
+
+The in-flight state - both buttons dimmed with "Reading the catalog now" - was
+**not seen**.  Two bursts were fired across the press, one of six frames and one
+of ten; the ten are byte-identical to each other.  `simctl io screenshot` is about
+half a second per frame and the built-in fetch finishes inside that.  The string
+is in `ContentView.swift` and `viewModel.catalogLoading` is in both `.disabled`
+clauses, but it has not been photographed, so it is recorded here as unverified
+rather than as a tick.
+
+`statusText` reading "Re-reading the built-in catalog" was not caught either, for
+a reason in the code rather than in the timing: the completion path ends in
+`restoreDiskSelections()`, whose last line writes "Ready - Press Play to start".
+Its sibling "Re-reading the custom catalog", from the same line, WAS seen on the
+status line when the custom fetch was slow enough to leave it up.
+
+And unchanged from every other entry here: **nothing in this tree has ever run on
+physical iOS hardware.**
+
 ## Version 1.6.1 (Build 71)
 
 **The entire source diff of this build is two integers.**  `git diff --stat`
