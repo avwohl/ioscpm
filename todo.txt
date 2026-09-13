@@ -34,17 +34,27 @@ build.  Tag each item with what it needs, so a session on another machine can
 see at a glance what that machine can take.
 
 
-It is released.  The tree is five builds past it, and compiled at last.
+1.6.1 is released.  Which of its four builds is released is a bracket, not a
+number.
 ----------------------------------------------------------------------
 
-- [RELEASE] 1.5.1 build 61 was submitted on 2026-09-04 for **both iOS and Mac**
-  and was APPROVED.  The Store has served 1.5.1 since 2026-09-05 - measured with
-  tools/check-store-version.sh again on 2026-09-08, and the iTunes lookup's
-  release notes are build 61's: scrollback, select text, copy and paste.  Build
-  61 is what users have.  Builds 62 through 65 were never put in front of a
-  compiler at all, and build 66, which is the first compile of that work, was
-  made on 2026-09-08 - three days after the Store's release date, so it cannot
-  be what shipped either.
+- [RELEASE] **The Store serves 1.6.1, released 2026-09-12** - measured with
+  tools/check-store-version.sh on 2026-09-13.  1.6.1 heads builds 67, 68, 69 and
+  70; unlike the 62-65 case every one of them has been compiled, so the script
+  brackets rather than answers and prints "at most build 70".  Nothing in this
+  repository records which was submitted, because the upload is done by a person
+  and not from here.
+
+  What narrows it is the method this item used to pin build 61: the iTunes
+  lookup's release notes.  They read "Add a setting to load a custom catalog of
+  ROM and disk images", and catalogIndexURL - the key behind that setting - first
+  exists at a68e320, which IS build 69.  So users are on 69 or 70, and 69 is the
+  floor.  If somebody learns which build it actually was, write it here; the
+  bracket is what is known, not a placeholder for laziness.
+
+  The previous entry, superseded: 1.5.1 build 61 was submitted on 2026-09-04 for
+  both iOS and Mac and was APPROVED, the Store served 1.5.1 from 2026-09-05, and
+  the release notes were build 61's - scrollback, select text, copy and paste.
 
   The App Store served 1.4.9, builds 36/37, from 2026-03-19 until 2026-09-05.
   Do not take the new reading from this line either - re-measure with
@@ -61,12 +71,18 @@ It is released.  The tree is five builds past it, and compiled at last.
   1.4.9, which names none, still gets the old bracket.  Exit 2 still means it
   could not check, which is not a pass.
 
-  z80cpmw/FEATURE_PARITY.md's sibling-readings block records `shipped:61` and
-  the column was re-read at af0b9b2, which IS build 61, so that gate is answered
-  and nothing here has to move it.  THE FENCE IS THE POINT: that field must not
-  be cleared by moving `shipped:` above 61, whatever check-sibling-drift.sh
-  reports, because no tree knows what a store is serving.  Re-reading the column
-  itself is a z80cpmw-side job and is in z80cpmw/todo.txt.
+  z80cpmw/FEATURE_PARITY.md's sibling-readings block records `shipped:69` and
+  the column was re-read at a68e320, which IS build 69, so that gate is answered.
+
+  THE FENCE STILL STANDS, and moving the field from 61 to 69 did not breach it.
+  The fence says that field must not be moved on the TREE's evidence, whatever
+  check-sibling-drift.sh reports, because no tree knows what a store is serving.
+  It was moved on the STORE's evidence: check-store-version.sh measured 1.6.1 and
+  went red in the other direction, reporting shipped:61 as behind the floor of
+  what Apple serves - "users are running something NEWER than the claim, so every
+  tick the ioscpm column withholds is being withheld from software they already
+  have".  A measurement moved it and the column was re-read before it moved.  Do
+  not move it again for any other reason.
 
   The upload was done by a person, not from here.  This machine still cannot do
   it - see KNOWN_PROBLEMS.md "Releasing" - so a re-submission is a person with
