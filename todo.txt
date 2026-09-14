@@ -201,6 +201,25 @@ What a released build carries, and what the next one still owes
   is a small job; the value is that raising the deployment floor, or adding an
   API that is newer than it, would then fail here rather than at a user's device.
 
+The index scoping of build 69 does not cover the install itself
+----------------------------------------------------------------------
+
+- [MAC] downloadDiskFromSettings writes a finished download to a LITERAL
+  Documents/Disks, while every reader - isDiskDownloaded, downloadedDiskPath,
+  refreshAvailableDisks, deleteDownloadedDisk, saveDownloadedDisks - goes through
+  downloadsDirectory, which appends CatalogMigration.indexScope.  indexScope is
+  empty for the built-in index, so nothing is wrong there and nothing shows; under
+  a CUSTOM index the two disagree.  The download lands in the default library,
+  refreshAvailableDisks then reports it as not downloaded, and it can overwrite a
+  same-named image the user already had - which is the hazard build 69's own
+  commit message says the scoping exists to prevent.
+  The completion handler is the only place besides downloadsDirectory itself that
+  builds this path by hand; grep the tree for the literal and there are two.
+  Not run, only read: raised on 2026-09-13 from z80cpmw, while re-reading the
+  ioscpm column of its FEATURE_PARITY.md.  Still present at build 72.  The
+  simulator check that shipped with build 69 could not have caught it - it pointed
+  at https://example.invalid, where no download ever completes.
+
 Open questions
 --------------
 
