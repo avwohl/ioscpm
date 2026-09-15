@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### docs/cpm22_user_guide.md was a fork of the published topic, with the errors
+
+321 lines, last touched 2025-12-27, referenced by nothing - no link, no Xcode
+resource, no `.rc` entry. It is an earlier iOS-only fork of what became
+`help_cpm22.md`, and the topic has been corrected since while this copy has
+not. It is not merely dated; it is wrong in the ways that send a reader to the
+wrong drive:
+
+- "CP/M supports drives A through D." The published topic says A through P, and
+  points at the drive map printed at boot.
+- "At the boot menu, press `0` to boot from disk." Unit 0 is the RAM memory
+  disk. Typing `0` answers `*** No system image on disk`; the first attached
+  hard disk is unit `2`.
+- "Slice 1 (B:)" and the worked example `A>B:` / `B>DIR`. B: and C: are the RAM
+  and ROM memory disks, so that lands on neither slice 1 nor anything the user
+  downloaded. The published topic says D: and explains why.
+
+Deleted rather than merged: everything in it that is true is already in
+`help_cpm22.md`, which is the copy that ships in the bundle, is compiled into
+z80cpmw, and is checked against the catalog by `tools/check-help-assets.py`.
+A second guide in `docs/` is a second thing to keep in step, and this one shows
+what happens when nobody does.
+
 **A bundled resource differs from build 72's binary now, which no entry above
 can say.** `release_assets/help_index.json` named
 `https://github.com/avwohl/ioscpm/releases/latest/download/` as its `base_url`.
