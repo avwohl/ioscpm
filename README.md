@@ -61,7 +61,8 @@ Every command is read as a line, so nothing happens until you press Enter.
 - `H` - the full menu
 
 Units 0 and 1 are the on-board RAM and ROM memory disks and carry no operating
-system, so booting `0` answers `*** No system image on disk`.
+system, so booting `0` answers `*** No boot record` on RomWBW 3.6.0 and
+`*** No system image on disk` on 3.5.1.
 
 ### Auto-Boot Configuration
 
@@ -75,9 +76,9 @@ ROMs and disk images come from
 [romwbw_disks](https://github.com/avwohl/romwbw_disks), which publishes one
 catalog per RomWBW release. The app compiles in a single index URL: the index
 lists the releases, Settings' **RomWBW Release** picker chooses among them, and
-every download URL comes from the chosen release's own catalog. Settings also
-has a **Catalog index** field to point the app at a different index entirely;
-each index keeps its own downloads and settings.
+every download URL comes from the chosen release's own catalog. Settings' **Catalog**
+section points the app at a different index entirely; each index keeps its own
+downloads and settings.
 
 Every download is checked against the SHA-256 the catalog gives, and the
 catalog itself against the index's before it is read. The ROM is re-verified
@@ -85,6 +86,13 @@ every time it is loaded, which is a check no disk could survive once the guest
 has written to it. A release whose ROM cannot be fetched does not start: an
 alert names the release and the file rather than quietly substituting another
 release's ROM, which is what leaves RomWBW printing an HBIOS/CBIOS version
+mismatch part-way through a boot.
+
+Each release publishes more than one ROM, and which of them boots is a choice in
+Settings. A release flagged `preview` is marked as one in the picker. When a ROM
+cannot be fetched the app names the release and the file and says what would fix
+it - a connection, or the other ROM that release publishes - rather than falling
+back to another release's ROM, which is what leaves RomWBW printing a version
 mismatch part-way through a boot.
 
 **A new RomWBW release needs a new build.** The picker offers only the releases
