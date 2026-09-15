@@ -1,109 +1,110 @@
 # iOSCPM - CP/M Emulator for iOS and macOS
 
-A Z80/CP/M emulator for iPhone, iPad, and Mac, built on the [RomWBW](https://github.com/wwarthen/RomWBW) HBIOS platform.
+A Z80/CP/M emulator for iPhone, iPad and Mac, built on the
+[RomWBW](https://github.com/wwarthen/RomWBW) HBIOS platform. It ships on the App
+Store as **Z80CPM**; `iOSCPM` is the name of this repository and the Xcode
+target.
 
 ## Features
 
-- **Full Z80 emulation** with accurate instruction timing
-- **RomWBW HBIOS** compatibility for authentic CP/M experience
-- **VT100/ANSI and VT52 terminal** with escape sequence support (runs Zork, WordStar, etc.)
-- **Terminal scrollback** - configurable history (off, or 500, 1000, 2000, 5000, 10000 lines); drag the screen, two-finger trackpad drag or mouse wheel, or Shift+PageUp/PageDown and Ctrl+Home/End on a hardware keyboard
-- **Configurable key map** - WordStar, VT100/ANSI and VT52 profiles for the navigation keys, or per-key custom bindings
-- **Multiple disk support** - up to 4 disk units with hd1k format (8MB slices)
-- **Download the ROM and disk images** on demand, SHA-256 verified - the app bundles neither, so it carries no copyrighted content
-- **Pick your RomWBW release** - the app offers whichever releases the published index lists and the emulator core can run, and new releases, ROMs and disks reach you without an app update
-- **Host file transfer** - R8 and W8 move files between CP/M and the app's Imports and Exports folders; "Import File… (for R8)" stages host files there
-- **Local file support** - open, create, and save disk images
+- **Z80 emulation** with the RomWBW HBIOS interface, for an authentic CP/M
+- **VT100/ANSI and VT52 terminal** with escape sequence support (runs Zork,
+  WordStar, Turbo Pascal)
+- **Terminal scrollback** - off, or 500 to 10000 lines; drag the screen,
+  two-finger trackpad drag or mouse wheel, or Shift+PageUp/PageDown and
+  Ctrl+Home/End on a hardware keyboard
+- **Configurable key map** - WordStar, VT100/ANSI and VT52 profiles for the
+  navigation keys, or per-key custom bindings
+- **Multiple disks** - up to 4 units in hd1k format, 8 MB slices
+- **No ROM and no disk image is bundled.** Both are downloaded on demand from
+  the [romwbw_disks](https://github.com/avwohl/romwbw_disks) catalog and checked
+  against the SHA-256 it publishes
+- **Pick your RomWBW release** - the app offers whichever published releases its
+  own core can boot, and a corrected or newly published ROM or disk reaches you
+  without an app update
+- **Host file transfer** - `R8` and `W8` move files between CP/M and the app's
+  Imports and Exports folders; "Import File… (for R8)" stages host files there
+- **Local file support** - open, create and save disk images
 - **NVRAM boot configuration** - auto-boot settings persist across sessions
-- **Built-in help** - 7 topics covering quick start, R8/W8 file transfer, and the CP/M 2.2, ZSDOS, NZCOM, ZPM3 and QPM disks
+- **Built-in help** - topics published by the catalog, with a bundled set as
+  fallback, covering quick start, R8/W8 transfer and the CP/M 2.2, ZSDOS,
+  NZCOM, ZPM3 and QPM disks
 - **Mac Catalyst** - runs natively on macOS
 
-## Screenshots
+## What Runs On It
 
-The emulator provides a classic 80x25 terminal display with support for:
-- CP/M 2.2, CP/M 3, ZSDOS, ZPM3, NZCOM
-- Text adventures (Zork, Adventure, Hitchhiker's Guide)
-- Productivity software (WordStar, dBASE, Turbo Pascal)
+- CP/M 2.2, CP/M 3, ZSDOS, ZPM3, NZCOM, QPM
+- Text adventures: Zork, Adventure, Hitchhiker's Guide
+- Productivity software: WordStar, Turbo Pascal
+- Language toolchains: Aztec C, BASIC compilers, COBOL
 
 ## Getting Started
 
 1. **Open Settings** (gear icon) before starting
-2. **Pick a RomWBW release** - optional; the app preselects the one the published
-   index recommends, and the ROM and disks then all come from that release
-3. **Download disk images** - scroll to "Download Disk Images" section
-4. **Select a disk** - CP/M 2.2 recommended for first boot
-5. **Press Play** to start the emulator - the release's ROM is fetched first if
-   it is not already on the device
-6. At boot menu, press `0` to boot from disk
+2. **Pick a RomWBW release** - optional; the app preselects the one the
+   published index marks as default
+3. **Download disk images** - scroll to "Download Disk Images"
+4. **Select a disk** - the Combo image is the catalog's recommended starter and
+   is what a first launch assigns; it is also the only image carrying `R8`/`W8`
+5. **Press Play** - the release's ROM is fetched first if it is not on the
+   device already
+6. At the boot menu, type `2` and Enter to boot the first hard disk
 
 ### Boot Menu Keys
-- `h` - Help (shows full menu)
-- `l` - List ROM applications
-- `d` - List disk devices
-- `w` - **SYSCONF** - Configure auto-boot settings
-- `0-9` - Boot from device number
-- `C` - Boot CP/M 2.2 from ROM
+
+Every command is read as a line, so nothing happens until you press Enter.
+
+- `2` - boot the first hard disk, slice 0; `2.3` for slice 3
+- `C` - boot CP/M 2.2 from ROM
+- `D` - list the disk devices
+- `W` - **SYSCONF**, to configure auto-boot
+- `H` - the full menu
+
+Units 0 and 1 are the on-board RAM and ROM memory disks and carry no operating
+system, so booting `0` answers `*** No system image on disk`.
 
 ### Auto-Boot Configuration
 
-Use the ROM's **SYSCONF** utility to configure auto-boot:
-
-1. At boot menu, press `W`
-2. Select boot device and timeout
-3. Settings persist across app restarts
-
-To clear auto-boot settings, go to Settings and tap "Clear Auto-Boot".
+Press `W` at the boot menu for SYSCONF, choose a boot device and timeout, and
+the setting persists across app restarts. Settings has a "Clear Auto-Boot"
+button to undo it.
 
 ## Disk Images
 
-Disk images are built from [RomWBW](https://github.com/wwarthen/RomWBW) material and
-distributed by [romwbw_disks](https://github.com/avwohl/romwbw_disks), which publishes one
-catalog per RomWBW release. The app compiles in a single index URL and no other disk URL: the index
-lists the releases, Settings' **RomWBW Release** picker is where you choose among them, and every
-download URL comes from the chosen release's own catalog — there is no pinned tag to bump any
-more, so a corrected disk or a new disk reaches users without an app update. A whole new RomWBW
-release does **not**: the picker only offers releases this binary's own core can boot, because
-which releases are offered is decided by asking the emulator core which ones it can run
-(`ROMWBW_SUPPORTED_RELEASES` in `romwbw_emu`, 3.5.1 and 3.6.0 today), so a 3.7.0 entry appearing in
-the index is simply not shown until a build carries support for it. That is deliberate: bank 0 of
-an `emu_*.rom` is ours, and a release whose CBIOS called something the dispatcher does not
-implement would load and then misbehave.
-A release published as `preview` is marked as one in the picker. With nothing chosen the app takes
-the release the index flags as its default. Every download is checked against the SHA-256 the
-catalog gives, and the catalog itself is checked against the index's before it is read. Today the
-index publishes two releases, both stable, with 3.6.0 the default: 3.5.1's catalog carries 20
-images and 3.6.0's carries 24. A selection:
+ROMs and disk images come from
+[romwbw_disks](https://github.com/avwohl/romwbw_disks), which publishes one
+catalog per RomWBW release. The app compiles in a single index URL: the index
+lists the releases, Settings' **RomWBW Release** picker chooses among them, and
+every download URL comes from the chosen release's own catalog. Settings also
+has a **Catalog index** field to point the app at a different index entirely;
+each index keeps its own downloads and settings.
 
-| Disk | Description | License |
-|------|-------------|---------|
-| CP/M 2.2 | Classic Digital Research OS | Free (Lineo) |
-| ZSDOS | Enhanced CP/M with timestamps | Free |
-| NZCOM | ZCPR3 command processor | Free |
-| CP/M 3 (Plus) | Banked memory support | Free |
-| ZPM3 | Z-System CP/M 3 | Free |
-| WordStar 4 | Word processor - a 3.5.1 disk; 3.6.0 replaces it with Word Processing | Abandonware |
+Every download is checked against the SHA-256 the catalog gives, and the
+catalog itself against the index's before it is read. The ROM is re-verified
+every time it is loaded, which is a check no disk could survive once the guest
+has written to it. A release whose ROM cannot be fetched does not start: an
+alert names the release and the file rather than quietly substituting another
+release's ROM, which is what leaves RomWBW printing an HBIOS/CBIOS version
+mismatch part-way through a boot.
 
-Downloaded images are stored in the app's `Documents/Disks` folder, beside the ROM and the cached
-catalogs, and work offline. Their filenames carry the release — `hd1k_combo-v0-3.5.1.img` — so two
-RomWBW releases' disks can sit side by side, and so can the slot selections and boot settings that
-go with them. Switching release deletes nothing.
+**A new RomWBW release needs a new build.** The picker offers only the releases
+this binary's core can boot (`ROMWBW_SUPPORTED_RELEASES`), because bank 0 of an
+`emu_*.rom` is ours and a release whose CBIOS called something the dispatcher
+does not implement would load and then misbehave. New *disks and ROMs within* an
+offered release do reach users without an update.
 
-The ROM comes from the same catalog, and **the app bundles no ROM at all**. It fetches the
-selected release's own — both published releases offer two, and which of them boots is a choice in
-Settings — verifying its size and SHA-256 against the catalog when it lands, exactly as it does for
-a disk, and again every time it is loaded, which is a check no disk could survive once the guest has
-written to it. A release whose ROM cannot be fetched does not start: an alert names the release
-and the file and says what would fix it, which is a connection or the other ROM that same release
-publishes. It does not quietly substitute another release's ROM, because that is what leaves
-RomWBW printing an HBIOS/CBIOS version mismatch part-way through a boot.
+Which releases exist, which is the default, and what each one carries are
+questions for the published index, not for this file - the app shows what it
+finds, and [romwbw_disks](https://github.com/avwohl/romwbw_disks) is where it is
+published. Each disk entry carries its own `license` field, which the app
+displays; that field is the authority on what an image is under.
 
-A bundled `emu_avw.rom` from RomWBW 3.5.1 used to sit in the app, justified as what a first
-launch with no connection would boot. That justification was wrong, and it was removed on
-2026-09-08 for that reason: the disk catalog and every disk in it are downloads too, so a device
-that has never had a network has no disk to boot and a ROM to boot it with buys nothing. What the
-512 KB actually bought was letting users on 3.5.1 skip one download. A fresh install now starts on
-whichever release the index marks as default, which is 3.6.0 today, rather than on the bundled
-ROM's 3.5.1.
+Downloaded images live in the app's `Documents/Disks` folder (a custom index
+gets its own `Disks@<hash>` beside it, so two catalogs' identically-named
+images cannot collide) and work offline. Filenames carry the release -
+`hd1k_combo-v0-3.5.1.img` - so two RomWBW releases' disks sit side by side, and
+so do the slot selections and boot settings that go with them. Switching
+release deletes nothing.
 
 ## Technical Details
 
@@ -127,56 +128,53 @@ ROM's 3.5.1.
 
 ### Dependencies
 
-This project uses code from sibling directories:
-- `../cpmemu/src/` - qkz80 Z80 CPU emulator
-- `../romwbw_emu/src/` - HBIOS dispatch, memory banking
+Most of `iOSCPM/Core/` is symlinks into sibling checkouts:
+
+- `../cpmemu/src/` - the qkz80 Z80 CPU core
+- `../romwbw_emu/src/` - HBIOS dispatch and memory banking
+
+`emu_io_ios.mm`, `hbios_core.cc` and `hbios_core.h` are this repository's own.
 
 ### Terminal Emulation
 
-The terminal supports ANSI/VT100 escape sequences:
-- Cursor positioning (`ESC[row;colH`)
-- Screen/line clearing (`ESC[2J`, `ESC[K`)
-- Text attributes (`ESC[7m` reverse video)
-- Cursor save/restore (`ESC 7`, `ESC 8`)
+ANSI/VT100 escape sequences: cursor positioning (`ESC[row;colH`), screen and
+line clearing (`ESC[2J`, `ESC[K`), text attributes (`ESC[7m` reverse video) and
+cursor save/restore (`ESC 7`, `ESC 8`) - enough for programs like Zork that use
+cursor positioning for a status line.
 
-This enables proper display for applications like Zork that use cursor positioning for status lines.
-
-The VT52 dialect is implemented as well. A session starts in ANSI at power-on and follows DECANM
-(`ESC[?2h` selects ANSI, `ESC[?2l` selects VT52) whenever a program asks explicitly. Otherwise VT52
-is inferred only from `ESC A/B/C/F/G/I/Y`, sequences a VT100-configured program has no reason to
-emit - and deliberately not from `ESC J` or `ESC K`, which are the ordinary erase commands of the
-ADM-3A, Televideo, Hazeltine and Heath families too.
+The VT52 dialect is implemented too. A session starts in ANSI and follows
+DECANM (`ESC[?2h` ANSI, `ESC[?2l` VT52) when a program asks explicitly.
+Otherwise VT52 is inferred only from `ESC A/B/C/F/G/I/Y`, which a
+VT100-configured program has no reason to emit - and deliberately not from
+`ESC J` or `ESC K`, the ordinary erase commands of the ADM-3A, Televideo,
+Hazeltine and Heath families.
 
 ### Disk Format
 
-Uses RomWBW hd1k format:
-- 8MB per slice
-- Up to 8 slices per disk (64MB total)
-- 1024 directory entries per slice
-- Compatible with all RomWBW disk images
+RomWBW hd1k: 8 MB per slice, up to 8 slices per disk, 1024 directory entries
+per slice.
 
 ## Building
 
-### Requirements
-- Xcode 15+
-- iOS 15+ / macOS 12+ (Mac Catalyst)
+**Requirements:** iOS 15+ / macOS 12+ (Mac Catalyst). The project records
+`LastUpgradeCheck = 2620` and recent builds were made with Xcode 26; no older
+Xcode has been tried, so the real floor is unmeasured.
 
-### Build Steps
-1. Check out the sibling projects `cpmemu` and `romwbw_emu` next to this repo, so all three
-   share a parent directory - the files in `iOSCPM/Core/` are symlinks into `../cpmemu/src/`
-   and `../romwbw_emu/src/`, and the build cannot find its sources without them
+1. Check out `cpmemu` and `romwbw_emu` next to this repo, so all three share a
+   parent directory - `iOSCPM/Core/` symlinks into both and the build cannot
+   find its sources otherwise
 2. Open `iOSCPM.xcodeproj`
-3. Select target device
+3. Select a target device
 4. Build and run
 
 ## License
 
-GPLv3 License
+GPLv3.
 
 ### Third-Party Licenses
-- **CP/M**: Released by Lineo for non-commercial use
+- **CP/M**: released by Lineo for non-commercial use
 - **RomWBW**: GNU General Public License v3.0 (GPL-3.0-or-later)
-- **qkz80**: GPL v3 License
+- **qkz80**: GPL v3
 
 ## Related Projects
 
@@ -199,3 +197,7 @@ GPLv3 License
 - [uplm80](https://github.com/avwohl/uplm80) - PL/M-80 compiler for the Z80 processor and CP/M. It writes Intel 8080 and Zilog Z80 assembly language.
 - [z80cpmw](https://github.com/avwohl/z80cpmw) - Z80/CP/M emulator for Windows. It emulates the RomWBW HBIOS interface and boots CP/M from disk images.
 
+
+## See Also
+
+- [RomWBW](https://github.com/wwarthen/RomWBW) - The original RomWBW project by Wayne Warthen
