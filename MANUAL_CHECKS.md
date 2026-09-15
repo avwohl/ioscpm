@@ -326,11 +326,25 @@ That is the thing to check hardest.
 
 - [ ] Save a profile, change every setting it covers, apply it back.  All of it
       returns, and the summary line matches what is actually in force.
-- [ ] Apply a profile naming a disk that is **not** present.  The slot must end
-      up empty and say so — not silently point at nothing, and not appear to
-      have restored a disk it has not.
-- [ ] Two profiles saved under the same name collapse to one, and it is the
-      first of them (the suite asserts this; confirm the UI agrees).
+- [ ] Apply a profile naming a disk that is **not** present.  It must **say
+      so** — `applyProfile` returns an `unresolved` list and appends
+      `disk <n>: <filename>`, adding `(saved under RomWBW <ver>)` when the
+      profile was saved under another release, because `hd1k_ws4` exists in
+      3.5.1 and not in 3.6.0 and that is a permanent answer rather than a
+      download away.  What to watch for is the silent case: a slot that appears
+      to have restored a disk it has not.
+
+      This box used to demand the slot "end up empty".  Check what the screen
+      does against what `applyProfile` returns before filing anything: it
+      reports the name rather than clearing the slot, and which of those is
+      wanted is a decision nobody has recorded.
+
+- [ ] ~~Two profiles saved under the same name collapse to one.~~  **Not
+      reachable from the UI, so there is nothing to check.**  Every save goes
+      through `ProfileStore.uniqueName(basedOn:)`, and the sheet tells the user
+      when the name it will actually use differs from the one they typed.  The
+      collapse behaviour the suite asserts is a store-level property the
+      interface prevents you from producing.
 - [ ] Delete the profile that is marked last-used; the pointer is dropped rather
       than left dangling.
 - [ ] A profile saved on one device and carried to another restores everything
