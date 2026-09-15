@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### Four more user guides with the same wrong boot key
+
+`docs/cpm22_user_guide.md` was deleted on 2026-09-15 as a stale fork of the
+published help topic. It had four siblings, and the deletion missed them:
+`nzcom`, `qpm`, `zpm3` and `zsdos`. All four are unreferenced — no link, no
+Xcode resource, no `.rc` entry — and all four carry the defect that got the
+first one deleted:
+
+> 2. Boot from it (press `0` at boot menu)
+
+Unit 0 is the RAM memory disk. It answers `*** No system image on disk`; the
+first hard disk is unit 2, which is what `help_nzcom.md` and the rest have said
+since they were corrected.
+
+`zsdos_user_guide.md` had a second one the others did not. It told the reader to
+reach a games disk at **B:**:
+
+```
+A>B:
+B>DIR
+B>ZORK
+```
+
+B: and C: are the RAM and ROM memory disks. `help_zsdos.md` corrects this to
+`G:` and explains that the drive map printed at boot is what says which letter a
+slice got.
+
+Each was diffed against its published topic before deleting: 8 divergent lines
+for three of them, 16 for zsdos, and every divergence is the published copy
+being *more* correct. Nothing true was lost — the topics ship in the bundle, are
+compiled into z80cpmw, and are checked against the catalog by
+`tools/check-help-assets.py`.
+
+**They were missed because the inventory that drove this cleanup was built by
+listing files, and these four sorted away from `cpm22_user_guide.md`.** Deleting
+one member of a set is worse than deleting none: it leaves four files that now
+look deliberate.
+
 ### WIP.md warned about a stale tally, then carried three
 
 The file opens by explaining that "a tally of another file is the first thing to
