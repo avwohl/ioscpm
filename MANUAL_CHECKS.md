@@ -44,18 +44,23 @@ one is the case where there is no hardware keyboard to fall back on.
 
 **Build 67 has been run.**  On 2026-09-07, on a Mac with Xcode 26.6, this tree
 was built for the iOS Simulator, for an arm64 device and for Mac Catalyst,
-installed on an iPhone 17 simulator, and driven.  Sections 18, 19 and 20 were
-worked through and most of their boxes are ticked below with what was measured;
-the ones still open say why.  Builds 62 through 66 never reached a simulator,
+installed on an iPhone 17 simulator, and driven.  Section 18 was worked
+through - 8 of its 11 boxes are ticked with what was measured.  Sections 19 and
+20 were not: counted 2026-09-15, §19 is 4 ticked and 16 open, and §20 is 0
+ticked and 10 open, recording its happy path in prose instead.  Builds 62 through 66 never reached a simulator,
 which is why so much of this file was written as unrunnable.
 
-`sh tools/check-store-version.sh` still says the App Store serves at most build
-61, and that is unchanged by any of it — built is not shipped.  **Observations
+`sh tools/check-store-version.sh` is the only thing that says what USERS have.
+Measured 2026-09-15: the App Store serves 1.6.1, released 2026-09-12, against a
+tree at 1.6.1 build 72 - which the script brackets as "at most build 70", since
+1.6.1 heads builds 67-72 and the lookup does not say which. Run it rather than
+reading this line; built is not shipped.  **Observations
 below carrying a date or a build number older than 67 were made on an EARLIER
 tree** - build 55, 56 or 61 - and have not been repeated since.
 
 What runs on any machine, Xcode or not, is `sh Tests/run_tests.sh`: 21 suites,
-1,210 assertions, exit 0.  One of
+about 1,250 assertions, exit 0 - measured 2026-09-15, and it moves every
+build, so run it rather than trusting this number.  One of
 them now type-checks `EmulatorViewModel.swift` against the macosx SDK with the
 real bridging header, which is what caught `emulator?.loadROM(fromData:)` - the
 Objective-C `loadROMFromData:` imports into Swift as `loadROM(from:)`, so the
@@ -121,7 +126,7 @@ Never watched under Catalyst.  Build for Mac Catalyst and run WordStar.
       `KNOWN_PROBLEMS.md`; this is the observation that settles it.
 - [ ] Escape reaches the guest windowed **and** full-screen, now that the escape
       `UIKeyCommand` sets `wantsPriorityOverSystemBehavior`.
-- [ ] Escape dismisses each of the three dialogs in `modalHasKeyboard`
+- [ ] Escape dismisses each of the four dialogs in `modalHasKeyboard`
       (`ContentView.swift`) rather than reaching CP/M: the disk-overwrite
       warning, the error alert and the reset confirmation.
 
@@ -739,8 +744,10 @@ rename is not the interesting case for most of what follows.
       and the catalog matching the `catalog_sha256`/`catalog_size` the index
       claims.  The second URL came out of the first document.  **Caveat on this
       box's own wording:** the shipping binary still names
-      `avwohl/ioscpm/releases/latest/download/` — that is the HELP system
-      (`docs/HELP_SYSTEM.md`), not the disk catalog, and it is expected.  No
+      nothing. That caveat held until build 70: the help system read its own
+      `avwohl/ioscpm` URL then and reads `CatalogMigration.indexURL` now, so
+      **no** request should go there - the three matches left in the Swift
+      sources are comments recording the removal.  No
       `disks.xml` and no `v1.x.y` tag survives anywhere in the binary.  Watch the console for
       `[Catalog] Fetching index:` followed by `[Catalog] Fetching catalog:`.
       The second URL must come out of the first document, and no request may go
