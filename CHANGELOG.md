@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### WIP.md warned about a stale tally, then carried three
+
+The file opens by explaining that "a tally of another file is the first thing to
+go stale", and that its own first paragraph went stale that way twice. It had
+done it again:
+
+- **"Build 67 is the state of this tree."** The tree is on 72. It no longer
+  names a build at all — `CURRENT_PROJECT_VERSION` cannot drift from itself, and
+  `CHANGELOG.md`'s top heading says what that build did. What is kept is the
+  claim that does not rot: nothing here has ever run on physical hardware.
+- **"`DiskSize.swift` has not been touched since 2026-09-03."** It was, in build
+  68 (`0bcf21b`), four builds back. Harmless — the diff is two comment lines
+  renaming `emu_check_disk_size()` to `emu_validate_disk_image()`, a symbol that
+  never existed under the old name, and no offered size, validation rule or test
+  moved. But it is the claim a reader would have checked and believed, so it now
+  says what actually happened.
+- **"These five need no Xcode and are the floor"**, above four commands. The
+  paragraph directly underneath explains that `check-shipped-disks.sh` was the
+  fifth and was deleted on 2026-09-13; the count was not adjusted with it.
+
+The four were run rather than assumed: `plutil -lint` OK, `swiftc -parse` over
+every file in `iOSCPM/Views/` plus `iOSCPMApp.swift` clean, and
+`Tests/run_tests.sh` **21 suites, 1,256 checks, ALL TESTS PASSED** — up from the
+1,210 build 68 recorded.
+
+### docs/notes_to_windos.md was accurate, and now says so with a date
+
+Every claim in its symlink section holds: 21 symlinks under `iOSCPM/Core/`, all
+resolving, 11 into `cpmemu/src` (its "11 of them at present") and the other 10
+into `romwbw_emu/src` (its "the rest"). Recorded with the date, since the value
+of a count is the date beside it.
+
+Added one contrast that matters and was not stated anywhere on this side:
+`emu_io_common.cc` **is** one of those symlinks here, so a fix upstream arrives
+on the next build — where z80cpmw references that file nowhere and hand-syncs
+the twelve functions it holds. Same source file, two completely different
+propagation stories, and only one of them is automatic.
+
 ### KNOWN_PROBLEMS.md spent 79 lines teaching cpmtools
 
 "For a properly formatted image, build it on Linux with cpmtools", then a

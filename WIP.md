@@ -1,7 +1,13 @@
 # WIP — the handoff
 
-Build 67 is the state of this tree. It has been compiled and driven, and it has
-never run on physical hardware.
+**This file does not say which build the tree is on.** It said "Build 67" until
+2026-09-15, by which point the tree was on 72 — the same way it once announced
+"seven open items" against a `todo.txt` holding nine. `CURRENT_PROJECT_VERSION`
+in `iOSCPM.xcodeproj/project.pbxproj` is the answer and cannot drift from
+itself; `CHANGELOG.md`'s top heading says what that build did.
+
+What has not changed, and is the part worth writing down: **nothing in this tree
+has ever run on physical hardware.** Simulators and `xcodebuild` only.
 
 **The open work is in `todo.txt` and is deliberately not counted here.** A tally
 of another file is the first thing to go stale, and this file's opening
@@ -23,8 +29,16 @@ wrong. Measure it; do not read it from here.
 
 ## THE ONE OPEN QUESTION — disk sizes larger than 8 MB
 
-Unchanged by builds 62 through 67 — `DiskSize.swift` has not been touched since
-2026-09-03, and none of the interface-v0 work went near it.
+Unchanged in substance since 2026-09-03. `DiskSize.swift` has been edited once
+since, in build 68 (`0bcf21b`), and it was two comment lines renaming
+`emu_check_disk_size()` to `emu_validate_disk_image()` — the symbol never
+existed under the old name. No offered size, no validation rule and no test
+moved, and none of the interface-v0 work went near it.
+
+(This paragraph read "Unchanged by builds 62 through 67 — `DiskSize.swift` has
+not been touched since 2026-09-03". The file *had* been touched, four builds
+back. Harmless here because the edit was a comment, but it is the claim that
+would have been checked and believed.)
 
 `iOSCPM/Views/DiskSize.swift` currently offers **one 8 MB hd1k disk** (exactly
 8,388,608 bytes) and then **2 / 4 / 7 hd512 slices** (N × 8,519,680 bytes). A
@@ -100,7 +114,7 @@ cellular data, and a real APFS container under memory pressure.
 
 ## Verifying the tree
 
-These five need no Xcode and are the floor:
+These four need no Xcode and are the floor:
 
     sh Tests/run_tests.sh
     sh tools/check-store-version.sh            # needs the network
@@ -111,7 +125,8 @@ These five need no Xcode and are the floor:
 is a syntax check and stops before a name has to resolve — which is also the
 whole of what it proves.
 
-`check-shipped-disks.sh` was a fifth until 2026-09-13. It reported the tree half
+`check-shipped-disks.sh` was a fifth until 2026-09-13, and this said "five"
+until 2026-09-15, counting a command that is not in the list. It reported the tree half
 and the artifact half separately and said in as many words when it had inspected
 no built package. It is deleted; whether the image a user downloads carries the
 fixed `r8.com` is now something a person establishes by fetching it.

@@ -27,6 +27,16 @@ Always verify the current set with:
 
     git ls-files -s iOSCPM/Core/ | grep ^120000
 
+Checked 2026-09-15: 21 symlinks, all resolving — 11 into `cpmemu/src` and 10
+into `romwbw_emu/src`, matching the counts above.
+
+**`emu_io_common.cc` is one of the ten, and that is worth knowing**, because the
+Windows port is the opposite: `z80cpmw.vcxproj` references that file nowhere and
+`emu_io_windows.cpp` hand-syncs the twelve functions it holds, using Win32
+handles rather than `FILE*`. So a fix landing in `emu_io_common.cc` reaches this
+app on the next build and reaches z80cpmw only when a person carries it across —
+`z80cpmw/WIP.md` has the standing note and nothing automated reports that drift.
+
 On Windows, git by default stores symlinks as **plain text files containing
 the target path** (a ~40-byte string like `../../../romwbw_emu/src/...`).
 This is a footgun: it looks like a normal text file in editors and tools,
