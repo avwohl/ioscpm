@@ -27,15 +27,17 @@ Run the software that defined personal computing:
 • Word Processing: WordStar
 • Programming: Turbo Pascal, Microsoft BASIC
 • Text Adventures: Zork, Adventure, Hitchhiker's Guide to the Galaxy
-• Databases: dBASE II
+• Text Editors: ZDE, TE, ED
 • And thousands more CP/M programs
 
 GETTING STARTED
 
-1. Open Settings and download a disk image (CP/M 2.2 recommended)
-2. Select the disk image for Unit 0
-3. Press Play to start the emulator
-4. Press 0 at the boot menu to boot from disk
+1. Launch the app. The first launch needs an internet connection: it fetches the
+   system ROM and the Combo disk image and assigns the disk to Unit 0 for you.
+2. At the boot prompt, type 2 and press Enter. Units 0 and 1 are the RAM and ROM
+   memory disks, so the first hard disk is Unit 2.
+3. You'll see the A> prompt when CP/M is ready.
+4. Settings has two dozen more disk images to download whenever you want them.
 
 BUILT ON ROMWBW
 
@@ -44,7 +46,7 @@ This emulator is built on the RomWBW HBIOS platform, the same firmware used by r
 TECHNICAL DETAILS
 
 • 80x25 character terminal display
-• hd1k disk format (8MB per slice, 64MB per disk)
+• hd1k disk format - 8MB per slice, and the 49MB Combo image is six of them
 • Hardware keyboard support
 • Portrait and landscape orientation
 
@@ -73,4 +75,4 @@ https://github.com/avwohl/ioscpm
 
 COPYRIGHT
 ---------
-2025 Andrew Wohl
+2025-2026 Aaron Wohl

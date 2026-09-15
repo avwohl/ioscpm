@@ -2,6 +2,61 @@
 
 ## Unreleased
 
+### The App Store listing told every new user the wrong key to press
+
+`docs/appstore.txt` step 4 of GETTING STARTED: "Press 0 at the boot menu to boot
+from disk". Unit 0 is the RAM memory disk and answers `*** No system image on
+disk`; the first hard disk is unit 2. This is the same error deleted from
+`docs/cpm22_user_guide.md` on 2026-09-15, still live in the store listing.
+
+The first three steps were stale in a different way — they predate the
+first-launch download. They said to open Settings, download CP/M 2.2 and assign
+it to Unit 0 by hand; the app fetches the ROM and the Combo image and assigns
+the disk itself. Rewritten to what a new user actually sees.
+
+Two more, both measured against the live catalog rather than reasoned about:
+
+- **"hd1k disk format (8MB per slice, 64MB per disk)".** The Combo is
+  51,380,224 bytes — a 1MB MBR prefix and **six** 8MB slices, 49MB. Nothing in
+  the catalog is 64MB.
+- **"Databases: dBASE II".** There is no dBASE on any of the 24 disks the
+  default release publishes, none in `romwbw_disks`, and none on any of the
+  Combo's six slices. The only match anywhere is `NZ-DBASE.INF`, a text file
+  about patching NZ-COM. Replaced with "Text Editors: ZDE, TE, ED", all three
+  confirmed present on slice 0 of the disk a new install receives.
+
+**The copyright line named the wrong person.** "2025 Andrew Wohl". The legal
+name is **Aaron Wohl** — it is the code-signing certificate subject
+(`CN=Aaron Wohl`), what `docs/ROM_ATTESTATION.md` gives as "Developer:", and the
+git identity on every commit here. Now "2025-2026 Aaron Wohl". *If the other
+spelling was deliberate, this is the line to revert.*
+
+### What the listing claims that is true, checked rather than assumed
+
+Each of these was verified by downloading the image from the live 3.6.0 catalog
+and listing it, because marketing copy naming specific software is exactly where
+an unbacked claim hides:
+
+- **WordStar** — `WS.COM`, `WS.OVR`, `WSCHANGE.COM` and five more overlays, on
+  **slice 5 of the Combo**, so it is on the disk a new install already has. Also
+  the whole of `hd1k_wp`. Worth recording because 3.6.0 drops `hd1k_ws4`, the
+  disk actually named "WordStar 4" — the claim survives only via a disk named
+  something else.
+- **Zork, Adventure, Hitchhiker's Guide** — `ZORK1/2/3`, `COL-CAVE.COM` and
+  `HITCH.COM` on `hd1k_games`; `ZORK0-3`, `H2G2` and 20 more on `hd1k_infocom`.
+  `docs/APPLE_REVIEW_RESPONSE.md` cites these three titles **to Apple**, so they
+  had to be real.
+- **Microsoft BASIC** — `MBASIC.COM`, on five of the Combo's six slices.
+- **Four disk units** and **80x25** — `EmulatorViewModel.swift`'s four slots and
+  `TerminalScreen.swift`'s `rows: Int = 25, cols: Int = 80`.
+
+All four store fields are within Apple's limits: promotional 135/170,
+description 2287/4000, keywords 86/100, subtitle 20/30.
+
+`docs/APPLE_REVIEW_RESPONSE.md` needed no change. Its recorded character count
+reproduces exactly — 3,102 of Apple's 4,000, measured the way its own note
+describes — and the three adventures it cites are the ones verified above.
+
 ### The migration reached users, and four docs still said it had not
 
 `sh tools/check-store-version.sh` on 2026-09-15: **1.6.1, released 2026-09-12,
