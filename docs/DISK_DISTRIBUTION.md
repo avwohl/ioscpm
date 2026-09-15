@@ -273,15 +273,32 @@ and its SUPERSEDED block first, never through this list.
 **This is what the current tree does, and what the shipping binary does.** The
 sections above describe the scheme that installs predating 1.6.1 still use.
 
-One URL is compiled in, and it is the only one:
+One URL is compiled in, and it is the only one — `CatalogMigration.defaultIndexURL`:
 
 ```
-https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json
+https://github.com/avwohl/romwbw_disks/releases/latest/download/index-v0.json
 ```
 
-That tag carries one small file and nothing else, which is what makes a floating
-entry point safe: re-cutting it costs a few kilobytes, and the assets clients
-cache never move.
+**And it names no release tag.** It was
+`releases/download/catalog-v0/index-v0.json` until 2026-09-10, which pinned one:
+adding a RomWBW version was always free, because a version is an entry *inside*
+the index, but romwbw_disks could never rename that release, move the index, or
+publish a v1 anywhere a shipped client would look. `INTERFACE_V0.md`'s own
+migration plan was "a v1 lives alongside v0: new release tags, a new index URL",
+which is unreachable from a constant naming the old tag — so that plan silently
+meant "and release Windows, Android, iOS and Linux at once", the exact coupling
+this catalog exists to remove.
+
+`releases/latest/download/` is resolved by GitHub to whichever release carries
+the Latest flag, so *where* the index lives belongs to romwbw_disks. A v1 ships
+as `index-v1.json` beside `index-v0.json` on that same release: v0 clients keep
+reading v0, v1 clients read v1, nobody rebuilds anything.
+
+That also makes the Latest flag load-bearing, which is why romwbw_disks'
+`help/README.md` forbids cutting a mutable tag as Latest and
+`tools/check_latest.py` fails the repository if one lands there. All three GUI
+clients compile in this same string — `CatalogMigration.swift:97`,
+`SettingsRepository.kt:131`, `CatalogV0.cpp:52`.
 
 Two hops from there:
 

@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### PRIVACY.md named the wrong repository for help, and DISK_DISTRIBUTION.md the wrong index URL
+
+A privacy policy is a statement about where a user's requests go, so the host
+matters. `PRIVACY.md` listed the help index and articles as coming from
+`github.com/avwohl/ioscpm`. Build 70 moved help into the catalog: the article
+list arrives *inside* the release index, so there is no separate index request
+at all, and the articles come from `romwbw_disks`. It now says that, and its
+older-builds paragraph distinguishes the two vintages — before the catalog
+migration (`disks.xml` from ioscpm, ROM bundled) and after it but before help
+moved (help still from ioscpm).
+
+Separately, enumerating every `URLSession` call and compiled-in URL to check
+that policy turned up an error in `docs/DISK_DISTRIBUTION.md`, which I had
+edited earlier today without catching it. It gave the one compiled-in URL as:
+
+```
+https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json
+```
+
+That is the **pre-2026-09-10** address. `CatalogMigration.defaultIndexURL` is
+`releases/latest/download/index-v0.json`, and the difference is the whole point:
+the old form pinned a release tag, so romwbw_disks could never rename that
+release, move the index, or publish a v1 anywhere a shipped client would look —
+which made `INTERFACE_V0.md`'s own migration plan ("a v1 lives alongside v0: new
+release tags, a new index URL") silently mean "release Windows, Android, iOS and
+Linux at once", the exact coupling the catalog exists to remove. The section now
+gives the right URL and says why it is the right one.
+
+All three GUI clients compile in that same string, which is worth recording
+because it is the only URL any of them has: `CatalogMigration.swift:97`,
+`SettingsRepository.kt:131`, `CatalogV0.cpp:52`. The four other docs mentioning
+the old path all present it as history and were correct.
+
+Counted rather than trusted: the policy says "five kinds of request" above five
+bullets.
+
 ### The App Store listing told every new user the wrong key to press
 
 `docs/appstore.txt` step 4 of GETTING STARTED: "Press 0 at the boot menu to boot
