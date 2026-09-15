@@ -4,25 +4,30 @@ This document explains how disk images are managed, distributed, and consumed by
 
 ## Overview
 
-The manifest and the help content are stored in this repository under
-`/release_assets/`. The disk images themselves are **not** in the repo — they
-exist only as GitHub Release assets (they were removed from `release_assets/` in
-f570676). Clients up to build 63 fetch that manifest and download disks
-on-demand from a **pinned** release tag, not from the "latest" endpoint — since
-build 42; builds 36/37 predate the pin and float on `latest` for disks as well.
-On a pinned build only the help system still floats on `latest`.
+**The migration has reached users, and this document's emphasis flipped with
+it.** Read "Interface v0" first: it is what the current tree does *and* what the
+binary the App Store is serving does. Everything before it describes the older
+scheme, which is still live on devices nobody has updated.
 
-> **Build 64 moved this app off all of it.** iOSCPM no longer reads
-> `release_assets/disks.xml`, no longer downloads from an `avwohl/ioscpm`
-> release tag, and no longer has a `releaseTag` constant. It reads the
-> interface-v0 catalog published by `avwohl/romwbw_disks` — one compiled-in
-> index URL, one catalog per RomWBW release, and asset URLs taken from the
-> catalog's own `base_url`. See "Interface v0" below.
->
-> Everything else in this document still describes what **builds already in
-> service** do, and those tags must stay live: an installed 1.4.9 or 1.5.x
-> binary is hardwired to its URLs and GitHub release assets cannot be
-> redirected. Read the rest as the record of a live system, not a plan.
+`sh tools/check-store-version.sh` is what settles that, and it is a measurement
+rather than a constant. On 2026-09-15 it reports **1.6.1, released 2026-09-12,
+at most build 70** — and 1.6.1 heads builds 67-72, so the shipping binary is at
+*least* 67. Build 64 is the v0 migration, so every build it could be reads the
+interface-v0 catalog: one compiled-in index URL at `avwohl/romwbw_disks`, one
+catalog per RomWBW release, asset URLs taken from the catalog's own `base_url`.
+No `release_assets/disks.xml`, no `avwohl/ioscpm` release tag, no `releaseTag`
+constant. On 2026-09-08 the same script said 1.5.1 at most build 61, which is
+pre-v0 — that is the sentence that changed.
+
+The disk images are **not** in this repo; they exist only as release assets
+(removed from `release_assets/` in f570676).
+
+> **The older scheme is still a live system, not history.** Builds up to 63
+> fetch `release_assets/disks.xml` and download from a **pinned** release tag —
+> since build 42; builds 36/37 predate the pin and float on `latest` for disks
+> too. An installed 1.4.9 or 1.5.x binary is hardwired to those URLs and GitHub
+> release assets cannot be redirected, so the tags must stay live for as long as
+> one of those builds is installed. Nothing in the migration frees a tag.
 
 ## Repository Structure
 
@@ -35,12 +40,16 @@ release_assets/
 
 `disks.xml` is frozen and read by nothing in this tree; it is byte-identical to
 what `releases/latest/download/disks.xml` serves, and `docs/DISK_W8FIX_RUNBOOK.md`
-rests on that being so. The help assets are still live — `HelpView.swift` fetches
-them from `releases/latest/download/` on every build, including this one.
+rests on that being so. The help assets are no longer fetched by this tree
+either — **build 70 moved help to the catalog** — but they are still reachable
+and must stay so; see "The help system" below. `release_assets/help_index.json`
+and the topics beside it are the copy bundled into the app and compiled into
+z80cpmw, which is why they are still here. `docs/HELP_SYSTEM.md` is the detail.
 
 ## The Disk Manifest (`disks.xml`)
 
-This is the pre-v0 interface, and it is what every build in the field reads.
+This is the pre-v0 interface. It is what installs predating 1.6.1 read — not
+what the shipping binary reads, which has been a v0 client since 2026-09-12.
 The manifest is an XML file listing all available disk images:
 
 ```xml
@@ -164,8 +173,9 @@ Persistence" in `KNOWN_PROBLEMS.md`.
 Clients up to build 63 read the catalog and the images from an explicit, pinned
 release tag — `releaseTag` in `EmulatorViewModel.swift`. It read `v1.4.5`
 through build 58 and `v1.4.12` from build 61, and the constant is deleted in
-build 64. This is what every shipped build still does, and **both** tags have to
-stay live for as long as one build reading either is installed:
+build 64. **Both** tags have to stay live for as long as one build reading
+either is installed — which is no longer the build the Store serves, but is
+still every install nobody has updated:
 ```
 Catalog:  https://github.com/avwohl/ioscpm/releases/download/v1.4.12/disks.xml
 Base URL: https://github.com/avwohl/ioscpm/releases/download/v1.4.12
@@ -176,12 +186,27 @@ Individual disk downloads append `/` plus the filename to the base URL:
 https://github.com/avwohl/ioscpm/releases/download/v1.4.12/hd1k_combo.img
 ```
 
-The help system is deliberately *not* pinned, on this build as on every other:
-`indexURL` and `baseURL` in `HelpView.swift` fetch `help_index.json` and the
+### The help system
+
+Help was never pinned — `HelpView.swift` fetched `help_index.json` and the
 `help_*.md` topics from
-`https://github.com/avwohl/ioscpm/releases/latest/download/` (checked 2026-09-08:
-200). Help content is not version-locked to the ROM; disk images are. See
-`docs/DISK_CATALOG_PINNING.md`.
+`https://github.com/avwohl/ioscpm/releases/latest/download/`, floating on
+`latest` while the disks sat on a tag. Help content is not version-locked to the
+ROM; disk images are. See `docs/DISK_CATALOG_PINNING.md`.
+
+**Build 70 ended that**, and it was the last ioscpm URL compiled into the app.
+`HelpView.indexURL` is `CatalogMigration.indexURL` now — the same catalog index
+that names the ROMs and the disks, carrying a `help` block whose `base_url`
+points at `avwohl/romwbw_disks`' `help-v0` tag. `docs/HELP_SYSTEM.md` has the
+shape and the three offline tiers.
+
+**That URL still has to answer, and for the same reason the disk tags do.** The
+Store serves at most build 70 and at least 67, and 70 is precisely the build
+that moved help — so whether the currently shipping binary fetches help from
+`avwohl/ioscpm/releases/latest/download/` is *not knowable from this tree*.
+Re-measured 2026-09-15: `help_index.json` and the topics there answer 200, and
+the bytes are byte-identical to what `romwbw_disks/help/` holds. Nothing new
+will be attached there; nothing may be taken away either.
 
 ### Creating a Release
 
@@ -209,7 +234,8 @@ and its SUPERSEDED block first, never through this list.
      files, so they have to come from wherever the images were built or
      downloaded
 
-3. The disk catalog does not follow `/latest/` (only the help system does).
+3. The disk catalog does not follow `/latest/`. The help system did, up to
+   build 69; build 70 moved it to the catalog too.
    Clients from build 42 to build 63 read a pinned tag — `v1.4.5` through build
    58, `v1.4.12` from build 61 (the repin is `0010591`) — and a new release tag
    reached none of them until `releaseTag` in `EmulatorViewModel.swift` was
@@ -219,28 +245,33 @@ and its SUPERSEDED block first, never through this list.
 
    **A release published here still reaches installed devices, by two routes.**
    What the App Store serves is a measurement, not a constant: run
-   `sh tools/check-store-version.sh`. On 2026-09-08 it says 1.5.1, released
-   2026-09-05, **at most build 61**, and confirms
-   `z80cpmw/FEATURE_PARITY.md`'s `shipped:61`. Builds 62 through 65 were never
-   compiled, and 66 was compiled here on 2026-09-08 but its CHANGELOG heading
-   was not committed before the Store published this version — the script prints
-   both narrowings, so read the number it gives rather than deriving one — a range that spans both pins, so which tag the currently
-   shipping binary reads is not knowable from this tree and both must stay
-   live. Older installs nobody has updated are 1.4.9 (builds 36/37), which
-   predate the pin entirely and fetch from `releases/latest/download/`. Since
-   `v1.4.12` became `releases/latest` on 2026-09-04 those two routes resolve to
-   the same tag, so uploading to it — or publishing a newer release that is
-   *not* marked `--prerelease` — reaches both fleets at once, with nothing
-   installed and nothing submitted. Re-measured 2026-09-08: `v1.4.5` is still
-   `prerelease=true` and stays that way, `v1.4.12` is `prerelease=false`, and
-   `releases/latest` resolves to `v1.4.12`. See `docs/DISK_W8FIX_RUNBOOK.md`
-   under "2026-09-04" for why that was traded, and
-   `docs/DISK_CATALOG_PINNING.md` for what it changed about the two layers.
+   `sh tools/check-store-version.sh` and read the number it gives rather than
+   deriving one.
+
+   On 2026-09-15 it says **1.6.1, released 2026-09-12, at most build 70**.
+   1.6.1 heads builds 67-72, so the shipping binary is at least 67 — past the
+   build-64 migration, and therefore a v0 client that reads none of the tags
+   below. **That is new.** On 2026-09-08 the same script said 1.5.1, released
+   2026-09-05, at most build 61, which is pre-v0; the pinned scheme was what
+   users were on, and it no longer is.
+
+   It changes nothing about keeping the tags live. Older installs nobody has
+   updated are still out there: 1.5.x reads a pin, and 1.4.9 (builds 36/37)
+   predates the pin entirely and fetches from `releases/latest/download/`.
+   Neither can be redirected. Since `v1.4.12` became `releases/latest` on
+   2026-09-04 those two routes resolve to the same tag, so uploading to it — or
+   publishing a newer release that is *not* marked `--prerelease` — reaches
+   both fleets at once, with nothing installed and nothing submitted.
+   Re-measured 2026-09-08: `v1.4.5` is still `prerelease=true` and stays that
+   way, `v1.4.12` is `prerelease=false`, and `releases/latest` resolves to
+   `v1.4.12`. See `docs/DISK_W8FIX_RUNBOOK.md` under "2026-09-04" for why that
+   was traded, and `docs/DISK_CATALOG_PINNING.md` for what it changed about the
+   two layers.
 
 ## Interface v0 (build 64 onwards)
 
-**This is what the current tree does.** The sections above describe the scheme
-every *shipped* build still uses.
+**This is what the current tree does, and what the shipping binary does.** The
+sections above describe the scheme that installs predating 1.6.1 still use.
 
 One URL is compiled in, and it is the only one:
 
@@ -278,8 +309,8 @@ carries `hbios.ver_byte`/`upd_byte` at all: a binary whose core predates a
 release must not be offered that release, and it decides for itself rather than
 being told. This tree's core lists both — `ROMWBW_SUPPORTED_RELEASES` in
 `romwbw_emu/src/romwbw_pin.h` names 3.5.1 and 3.6.0 — so both are offered here.
-No ioscpm build in the field reads the index at all, so the question does not
-arise for them. Everything whose validity depends
+Since 1.6.1 reached the Store on 2026-09-12 that filter is live in the field as
+well; it was not when this section was written. Everything whose validity depends
 on the release is keyed per (interface, release): the disk slots, the NVRAM
 blob, the last-seen generation, the on-disk filenames, and the catalog cache.
 Switching releases deletes nothing.
@@ -475,9 +506,10 @@ here goes stale by construction. Checked against the live catalogs on
 2026-09-08.
 
 RomWBW 3.5.1 publishes these twenty — the same set `release_assets/disks.xml`
-carries, and the same twenty every build in the field downloads. The Filename
+carries, and the same twenty a **pre-1.6.1** install downloads. The Filename
 column is the XML's spelling, which is what those builds fetch; 3.5.1's own v0
-catalog publishes the same images under v0 names (`hd1k_combo-v0-3.5.1.img`):
+catalog publishes the same images under v0 names (`hd1k_combo-v0-3.5.1.img`),
+and that is what the shipping binary fetches:
 
 | Filename | Name | License | Size |
 |----------|------|---------|------|

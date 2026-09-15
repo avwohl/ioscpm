@@ -113,10 +113,15 @@ newest build, and the App Store does not say which build that is.
 **Why `--clobber` was used, when the rule above forbids it.** The rule exists to
 stop published *disk* bytes changing under a client pinned to them — the
 retroactive arming that is not undoable. Help is the deliberately floating half:
-`HelpView.swift` and z80cpmw's `HelpWindow.cpp` both fetch it from
-`releases/latest/download/`, so replacing it is the mechanism, not a violation of
-it. No disk image and no `disks.xml` was touched. **The rule stands for disk
-assets and for `v1.4.5` absolutely.**
+at the time, `HelpView.swift` and z80cpmw's `HelpWindow.cpp` both fetched it
+from `releases/latest/download/`, so replacing it is the mechanism, not a
+violation of it. No disk image and no `disks.xml` was touched. **The rule stands
+for disk assets and for `v1.4.5` absolutely.**
+
+(Both ports have since moved off that URL — ioscpm in build 70, and
+z80cpmw's `HelpWindow.cpp` reads the catalog's `help` block too. It still has
+to answer for installs that predate those builds, which is why the uploads
+above mattered and why nothing there may be taken down.)
 
 **Why the flag was cleared.** The App Store fleet is 1.4.9 (builds 36/37), which
 predates the catalog pin and floats. It was fetching `v1.4.11`'s combo, whose

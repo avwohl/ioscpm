@@ -23,9 +23,15 @@ was made: this application had stopped bundling disk images months earlier, and
 a ROM with no disk to boot does not make an installed copy functional. That
 file has been removed. `git ls-files` in this application's repository now
 matches no `.rom`, `.img`, `.bin`, `.com` or `.dsk` at all, and the four
-`project.pbxproj` entries that copied the ROM into the bundle went with it. The
-version the App Store serves today still contains it; the build this
-attestation accompanies does not.
+`project.pbxproj` entries that copied the ROM into the bundle went with it in
+build 66 (`7b9feb3`, 2026-09-07).
+
+That sentence used to end "the version the App Store serves today still
+contains it". It no longer does: `sh tools/check-store-version.sh` on
+2026-09-15 reports 1.6.1, released 2026-09-12, at most build 70, and 1.6.1
+heads builds 67-72 — so the shipping binary is at least 67 and past the
+removal. Every copy Apple can currently download fetches its ROM from the
+catalog below.
 
 Nothing about the rights position changed when it went. The same bytes are still
 available, as `emu_avw-v0-3.5.1.rom`, from the catalog below — that download is
@@ -57,8 +63,9 @@ publishes for each, are:
 - `emu_rcz80-v0-3.6.0.rom`, RomWBW 3.6.0, banks 1-15 from `RCZ80_std`
   `9b204cd71d1064d7f4a46d4403f106250e0e53f2239931a6f81aa7bc7dba5fc5`
 
-Those four hashes and sizes were fetched from the live catalog on 2026-09-08 and
-are what it serves today.
+Those four hashes and sizes were fetched from the live catalog on 2026-09-08
+and re-verified against it on 2026-09-15 — all four still present, all four
+matching, each 524288 bytes. They are what it serves today.
 
 Further RomWBW releases may be published to that same catalog later. They are
 built by the same scripts, from the same two sources, under the same licence;

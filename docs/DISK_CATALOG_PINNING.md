@@ -20,17 +20,23 @@ base from a single `releaseTag`. **The pin moved to `v1.4.12` in `0010591`
 (2026-09-03); it read `v1.4.5` from build 42 through build 58.** Build 64 then
 deleted the constant outright.
 
-Which pin the currently shipping binary carries is a measurement, and this tree
-cannot narrow it. `sh tools/check-store-version.sh` says 1.5.1, released
-2026-09-05, **at most build 61**, and confirms `z80cpmw/FEATURE_PARITY.md`'s
-`shipped:61`. It reaches 61 by two narrowings, both printed: 62 through 65 carry
-a `**NOT COMPILED` marker, and 66 was compiled here but its CHANGELOG heading
-was not committed before the Store published this version, so it cannot be what
-users have either. Both pins live inside that range. Run
-the script for the version and the date rather than reading a build number out
-of this file; either way both tags stay live, for the reason in the banner
-above. Re-measured 2026-09-08: the pinned `disks.xml` and `hd1k_combo.img` URLs
-both return 200, as does `v1.4.5`'s `disks.xml`.
+**The shipping binary carries no pin at all any more.**
+`sh tools/check-store-version.sh` on 2026-09-15 says 1.6.1, released
+2026-09-12, **at most build 70**; 1.6.1 heads builds 67-72, so it is at least
+67, and build 64 deleted the constant. Every build it could be is a v0 client
+reading `avwohl/romwbw_disks`. The question this paragraph used to answer —
+which of `v1.4.5` and `v1.4.12` the Store's binary reads — no longer has a
+subject.
+
+On 2026-09-08 the same script said 1.5.1, released 2026-09-05, at most build
+61, and both pins lived inside that range. That was the last measurement in
+which the pinned scheme was what users were on.
+
+**It frees neither tag.** What matters for them is installs, not the current
+submission, and a 1.4.9 or 1.5.x device is pinned until somebody updates it.
+Run the script for the version and the date rather than reading a build number
+out of this file. Re-measured 2026-09-15: the pinned `disks.xml` and
+`hd1k_combo.img` URLs both return 200, as does `v1.4.5`'s `disks.xml`.
 
 Mismatch check (verify step 3) **confirmed** — on the *v1.4.5* Combo (sha256
 `be19984e…`, byte-exact to that tag's disks.xml), which is the measurement that
@@ -174,17 +180,27 @@ line it replaced** (no trailing slash), so the download code that appends
 
 ---
 
-## Do NOT change
+## Do NOT change — and then build 70 did
 
-Help stays floating — leave `HelpView.swift` as-is:
+This section said help stays floating and `HelpView.swift` is to be left alone:
 
 ```swift
     private static let indexURL = "https://github.com/avwohl/ioscpm/releases/latest/download/help_index.json"
     private var baseURL: String = "https://github.com/avwohl/ioscpm/releases/latest/download/"
 ```
 
-This help/disks asymmetry is deliberate and matches the other two ports (help
-content isn't version-locked to the ROM; disk images are).
+Both constants are gone. **Build 70 moved help onto the catalog**, the last
+ioscpm URL compiled into the app: `HelpView.indexURL` is
+`CatalogMigration.indexURL`, and the topics come from a `help` block inside that
+index whose `base_url` is `avwohl/romwbw_disks`' `help-v0` tag. See
+`docs/HELP_SYSTEM.md`.
+
+The asymmetry the instruction was protecting — help not version-locked to the
+ROM, disk images are — still holds; help simply reaches the client by the same
+document as everything else now. What has *not* changed is the obligation
+below: the floating help URL must keep answering, because the Store's binary is
+at most build 70 and at least 67, so whether it fetches help from there is not
+knowable from this tree.
 
 ---
 
@@ -205,7 +221,7 @@ rather than a post-change sanity check.
        curl -sILo /dev/null -w "%{http_code}  $u\n" "$u"
    done
    ```
-   All four returned `200` on 2026-09-08.
+   All four returned `200` on 2026-09-08, and again on 2026-09-15.
 
 2. **The flags stay where they are.** Re-measured 2026-09-08 with
    `gh api repos/avwohl/ioscpm/releases/...`: `v1.4.5` is `prerelease=true`,

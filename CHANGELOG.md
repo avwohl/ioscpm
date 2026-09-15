@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+### The migration reached users, and four docs still said it had not
+
+`sh tools/check-store-version.sh` on 2026-09-15: **1.6.1, released 2026-09-12,
+at most build 70.** 1.6.1 heads builds 67-72, so the shipping binary is at
+least 67. Build 64 is the v0 migration and build 66 deleted the bundled ROM, so
+every build it could be is a v0 client that reads `avwohl/romwbw_disks` and
+carries no ROM of its own. On 2026-09-08 the same script said 1.5.1 at most
+build 61 — pre-v0 — and four documents were written against that answer. They
+now say the opposite of the truth in the places it matters:
+
+- `docs/DISK_DISTRIBUTION.md` led with 239 lines of the pinned `disks.xml`
+  scheme under the heading "this is what every shipped build still does", and
+  put "Interface v0" — the current tree *and* the current binary — at line 240.
+  The Overview now says which is which and why both are live. Also: "the same
+  twenty every build in the field downloads", and "No ioscpm build in the field
+  reads the index at all", which stopped being true on 2026-09-12.
+- `docs/DISK_CATALOG_PINNING.md` asked which of `v1.4.5` and `v1.4.12` the
+  shipping binary is pinned to. That question no longer has a subject: the
+  shipping binary has no pin. It frees neither tag — what holds a tag live is
+  installs, not the current submission.
+- `docs/ROM_ATTESTATION.md` told Apple "the version the App Store serves today
+  still contains it" about the bundled `emu_avw.rom`. It was removed in build
+  66 (`7b9feb3`), and the Store is past that. This is a document Apple reads;
+  it should not overstate what is in the binary they can download.
+- `docs/DISK_W8FIX_RUNBOOK.md` said `HelpView.swift` and z80cpmw's
+  `HelpWindow.cpp` "both fetch" help from `releases/latest/download/`. Neither
+  does; both read the catalog now.
+
+### Three documents still described help as floating on this repo's releases
+
+The same defect `docs/HELP_SYSTEM.md` had, in the docs beside it — build 70
+moved help onto the catalog and was the last ioscpm URL compiled into the app.
+`DISK_DISTRIBUTION.md` said the help assets are fetched "on every build,
+including this one" and that the disk catalog does not follow `/latest/`
+"(only the help system does)"; `DISK_CATALOG_PINNING.md` had a section headed
+**Do NOT change** instructing a reader to leave `HelpView.swift`'s two
+hardcoded URLs alone, both of which are deleted.
+
+**The obligation those sections were protecting is real and is now stated
+properly.** The Store's binary is at most build 70 and at least 67 — and 70 is
+exactly the build that moved help — so whether the shipping binary fetches help
+from `avwohl/ioscpm/releases/latest/download/` is *not knowable from this
+tree*. That URL must keep answering for the same reason the disk tags must.
+Measured 2026-09-15: `help_index.json` and all seven topics there return 200,
+and all seven are byte-identical to `romwbw_disks/help/`.
+
+### What was re-measured rather than assumed
+
+- The App Store lookup (above).
+- The pinning doc's own four-URL acceptance check: `v1.4.12`'s `disks.xml` and
+  `hd1k_combo.img`, `v1.4.5`'s `disks.xml`, and the floating
+  `help_index.json` — all four `200`, as on 2026-09-08.
+- All four ROM hashes in `ROM_ATTESTATION.md`, fetched from the live
+  `index-v0.json` and both release catalogs: all present, all matching, each
+  524288 bytes.
+- The seven legacy help topics, byte-compared against `romwbw_disks/help/`.
+
 ### docs/cpm22_user_guide.md was a fork of the published topic, with the errors
 
 321 lines, last touched 2025-12-27, referenced by nothing - no link, no Xcode
