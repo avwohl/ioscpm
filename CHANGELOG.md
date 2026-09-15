@@ -1,5 +1,63 @@
 # Changelog
 
+## Unreleased
+
+**A bundled resource differs from build 72's binary now, which no entry above
+can say.** `release_assets/help_index.json` named
+`https://github.com/avwohl/ioscpm/releases/latest/download/` as its `base_url`.
+That is the address build 70 removed from the app, and nothing has been attached
+there since; the seven topics beside it in the bundle have been fetched from
+romwbw_disks' `help-v0` tag since the migration. It names `help-v0` now.
+
+The bundled index is reached only when the catalog index cannot be, and the
+interesting case is not "no network" - it is the catalog unreachable with the
+network up, which is exactly what happened on 2026-09-10 when `help-v0` was cut
+with the Latest flag and `releases/latest/download/index-v0.json` answered 404
+for every client in the world. In that window the app fell back to the bundled
+index, read this `base_url` out of it, and pointed every topic fetch at an
+ioscpm release frozen before the migration. It would have served whatever was
+attached there rather than the current topic, and the shipped copy - which was
+current - sits one tier further down and would not have been reached.
+
+Measured rather than assumed: that URL still answers 200 today for both
+`help_index.json` and the topics, so the fallback was live, not dead. The bytes
+it serves happen to be identical to `romwbw_disks/help/` at this moment, so no
+reader has been given a stale topic yet. The point is that nothing would ever
+make them stop being identical *deliberately* - the old release is frozen by
+design, and the next edit in romwbw_disks is what separates them.
+
+`z80cpmw.rc` compiles this same file in from this checkout by relative path, so
+the fix lands in both ports from one edit.
+
+### What let it sit there
+
+`tools/check-help-assets.py` refreshes `release_assets/` against the live
+catalog, and it passes - it checks the seven `.md` files the catalog's `help`
+block names. `help_index.json` is not one of them, because the `help` block *is*
+the published index; there is no `help_index.json` published anywhere any more.
+So the one file in that directory that carries a URL is the one file nothing
+compares against anything, and `docs/HELP_SYSTEM.md` now says so.
+
+### docs/HELP_SYSTEM.md described a system that was replaced two builds ago
+
+It was last touched on 2025-12-27 and still opened with help "hosted in GitHub
+Releases" at `avwohl/ioscpm/releases/latest/download/`, documented the standalone
+`help_index.json` as the published format, and told a reader adding a topic to
+edit `release_assets/` and cut a release here - a procedure that now publishes
+help nobody reads, in the wrong repository. It also carried about 40 lines of
+invented WinRT and JavaScript sample code for clients that do not fetch help that
+way, listed the file-transfer topic under the id `file_transfer` when the catalog
+and `topics.json` both call it `disk_transfer`, and prescribed a one-hour cache
+TTL the app does not implement.
+
+181 lines to 99. What replaces it is what the code does: the `help` block inside
+the catalog index, `base_url` read from the document rather than compiled in so
+`ROMWBW_INDEX_URL` moves help with everything else, `size` and `sha256` checked
+on arrival, the three tiers in their order and why the bundle is last, and why
+`HelpViewModel.parse` still accepts the legacy shape - every install that ran
+build 69 or earlier has one in its cache. Authoring a topic is romwbw_disks'
+`help/README.md`, and this file now points there instead of competing with it.
+
 ## Version 1.6.1 (Build 72)
 
 **Settings' one new feature did not work, and nothing here could have noticed.**

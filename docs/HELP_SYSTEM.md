@@ -1,181 +1,104 @@
-# Remote Help System
+# In-app help
 
-This document describes the remote help system used by iOSCPM and related clients (Windows, web).
+The Help window's topics are fetched at runtime, so a correction reaches a
+reader without an App Store release. This describes what this app does with
+them. **The topics themselves are not edited here** - they are
+[romwbw_disks/help/](https://github.com/avwohl/romwbw_disks/tree/main/help),
+and that directory's README is the authoring procedure.
 
-## Overview
+## No help URL is compiled into this app
 
-Help documentation is hosted in GitHub Releases and fetched on-demand by clients. This allows:
-- Updating help content without app updates
-- Reducing app bundle size
-- Consistent documentation across all platforms
+It used to be `avwohl/ioscpm/releases/latest/download/help_index.json` - a
+second index, in this app's own release area, in a shape of its own. That kept
+whichever ioscpm release carried the Latest flag load-bearing for every port,
+and it meant a typo fix in a topic needed a release here. It went in build 70.
 
-## Architecture
-
-```
-GitHub Release Assets:
-├── help_index.json      # Index of all help topics
-├── help_quick_start.md  # Individual help files
-├── help_cpm22.md
-├── help_zsdos.md
-└── ...
-```
-
-Clients fetch from:
-```
-https://github.com/avwohl/ioscpm/releases/latest/download/
-```
-
-## help_index.json Format
+What the app reads now is the catalog index, `CatalogMigration.indexURL`, the
+same document that names the ROMs and the disks. It carries a `help` block:
 
 ```json
-{
-  "version": 1,
-  "base_url": "https://github.com/avwohl/ioscpm/releases/latest/download/",
+"help": {
+  "base_url": "https://github.com/avwohl/romwbw_disks/releases/download/help-v0/",
   "topics": [
-    {
-      "id": "quick_start",
-      "title": "Quick Start Guide",
-      "description": "Getting started with iOSCPM",
-      "filename": "help_quick_start.md"
-    }
+    { "id": "quick_start", "name": "Quick Start Guide",
+      "description": "Getting started with the emulator",
+      "filename": "help_quick_start.md", "size": 4711, "sha256": "..." }
   ]
 }
 ```
 
-### Fields
+`base_url` comes out of the document rather than being compiled in, so the
+topics can be re-tagged or moved to another host with no release on any
+platform - and `ROMWBW_INDEX_URL` or the catalog index setting moves help along
+with everything else, so a device pointed at a test catalog reads that
+catalog's help.
 
-| Field | Description |
-|-------|-------------|
-| `version` | Index version number (increment when structure changes) |
-| `base_url` | Base URL for fetching help files |
-| `topics` | Array of available help topics |
-| `topics[].id` | Unique identifier for the topic |
-| `topics[].title` | Display title |
-| `topics[].description` | Short description for topic list |
-| `topics[].filename` | Filename to fetch (appended to base_url) |
+`size` and `sha256` are measured by romwbw_disks' generator, and the app checks
+a downloaded topic against them. A topic that does not match is discarded in
+favour of the offline copy, which is why a re-cut `help-v0` with a stale index
+means every reader silently gets the version in their bundle.
 
-## Client Implementation
+## Three tiers, in this order
 
-### 1. Fetch Index
+Download, then cache, then the shipped copy - never the shipped copy first, or
+corrections would stop reaching anyone.
 
-On help view open, fetch `help_index.json`:
+| Tier | Where |
+|---|---|
+| Network | the `help` block's `base_url` |
+| Cache | `Caches/help<indexScope>/` - per catalog, since two catalogs publish different bytes under the same filenames |
+| Bundle | `release_assets/` in this tree, copied into the app by the Xcode target |
 
-```
-GET https://github.com/avwohl/ioscpm/releases/latest/download/help_index.json
-```
+The bundle tier is not belt-and-braces. cpmdroid shipped this arrangement with
+no bundled copy, the assets stopped being attached after v1.11, and every build
+from then on had no help at all with nothing failing anywhere to say so. The
+cache is no defence against that: it only helps someone who already loaded help
+once. It got a second demonstration on 2026-09-10, when `help-v0` was cut with
+the Latest flag and `releases/latest/download/index-v0.json` answered 404 for
+every client in the world until the flag was moved back.
 
-Cache the index locally with a TTL (e.g., 1 hour).
+## Two index shapes, on purpose
 
-### 2. Display Topic List
+`HelpViewModel.parse` tries the catalog document first and the standalone
+`help_index.json` second. The second shape is what this app published through
+build 69, and it is what every install of one of those has sitting in its cache
+and what `release_assets/help_index.json` still is. Refusing it would take help
+away from exactly the reader the offline tiers exist for. It carries no `size`
+or `sha256`, so the check is skipped rather than failed - the same degradation a
+catalog document gets when the index publishes no hash.
 
-Parse the index and display topics with title and description.
+That bundled copy named `avwohl/ioscpm/releases/latest/download/` as its
+`base_url` until 2026-09-15. Nothing has been attached there since the
+migration and nothing ever will be, so in the one case the bundled index is in
+play with a working network - the catalog unreachable, which is precisely the
+2026-09-10 incident - it pointed topic fetches at a release frozen in the past.
+It names `help-v0` now.
 
-### 3. Fetch Topic On-Demand
+## Keeping the copy in step
 
-When user selects a topic, fetch the markdown file:
+`release_assets/` is the offline floor for **two** ports: the Xcode target
+bundles it, and z80cpmw's `z80cpmw.rc` compiles the same eight files in from
+this checkout by relative path. A drift here is a drift in both.
 
-```
-GET {base_url}{filename}
-```
+`tools/check-help-assets.py` is what answers it, against the live catalog
+rather than against a sibling checkout - the bytes to compare against are not
+in either tree:
 
-For example:
-```
-GET https://github.com/avwohl/ioscpm/releases/latest/download/help_quick_start.md
-```
-
-### 4. Render Markdown
-
-Render the fetched markdown content. Most platforms have markdown rendering libraries:
-- **iOS/macOS**: Use `AttributedString` with markdown or a library like MarkdownUI
-- **Windows**: Use a WebView with a markdown-to-HTML library
-- **Web**: Use marked.js or similar
-
-### 5. Caching Strategy
-
-- Cache fetched help files locally
-- Use ETag/Last-Modified headers for cache validation
-- Fallback to cached content if offline
-
-## Adding New Help Topics
-
-1. Create the markdown file: `release_assets/help_newtopic.md`
-2. Add entry to `release_assets/help_index.json`
-3. Increment index version if structure changed
-4. Create new GitHub release with updated assets
-
-## Updating Existing Help
-
-1. Edit the markdown file in `release_assets/`
-2. Create new GitHub release
-3. Clients will fetch updated content (based on cache policy)
-
-## File Naming Convention
-
-All help files use the prefix `help_` followed by a descriptive name:
-- `help_quick_start.md`
-- `help_cpm22.md`
-- `help_file_transfer.md`
-
-## Error Handling
-
-Clients should:
-- Show loading indicator while fetching
-- Display error message if fetch fails
-- Offer retry option
-- Fall back to cached content if available
-
-## Platform-Specific Implementation Examples
-
-### Windows (C++/WinRT)
-
-```cpp
-// Fetch index
-winrt::Windows::Web::Http::HttpClient client;
-auto response = co_await client.GetStringAsync(
-    winrt::Windows::Foundation::Uri(L"https://github.com/avwohl/ioscpm/releases/latest/download/help_index.json"));
-
-// Parse JSON
-auto json = winrt::Windows::Data::Json::JsonObject::Parse(response);
-auto topics = json.GetNamedArray(L"topics");
-
-// Display in ListView, fetch content on selection
-// Render markdown in WebView2 using a JS library like marked.js
+```sh
+tools/check-help-assets.py --check    # report drift, change nothing
+tools/check-help-assets.py            # refresh from the live catalog
 ```
 
-### Web (JavaScript)
+**Nothing schedules it.** It ran daily from `.github/workflows/help-assets.yml`
+until 2026-09-13, when that workflow went with every other job that reached a
+published release. Run it before cutting a build that ships help. It has
+already gone stale once: romwbw_disks rewrote all seven topics and these copies
+stayed as they were until somebody noticed.
 
-```javascript
-// Fetch and display help
-async function loadHelp() {
-    const indexUrl = 'https://github.com/avwohl/ioscpm/releases/latest/download/help_index.json';
-    const response = await fetch(indexUrl);
-    const index = await response.json();
+It checks the seven `.md` files and **not** `help_index.json`, which is not a
+topic the catalog names - the catalog's `help` block *is* the published index.
+So the bundled index is covered by nothing, and that is how it went on naming a
+dead `base_url` for as long as it did.
 
-    // Build topic list
-    const list = document.getElementById('help-topics');
-    index.topics.forEach(topic => {
-        const item = document.createElement('div');
-        item.innerHTML = `<h3>${topic.title}</h3><p>${topic.description}</p>`;
-        item.onclick = () => loadTopic(index.base_url + topic.filename);
-        list.appendChild(item);
-    });
-}
-
-async function loadTopic(url) {
-    const response = await fetch(url);
-    const markdown = await response.text();
-    document.getElementById('help-content').innerHTML = marked.parse(markdown);
-}
-```
-
-## Current Help Topics
-
-| ID | Title | Filename |
-|----|-------|----------|
-| quick_start | Quick Start Guide | help_quick_start.md |
-| cpm22 | CP/M 2.2 User Guide | help_cpm22.md |
-| zsdos | ZSDOS User Guide | help_zsdos.md |
-| nzcom | NZCOM User Guide | help_nzcom.md |
-| zpm3 | ZPM3 User Guide | help_zpm3.md |
-| qpm | QP/M User Guide | help_qpm.md |
-| file_transfer | File Transfer (R8/W8) | help_file_transfer.md |
+cpmdroid keeps a third copy under `app/src/main/assets/help/` that this script
+does not touch and nothing else does either.
