@@ -42,84 +42,51 @@ has an MBR naming the wrong partition type, and it deliberately says nothing
 about an image with no MBR at all.  Writing a filesystem is what would close
 this, and nothing in the app does it.
 
-### Creating Disks on Linux (Workaround)
+### Creating a formatted disk, with the tool this family uses
 
-The app can create a blank disk in place (Settings -> Disk N -> "Create New..."), and it
-now creates it at the size the picker is set to, but all it produces is 0xE5 fill - no
-HD1K filesystem, no boot track, no system. A multi-slice size gives several blank drives
-and still no filesystem on any of them. For a properly formatted image, build it on
-Linux with cpmtools.
+The app can create a blank disk in place (Settings -> Disk N -> "Create New...")
+at the size the picker is set to, but all it produces is 0xE5 fill - no HD1K
+directory, no boot track, no system. A multi-slice size gives several blank
+drives and still no filesystem on any of them.
 
-**Install cpmtools:**
+`cpm_disk.py` writes the image **and its directory** in one step. It is one
+stdlib-only Python file, owned by cpmemu at `util/cpm_disk.py`, and it needs no
+diskdefs file, no `-T logical` and no libdsk - the format is detected from the
+size:
+
 ```bash
-sudo apt install cpmtools
+CPM=~/src/cpmemu/util/cpm_disk.py
+
+python3 "$CPM" create newdisk.img            # 8 MB hd1k, one slice
+python3 "$CPM" create --combo newdisk.img    # 49 MB combo, six slices
+python3 "$CPM" add  newdisk.img file.com
+python3 "$CPM" add  --slice 3 newdisk.img file.com
+python3 "$CPM" list --slice 3 newdisk.img
+python3 "$CPM" verify newdisk.img
 ```
 
-**Supported disk sizes:**
-- 8MB (8388608 bytes) - single slice disk
-- 49MB (51380224 bytes) - 6-slice disk (6 × ~8MB)
+Measured on macOS, 2026-09-15: `create` gives exactly 8,388,608 bytes and
+`create --combo` exactly 51,380,224, both `verify` clean, and a file added to
+**slice 3** of the combo lists and extracts back byte-for-byte. It runs wherever
+Python does; there is nothing Linux-specific about any of this.
 
-**Create an 8MB single-slice disk:**
-```bash
-# Create empty file filled with E5 (CP/M empty marker)
-dd if=/dev/zero bs=1 count=8388608 | tr '\000' '\345' > mydisk.img
+`create --sssd` exists for a 250 KB 8" floppy and does not work - it fails its
+own post-create verify and writes no file - and the emulator accepts no image
+that size anyway.
 
-# Format with CP/M filesystem (wbw_hd1k format)
-mkfs.cpm -f wbw_hd1k mydisk.img
-```
+**This section used to prescribe cpmtools**, with a diskdefs file to install and
+three ways to obtain a `wbw_hd1k` definition. Do not restore it. The measured
+reasons are in `romwbw_emu/.claude/CLAUDE.md`: cpmtools 2.23 cannot be
+configured without libdsk, its default path double-counts `boottrk` on a diskdef
+carrying no `offset`, and the failure is **silent** - against the published
+`hd1k_infocom`, `cpmls -f wbw_hd1k` listed nothing while `cpmcp` exited 0 having
+written into the data area over a file already there. libdsk also cannot address
+past 8 MB from the start of a file, which put combo slices 1-5 out of reach
+entirely; the `--slice 3` line above is the case that could not be done at all.
 
-**Create a 49MB multi-slice disk:**
-```bash
-# Create empty file filled with E5
-dd if=/dev/zero bs=1 count=51380224 | tr '\000' '\345' > mydisk.img
-
-# Format each slice (0-5) - each slice is an independent CP/M filesystem
-for slice in 0 1 2 3 4 5; do
-    mkfs.cpm -f wbw_hd1k -b $slice mydisk.img
-done
-```
-
-**Copy files to the disk:**
-```bash
-# Copy a file to slice 0 (drive A: in CP/M)
-cpmcp -f wbw_hd1k mydisk.img localfile.com 0:FILENAME.COM
-
-# List files on slice 0
-cpmls -f wbw_hd1k mydisk.img
-```
-
-**Note:** The `wbw_hd1k` format is not included in standard cpmtools. You need the RomWBW diskdefs file.
-
-**Option 1:** Use local RomWBW diskdefs (if you have RomWBW source):
-```bash
-# Point cpmtools to RomWBW diskdefs
-export CPMTOOLS_DISKDEFS=/path/to/RomWBW/Source/Images/diskdefs
-
-# Or use -T flag
-mkfs.cpm -T /path/to/RomWBW/Source/Images/diskdefs -f wbw_hd1k mydisk.img
-```
-
-**Option 2:** Download diskdefs from RomWBW:
-```bash
-wget https://raw.githubusercontent.com/wwarthen/RomWBW/master/Source/Images/diskdefs
-export CPMTOOLS_DISKDEFS=./diskdefs
-```
-
-**Option 3:** Add this to `/etc/cpmtools/diskdefs`:
-```
-diskdef wbw_hd1k
-  seclen 512
-  tracks 1024
-  sectrk 16
-  blocksize 4096
-  maxdir 1024
-  skew 0
-  boottrk 2
-  os 2.2
-end
-```
-
-For multi-slice disks, use slice-specific definitions (`wbw_hd1k_0`, `wbw_hd1k_1`, etc.) which include proper offsets - see the RomWBW diskdefs file for full definitions.
+romwbw_disks still uses cpmtools in `tools/build_disks.sh` to build the
+published images. That is that repository's business and its `tools/diskdefs` is
+load-bearing there; it is the one place in this family the tool is named.
 
 ## User Data Persistence
 
@@ -147,12 +114,14 @@ emulator is running off the file.
 
 The reason it is keyed on provenance and not on the file's own hash is this entry. Comparing installed bytes against the catalog classifies **every disk the user has saved work into** as stale, because `saveDownloadedDisks()` writes the running machine's image back over the file on every warm boot and every backgrounding. An automatic refresh keyed on that comparison would be precisely this entry's hazard, automated and unprompted. So an image proven pristine — its bytes still hash to the provenance recorded for it — may be refreshed automatically, and only on an unconstrained, inexpensive network. Anything else is offered as a button that says in as many words that files saved inside the disk will be lost. An install with no ledger yet cannot prove pristineness either way, and therefore never takes the automatic path.
 
-**The builds in service still read the version attribute, and that is the half of this entry that is still live.** Measured 2026-09-08: the Store serves 1.5.1, which is at most build 61, and build 61 fetches `disks.xml` from the pinned `v1.4.12` — so re-uploading that tag's catalog with a moved `<disks version="13">` reaches every one of those devices with no tap and no download. Earlier 1.5.1 builds are pinned to `v1.4.5` instead — the pin arrived at build 42/43 and moved to `v1.4.12` on 2026-09-03, with `CURRENT_PROJECT_VERSION` at 58 — and everything above is just as true of `v1.4.5`. Older installs are worse rather than gone: 1.4.9 (builds 36/37) is no longer *served*, but it is still on the phone of everyone who has not updated, and it floats on `releases/latest/download/` rather than a tag, so for those a *normal* release fires the wipe immediately. That is why `--prerelease` on an asset carrier is load-bearing rather than cosmetic, and the rules that came out of doing it are in `docs/DISK_W8FIX_RUNBOOK.md`, in the SUPERSEDED block at the top. `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` is where the ordering was first worked out; it now opens "Historical, and nothing here is current as of 2026-09-07", so read it for the reasoning and not for the procedure. Every version number in this paragraph is a measurement with a date on it, not a constant: re-derive it with `tools/check-store-version.sh` before relying on it.
+**The version-attribute wipe no longer reaches the build the Store serves, and that changed on 2026-09-12.** Measured 2026-09-15: the Store serves 1.6.1, released 2026-09-12, at most build 70; 1.6.1 heads builds 67-72, so it is at least 67, past the build-64 migration. Every build it could be is a v0 client that reads no `disks.xml` at all, so moving `<disks version="13">` cannot touch it. Until 2026-09-12 the opposite was true, and this paragraph said so: the Store served 1.5.1, at most build 61, which fetches `disks.xml` from the pinned `v1.4.12`.
 
-**Still open, and not foreclosed by the narrowing or by build 61:**
+**It frees nothing, because the hazard was never about the build being served.** It is about the builds people have. Anyone who has not updated is still on 1.5.x pinned to `v1.4.12` or `v1.4.5` — the pin arrived at build 42/43 and moved on 2026-09-03 with `CURRENT_PROJECT_VERSION` at 58 — and re-uploading either tag's catalog with a moved version attribute reaches those devices with no tap and no download. Older installs are worse: 1.4.9 (builds 36/37) floats on `releases/latest/download/` rather than a tag, so for those a *normal* release fires the wipe immediately. That is why `--prerelease` on an asset carrier is load-bearing rather than cosmetic, and the rules that came out of doing it are in `docs/DISK_W8FIX_RUNBOOK.md`, in the SUPERSEDED block at the top. `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` is where the ordering was first worked out; it now opens "Historical, and nothing here is current as of 2026-09-07", so read it for the reasoning and not for the procedure. Every version number in this paragraph is a measurement with a date on it, not a constant: re-derive it with `tools/check-store-version.sh` before relying on it.
+
+**Still open, and not foreclosed by the narrowing or by what the Store now serves:**
 - Copy-on-write: create a local copy when the user first modifies a downloaded disk. This is the only one that helps a user who kept data *in* a catalog disk, which is what the paragraph at the top of this entry is about. Build 61 warns before replacing such a disk and never replaces one unasked; it still cannot preserve the contents.
 - Confirm before the wipe, rather than reporting it afterwards. In this tree there is no wipe left to confirm — build 66 deletes nothing on a catalog change, and the provenance path asks first. In the builds users have, the version-attribute path is unchanged and still reports afterwards.
-- How much of it a user actually has cannot be established from here. The narrowing landed in build 56 and the ledger in build 61, and the Store's 1.5.1 is at most build 61 — `tools/check-store-version.sh` cannot say which build inside that range it is, and neither can this file. A device still on 1.4.9 has neither.
+- How much of it a user actually has cannot be established from here. The narrowing landed in build 56 and the ledger in build 61, and the Store's 1.6.1 is at least build 67, so a device on the current version has both and the wipe removed outright at build 66 besides. `tools/check-store-version.sh` still cannot say which build inside the range it is, and neither can this file. A device nobody has updated has whatever it had: a 1.5.x install may have the ledger, and one still on 1.4.9 has neither.
 
 ## Interface v0
 

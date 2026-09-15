@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+### KNOWN_PROBLEMS.md spent 79 lines teaching cpmtools
+
+"For a properly formatted image, build it on Linux with cpmtools", then a
+diskdefs file to install and three separate ways to obtain a `wbw_hd1k`
+definition. Wrong tool, wrong platform claim, and the one thing this family has
+written down not to do.
+
+`cpm_disk.py` writes the image *and its directory* in one step, needs no
+diskdefs file and no libdsk, and runs wherever Python does. Measured on macOS
+before the section was rewritten around it, rather than transcribed from another
+doc: `create` produces exactly 8,388,608 bytes and `create --combo` exactly
+51,380,224, both `verify` clean, and a file added to **slice 3** of a combo
+lists and extracts back byte-for-byte. That last one is the case cpmtools cannot
+do at all — libdsk cannot address past 8 MB from the start of a file, which puts
+combo slices 1-5 out of reach entirely. 79 lines to 46, and the section names
+cpmtools only to say not to restore it, with the measured reasons.
+
+The magic numbers above it (`0x55AA`, `PART_TYPE_ROMWBW = 0x2E`, the `0x18`/`0xC3`
+fallback) were already right and are untouched; `create --sssd` is recorded as
+not working, which it still does not.
+
+### The disk-wipe entry's live half stopped being live on 2026-09-12
+
+"**The builds in service still read the version attribute, and that is the half
+of this entry that is still live.** Measured 2026-09-08: the Store serves 1.5.1,
+which is at most build 61, and build 61 fetches `disks.xml` from the pinned
+`v1.4.12`." Measured 2026-09-15: the Store serves 1.6.1, at most build 70, and
+1.6.1 heads builds 67-72 — so at least 67, past the build-64 migration. Every
+build it could be is a v0 client that reads no `disks.xml`, so moving
+`<disks version="13">` cannot reach it.
+
+**It frees nothing**, and the entry now says why: the hazard was never about the
+build being *served*, it is about the builds people *have*. A 1.5.x install is
+still pinned to `v1.4.12` or `v1.4.5`, and 1.4.9 floats on
+`releases/latest/download/`, where a normal release fires the wipe immediately.
+The `--prerelease` discipline is unchanged. The third "still open" bullet is
+corrected the same way: a device on the current version has both the narrowing
+and the ledger, and the wipe removed outright at build 66 besides.
+
+### Checked and correct
+
+- `modalHasKeyboard` names exactly the four dialogs the entry lists —
+  `showingManifestWriteWarning`, `showingError`, `showingROMProblem`,
+  `showingResetConfirm` — and `captureKeyboard: !modalHasKeyboard` is wired as
+  described.
+- "No session can upload" is accurate and explicitly re-checked at builds 58, 61
+  and 67. It is also right to refuse to record whether Xcode is present.
+
 ### PRIVACY.md named the wrong repository for help, and DISK_DISTRIBUTION.md the wrong index URL
 
 A privacy policy is a statement about where a user's requests go, so the host
