@@ -24,7 +24,7 @@ only thing that moves between submissions of the same version, and it is what
 every CHANGELOG entry here is keyed to:
 
 ```
-CURRENT_PROJECT_VERSION = 67;      <- bump this, once, for a new build
+CURRENT_PROJECT_VERSION = 72;      <- bump this, once, for a new build
 MARKETING_VERSION = 1.6.1;         <- leave alone
 ```
 
@@ -112,8 +112,11 @@ review, be rejected, or be held.
 **Measure before you write it down.**  `tools/check-store-version.sh` curls the
 iTunes lookup, maps the shipped version to a build through `CHANGELOG.md`, and
 compares that with `CURRENT_PROJECT_VERSION`.  Exit 0 means nothing recorded in
-this tree or its siblings claims a build the Store does not serve; exit 2 means
-it could not check, which is not a pass.
+**this tree** claims a build the Store does not serve; exit 2 means it could not
+check, which is not a pass.  It reads no sibling repository any more: the
+`shipped:<build>` field it used to compare against was removed from
+`z80cpmw/FEATURE_PARITY.md` on 2026-09-13, along with the CI jobs that checked
+it, and the script's sibling block is now a comment saying so.
 
 ```bash
 sh tools/check-store-version.sh
