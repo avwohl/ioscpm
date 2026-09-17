@@ -169,7 +169,10 @@ let catalogJSON = """
 """
 
 /// A core that runs 3.5.1 and 3.6.0 and nothing else - what
-/// src/romwbw_pin.h's ROMWBW_SUPPORTED_RELEASES says today.
+/// iOSCPM/Core/romwbw_pin.h's ROMWBW_SUPPORTED_RELEASES says today.  Not
+/// src/romwbw_pin.h, which is romwbw_emu's spelling for it and is no path in
+/// this repository - the file here is a symlink into that one.  MANUAL_CHECKS
+/// section 20 corrected the same cite in its own box.
 func todaysCore(_ ver: UInt8, _ upd: UInt8) -> Bool {
     (ver == 0x35 && upd == 0x10) || (ver == 0x36 && upd == 0x00)
 }

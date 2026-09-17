@@ -34,17 +34,100 @@ build.  Tag each item with what it needs, so a session on another machine can
 see at a glance what that machine can take.
 
 
-- [MAC] Delete RomWBWIndex.offered and the romWBWReleaseSupported bridge method
-  once romwbw_emu drops its release gate.  The filter keys on the RomWBW release,
-  which is the HBIOS-to-disk-image axis; what the emulator actually depends on is
-  romwbw_disks' interface v0, which already versions it.  Not a bug and not
-  urgent - a client that still filters is correct, it just cannot see a new
-  release - but it is why publishing RomWBW 3.7.0 would need an App Store
-  submission.  The argument and the per-repo list is
-  romwbw_emu/docs/RELEASE_GATE.md.
-    CLAUDE.md's "Adding a release is a claim that somebody ran it" paragraph
-  states the compile-time list as permanent design.  It becomes wrong the day
-  romwbw_emu cuts the macro, so it has to move in the same pass.
+- [MAC] Delete the release filter - the release half of RomWBWIndex.offered,
+  the two bridge methods supportsRomWBWVer (supportsRomWBW(ver:upd:) to Swift)
+  and romWBWReleases, and the noSupportedRelease failure stage behind them -
+  once romwbw_emu drops its release gate.  The filter keys on the RomWBW
+  release, which is the HBIOS-to-disk-image axis; what the emulator actually
+  depends on is romwbw_disks' interface v0, which already versions it - though
+  not wholly, and RELEASE_GATE.md says so against itself: v0's third pillar
+  covers the private 0xE1-0xEA block and two standard functions, not the whole
+  set of standard HBIOS functions hbios_dispatch.cc implements, so a release
+  whose CBIOS calls one this core lacks is the case the release list was
+  standing in for.  boot_test.sh run at publish time is what has to catch that
+  instead, which is why RELEASE_GATE.md's order of work puts romwbw_disks
+  first, then romwbw_emu, then the three GUI clients.
+    Do not repeat the reason an earlier revision of this item gave for that
+  order.  It said the protection moves to nowhere if the load-time refusal goes
+  before the publish-time check is required, and that is wrong twice over.
+  RELEASING.md already requires boot_test.sh and orders it before the X() line,
+  and says in as many words that a SKIP means no emulator was found rather than
+  a pass.  And the coupling runs the other way: boot_test.sh CONSUMES the gate.
+  It asks the emulator which releases it can run rather than assuming, by
+  parsing "RomWBW releases this build can run:" out of --version, which
+  romwbw_emu prints from emu_romwbw_supported_list(); with neither that line nor
+  the pre-v1.39 "RomWBW compatibility: v..." fallback it dies rather than skips.
+  So cutting the gate first does not leave publishing unprotected - it stops
+  publishing working at all, until boot_test.sh is rewritten to test every
+  published version unconditionally and to drop its own refusal branch.  That
+  rewrite is the real first step, and it is in romwbw_disks.  Measured
+  2026-09-17 in tools/boot_test.sh and in romwbw_emu's print_version_banner.
+    Nothing is in progress, read 2026-09-17: romwbw_emu still has both X()
+  lines in ROMWBW_SUPPORTED_RELEASES under a RELEASE_GATE.md that says "Nothing
+  here has been implemented" in as many words, git fetch showed origin/main
+  carrying nothing newer, and romwbw_disks carries "MAKE tools/boot_test.sh THE
+  GATE" as an open item of its own.  When the gate does go,
+  emu_set_allow_untested_romwbw, emu_allow_untested_romwbw and
+  --allow-untested-romwbw go with it; nothing here calls them, so they cost this
+  repository nothing either way.
+    Two things this item used to say are wrong, both settled by measuring.
+  romWBWReleaseSupported is not a symbol - it greps to this file and to nothing
+  else in the tree; the bridge declares supportsRomWBWVer, whose selector is
+  split over its two arguments and so greps only as that stem, and it reaches
+  Swift as supportsRomWBW(ver:upd:) through NS_SWIFT_NAME; romWBWReleases is
+  the other half of the same gate, feeding both the About screen's
+  "RomWBW ... core" line and the detail on noSupportedRelease.  And the filter
+  is not why publishing 3.7.0 would need an App Store submission.
+  emu_validate_rom_hcb refuses an unsupported ROM at load, loadROMFromData:
+  calls it on the raw buffer so the core's message survives, and
+  emu_set_allow_untested_romwbw is never called in this app - so with the filter
+  deleted and nothing else changed a 3.7.0 entry would be offered, fetched, and
+  then rejected with "has not been checked against".  The compile-time list is
+  the binding constraint; the filter only decides whether a user is offered a
+  release before meeting it.
+    Nor is it as leisurely as "a client that still filters is correct" made it
+  sound.  iOSCPM/Core/emu_init.h and romwbw_pin.h are symlinks into
+  romwbw_emu/src, so the day that repository deletes
+  emu_romwbw_release_supported and emu_romwbw_supported_list this tree stops
+  compiling with no commit of its own: run_tests.sh's BridgeCompiles step
+  syntax-checks RomWBWEmulator.mm against iOSCPM/Core, and both bridge methods
+  fail with "use of undeclared identifier".  Measured on 2026-09-17 by
+  compiling the bridge against a copy of the core with those two declarations
+  deleted.  So this is not optional cleanup trailing romwbw_emu's step 2; the
+  build here breaks on the same day, and only the user-visible half can lag.
+    The rest of the surface, so the pass is one sitting.  RomWBWIndex.offered
+  does TWO jobs and only one of them is the gate: the versionBytes lookup and
+  the supported() call are the release filter, and the guard above them that
+  drops an entry with no catalog_url is not.  Delete the function wholesale and
+  an entry with nothing to fetch becomes selectable, falling through to a
+  catalog-hop failure instead of never being offered; CatalogDocumentTests pins
+  that on its 3.4.0 fixture, in as many words - "neither is one with no
+  catalog_url, because there would be nothing to fetch" - while its 9.9.9
+  fixture is the one testing the gate.  That guard has to survive somewhere.
+    adoptIndex is the sole caller of RomWBWIndex.offered, and the guard behind
+  it is where RomWBWIndexEntry.placeholder and the noSupportedRelease
+  CatalogFailure are raised - that stage, its summary line and the exception it
+  gets in the stale-catalog downgrade all go with it.
+    RomWBWIndexEntry.versionBytes and hexByte have no other production caller
+  in the app - hexByte is called only from versionBytes, and versionBytes only
+  from offered - but RELEASE_GATE.md's "What stays"
+  keeps ver_byte and upd_byte in the index for the pairing rule, so deleting
+  them is a choice to make rather than a consequence.  CatalogDocumentTests'
+  "Which releases are offered, asked of the core and not assumed" section goes
+  with its todaysCore stub and its 9.9.9 case - its 3.4.0 case tests the
+  catalog_url guard and stays.  check_view_bindings.sh carries a one-element
+  loop name-checking RomWBWEmulator.romWBWReleases() against the bridge header,
+  because ContentView.swift is one of the five files no compiler here can
+  reach; that loop empties when romWBWReleases goes, and until ContentView
+  stops calling it the check is what turns run_tests.sh red on a step that is
+  not BridgeCompiles.  In prose:
+  CLAUDE.md's "Adding a release is a claim that somebody ran it" paragraph,
+  which states the compile-time list as permanent design; README.md's "A new
+  RomWBW release needs a new build" paragraph; and MANUAL_CHECKS section 20's
+  box that offering exactly 3.5.1 and 3.6.0 is the right outcome, together with
+  the About-screen line it checks that against.  RomWBWIndex.preferred,
+  displayOrder and romWBWVersionToKeep all stay: they choose among what is
+  offered and do not care how the list was filtered.
 
 
 - [MAC] A local disk opened from Files is mounted with no release check at all.
