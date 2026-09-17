@@ -47,6 +47,38 @@ see at a glance what that machine can take.
   romwbw_emu cuts the macro, so it has to move in the same pass.
 
 
+- [MAC] A local disk opened from Files is mounted with no release check at all.
+  loadLocalDisk, reached from openLocalDisk and handleOpenDiskResult, takes
+  whatever the picker returns and mounts it; nothing on that path consults
+  romwbwVersion or CatalogMigration.versionedParts.  Info.plist carries
+  UIFileSharingEnabled and LSSupportsOpeningDocumentsInPlace, both true, so
+  putting a hd1k_*-v0-3.5.1.img into Documents/Disks on a 3.6.0 device is an
+  ordinary thing a user can do, and it then boots in silence.
+    The catalog path is NOT this.  Slots are release-scoped through
+  CatalogMigration.versionedKey, and refreshAvailableDisks drops another
+  release's catalog image through CatalogMigration.belongsToAnotherRelease - so a
+  catalog disk shows as an empty drive rather than a wrong one.  Two gaps in that
+  guard, both read rather than run: belongsToAnotherRelease only fires for a stem
+  in knownCatalogStems, which is OBSERVED and grown by recordCatalogStems alone,
+  so a stem this device has never fetched a catalog for is not recognised as
+  another release's; and loadLocalDisk bypasses the guard entirely, known stem or
+  not.
+    z80cpmw filed the same family of bug on 2026-09-17 after MEASURING a machine
+  that had 3.6.0 stored against two -v0-3.5.1 disks.  This port cannot reach that
+  exact state - it has no filename-to-preference back-fill, so the "corrects only
+  an empty value" half does not apply here - but it shares the half that matters
+  to a user: romReleaseMismatchNotice states the bad pair and names no remedy.
+  It should name the release the files on the device agree on, and offer it.
+    One thing to check before writing any of this down as settled: contrary to
+  what the surrounding code reads like, applyRomWBWVersionSwitch writes
+  romwbwVersionKey UNCONDITIONALLY, automatic switches included, and
+  romwbwVersionChosenKey is only ever set and never cleared - so "only a value
+  the picker set is stored" is false, and any fix reasoning from it will be
+  wrong.  Also: applyRomWBWVersionSwitch blanks selectedDisks in memory but the
+  new release's slots are re-read later by restoreDiskSelections, off the back of
+  fetchDiskCatalog, so a failed fetch leaves them un-re-read.
+
+
 What a released build carries, and what the next one still owes
 ----------------------------------------------------------------------
 
