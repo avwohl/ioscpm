@@ -54,27 +54,19 @@ typedef NS_ENUM(NSInteger, RWBControlifyMode) {
 // Initialization
 - (instancetype)init;
 
-/// The RomWBW releases this build of the emulator core can run, as
-/// "3.5.1, 3.6.0". There is no single pinned release any more: the core reads
-/// the version out of whichever ROM it loads. Disk slices built by a release
-/// OTHER than the loaded ROM's still print an HBIOS/CBIOS version mismatch, so
-/// this is worth showing to anyone reporting one.
+/// The release the LOADED ROM declares, as "3.5.1", or nil when no ROM has
+/// been loaded into this instance yet.
 ///
-/// For DISPLAY only. It is one formatted string and the format is not a
-/// contract; the two calls below are how code asks a question.
-+ (NSString*)romWBWReleases;
-
-/// Can this build boot that release?  `ver` and `upd` are RomWBW's own packed
-/// bytes - ver = major<<4 | minor, upd = update<<4 | patch, so v3.5.1 is
-/// {0x35, 0x10} - which is exactly what index-v0.json publishes as the hex
-/// strings `hbios.ver_byte` and `hbios.upd_byte`.
+/// There is no list of releases this build "can run" to ask for instead, and
+/// there has not been one since romwbw_emu v1.44: the core loads any ROM with
+/// a readable HBIOS configuration block. So the only honest thing to report is
+/// the release actually in memory, and before a ROM is loaded there is no
+/// answer at all - which is what nil means here rather than "0.0.0".
 ///
-/// This is the filter for the release picker. Asking the core beats comparing
-/// against a constant in Swift: there is no compile-time pin left to compare
-/// with, and a client can be built against a newer or older core than it
-/// expects. It is also why nothing parses +romWBWReleases - that would work
-/// today and break the first time its format changed.
-+ (BOOL)supportsRomWBWVer:(uint8_t)ver upd:(uint8_t)upd NS_SWIFT_NAME(supportsRomWBW(ver:upd:));
+/// Worth showing to anyone reporting an HBIOS/CBIOS version mismatch: that
+/// warning means the disk slices in play were built by a DIFFERENT release
+/// from the one this returns.
+- (nullable NSString*)loadedRomWBWRelease;
 
 /// The release a ROM IMAGE declares, as "3.5.1", or nil when the bytes carry
 /// no HBIOS configuration block to read it from.

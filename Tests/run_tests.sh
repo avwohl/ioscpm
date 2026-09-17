@@ -91,7 +91,7 @@ run_core_suite() {
     echo
 }
 
-# The 21 entries under iOSCPM/Core/ are symlinks into ../romwbw_emu/src and
+# The 20 entries under iOSCPM/Core/ are symlinks into ../romwbw_emu/src and
 # ../cpmemu/src. They have been flattened into stale copies once already (see
 # docs/notes_to_windos.md), and a flattened copy still compiles and still
 # passes every test below - it just stops tracking upstream. Check the shape
@@ -101,10 +101,13 @@ printf '%s\n' "=== CoreSymlinks ==="
 # checkout. An exported tree has no index to consult and is not a failure.
 if (cd "$ROOT" && git rev-parse --is-inside-work-tree >/dev/null 2>&1); then
     links=$( (cd "$ROOT" && git ls-files -s iOSCPM/Core/ | grep -c '^120000') || true)
-    if [ "${links:-0}" -eq 21 ]; then
-        echo "PASS: all 21 iOSCPM/Core entries are still symlinks"
+    # 20 and not 21 since romwbw_emu v1.44 deleted src/romwbw_pin.h: the
+    # symlink to it here dangled the moment that landed, with no commit in this
+    # repository, and it went with the release gate it was the header for.
+    if [ "${links:-0}" -eq 20 ]; then
+        echo "PASS: all 20 iOSCPM/Core entries are still symlinks"
     else
-        echo "FAIL: expected 21 symlinks under iOSCPM/Core, found ${links:-0}"
+        echo "FAIL: expected 20 symlinks under iOSCPM/Core, found ${links:-0}"
         echo "      a flattened copy compiles and passes - and stops tracking upstream"
         status=1
     fi

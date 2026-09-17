@@ -262,14 +262,29 @@ What still holds:
    `docs/DISK_W8FIX_RUNBOOK.md`. `v1.4.12` is what shipped builds pin **and**
    what `releases/latest` resolves to, so writing to it reaches the pinned and
    the floating fleet in one move.
-2. **A binary must not be offered a release its core cannot run.** This is now
-   enforced rather than scheduled: the index publishes each release's
-   `hbios.ver_byte`/`upd_byte`, and each v0 client filters the list through its
-   own core (`emu_romwbw_release_supported`). A build predating 3.6.0 simply
-   never sees the entry, so "ship the ROM first, then the disks" stops being an
-   ordering a person has to remember. `ROMWBW_SUPPORTED_RELEASES` in
-   `romwbw_emu/src/romwbw_pin.h` is where a core says what it can run; it names
-   3.5.1 and 3.6.0 today.
+2. **A binary IS offered every release the index publishes**, and the rule this
+   entry used to state is gone. It read "a binary must not be offered a release
+   its core cannot run", enforced by each v0 client filtering the index through
+   `emu_romwbw_release_supported()` against `ROMWBW_SUPPORTED_RELEASES` in
+   `romwbw_emu/src/romwbw_pin.h`. romwbw_emu v1.44 deleted that header, those
+   functions and the load-time refusal behind them, and this app's filter went
+   with them.
+
+   It gated the wrong axis. A release number pairs HBIOS with a disk image's
+   CBIOS, which the guest enforces itself
+   (`*** WARNING: HBIOS/CBIOS Version Mismatch ***`); what the core depends on
+   is two I/O ports and the set of HBIOS functions it services, and that is
+   versioned by the catalog's own name — a v0 index publishes only v0, and a
+   break would arrive as `index-v1.json`. So the filter could only ever hide a
+   release the user could have booted, at the price of an App Store submission
+   per RomWBW release. The "somebody ran it" claim moved to
+   `romwbw_disks`' `tools/boot_test.sh`, at publish time.
+
+   `hbios.ver_byte`/`upd_byte` stay in every index entry. They were never
+   really an emulator gate and they still describe the ROM-to-disk-image
+   pairing, which is real. "Ship the ROM first, then the disks" is back to being
+   an ordering a person has to get right, and `romReleaseMismatchNotice` is the
+   only thing in this app that notices when they did not.
 3. **The `<disks version="N">` warning, undiminished.** Changing that attribute
    makes an installed pre-v0 app delete `.img` files from `Documents/Disks` on
    its next fetch — including, on the oldest installs, disks the user imported

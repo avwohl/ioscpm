@@ -2,6 +2,111 @@
 
 ## Unreleased
 
+### The release filter is gone: every published RomWBW release is offered
+
+romwbw_emu v1.44 (`a6fa3db`) deleted its compile-time release gate —
+`src/romwbw_pin.h`, `ROMWBW_SUPPORTED_RELEASES`,
+`emu_romwbw_release_supported()`, `emu_romwbw_supported_list()`, the two
+`*_allow_untested_romwbw` calls and the release branch of
+`emu_validate_rom_hcb()`. **That landed in this tree with no commit of its own:**
+`iOSCPM/Core/` holds symlinks into `../romwbw_emu/src`, so
+`iOSCPM/Core/romwbw_pin.h` dangled the moment that repository committed, and
+`Tests/run_tests.sh` went red on two steps at once — `CoreSymlinks` on the
+dangling link, `BridgeCompiles` on `use of undeclared identifier
+'emu_romwbw_supported_list'` and `'emu_romwbw_release_supported'`. Both measured
+before anything here was edited.
+
+**Why the gate went, because re-introducing it is easy.** A RomWBW release
+number is the HBIOS-to-CBIOS pairing: a fact about a ROM and a disk image, which
+the guest enforces itself by printing
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***`. It is not what the emulator
+depends on. The emulator depends on the emulator-to-ROM interface — two I/O
+ports and the set of HBIOS functions `hbios_dispatch.cc` services — and that is
+versioned by the romwbw_disks catalog's own name, `v0`. Every release a v0 index
+publishes speaks v0; a change the core could not service would be published as
+`index-v1.json`, which this app ignores by name. So a per-entry "can this build
+run it?" filter could only ever hide a release the user could have booted, at
+the price of an App Store submission per RomWBW release.
+
+What changed here:
+
+- **`RomWBWIndex.offered` lost its release half and kept its other one.** It did
+  two jobs: ask the core about each entry's `hbios` bytes, and drop an entry
+  with no `catalog_url`. Only the first was the gate. Deleting the function
+  wholesale would have made an entry with nothing to fetch selectable — it would
+  fall through to a catalog-hop failure instead of never being offered — so the
+  `catalog_url` guard survives and `CatalogDocumentTests` still pins it on the
+  3.4.0 fixture. The signature is now `offered(_:)` with no `supported:` closure.
+- **Both bridge methods went**: `+romWBWReleases` and
+  `+supportsRomWBWVer:upd:` (`supportsRomWBW(ver:upd:)` to Swift), from
+  `RomWBWEmulator.h` and `RomWBWEmulator.mm` together.
+- **`- (nullable NSString*)loadedRomWBWRelease` replaces them**, wrapping
+  `emu_romwbw_release_loaded()` — the one call the core still offers, and the
+  only honest one, since it reads the four HCB bytes out of bank 0 of whatever
+  ROM is actually loaded. It returns nil before a ROM is loaded rather than
+  flattening that to a plausible-looking `0.0.0`.
+- **The About screen names the release IN PLAY.** It read
+  `RomWBW 3.5.1, 3.6.0 core` — the list the binary could run. There is no list
+  to name now, so the question changed from "what can this build run" to "what
+  is this machine running", which is the one worth putting in a bug report.
+  `EmulatorViewModel.romWBWReleaseSummary` answers it:
+  `RomWBW 3.6.0 ROM loaded` once a ROM is in memory, and
+  `RomWBW 3.6.0 selected - no ROM loaded yet` before that. `AboutView` takes the
+  view model to reach it.
+- **The `noSupportedRelease` `CatalogFailure` stage is gone**, with its summary
+  line, the `RomWBWIndexEntry.placeholder` branch in `adoptIndex` that raised
+  it, and its exception in the stale-catalog downgrade. Both remaining stages
+  are network hops, and a cached document is exactly the answer to one — which
+  is why that exception existed and why it no longer has a case.
+- **`RomWBWIndexEntry.versionBytes` and `hexByte` went too, and that was a
+  choice.** `hbios.ver_byte`/`upd_byte` stay in every index entry and
+  `RomWBWHBIOS` still decodes them: romwbw_emu's `RELEASE_GATE.md` keeps them
+  for the pairing rule, and deleting the parsing would have been reading the
+  deletion too widely. But the accessors that unpacked them into `UInt8`s had no
+  production caller left once the filter went, and the pairing comparison this
+  app actually makes — `romReleaseMismatchNotice`, and the open todo item about
+  a local disk opened from Files — is in release STRINGS, against
+  `romWBWRelease(ofImageData:)`. Packing to bytes to compare would be a detour.
+  They would have survived on their own unit tests alone, so they went.
+
+Tests and checks:
+
+- `Tests/run_tests.sh` expects **20** symlinks under `iOSCPM/Core`, not 21.
+- `Tests/check_view_bindings.sh` no longer hardcodes
+  `RomWBWEmulator.romWBWReleases()` as the one bridge call `ContentView.swift`
+  makes. The list is derived by grep now, and prints `ContentView makes no
+  direct bridge call` when there is none — because the hardcoded one-element
+  loop would have gone empty while still printing PASS, and a check that passes
+  for want of anything to check is worse than no check. ContentView makes none
+  today: About asks the view model, which asks the bridge.
+- `Tests/CatalogDocumentTests.swift` lost the `todaysCore` stub (it derived from
+  `iOSCPM/Core/romwbw_pin.h`, which no longer exists) and the hex-byte section.
+  Its 9.9.9 fixture — a release from a future this build predates — now asserts
+  the OPPOSITE of what it used to: it must be offered. A new section checks that
+  `ver_byte`/`upd_byte` are still decoded as the strings they are published as.
+  Two knock-on expectations moved with it: the picker's display order is
+  `9.9.9, 3.6.0, 3.5.1`, and "a stored choice the index no longer offers" needed
+  a version that really is absent, since 9.9.9 is now kept when chosen.
+
+Prose that described the gate as permanent design: `README.md`'s "A new RomWBW
+release needs a new build" paragraph (it now says the opposite, and why),
+`CLAUDE.md`'s "Adding a release is a claim that somebody ran it",
+`docs/DISK_CATALOG_PINNING.md` item 2, `docs/DISK_DISTRIBUTION.md`'s filter
+paragraph, and `MANUAL_CHECKS.md` §20's box, which now checks that the picker
+offers as many rows as the index has fetchable entries with nothing greyed out,
+and has a second box for the About line's two states. `todo.txt`'s item asking
+for exactly this work is closed and deleted.
+
+**Not done, and deliberately.** `Tests/run_tests.sh` passes in full on this
+machine (21 suites, no skips), but it cannot compile the five files that import
+UIKit — `ContentView.swift` among them, which is the one that changed. This
+machine has Command Line Tools and no Xcode, so `xcodebuild` does not run and
+neither does the app. `ContentView.swift` was checked with `swiftc -parse`,
+which is syntax and not types; `AboutView(viewModel:)` and
+`viewModel.romWBWReleaseSummary` are covered by `check_view_bindings.sh`'s
+name check and by nothing that type-checks them. The About screen's two states
+are in `MANUAL_CHECKS.md` for a person with a device.
+
 ### Four more user guides with the same wrong boot key
 
 `docs/cpm22_user_guide.md` was deleted on 2026-09-15 as a stale fork of the

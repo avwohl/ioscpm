@@ -319,15 +319,24 @@ An asset URL is `base_url + filename`, concatenated. The `"/"` this client used
 to insert is gone — under v0 the separator is in the document, and reproducing
 the fixup would double it.
 
-Which release is in play is a user choice, filtered by asking the emulator core
-about each entry's version bytes (`RomWBWEmulator.supportsRomWBW(ver:upd:)`,
-which wraps `emu_romwbw_release_supported`). That filter is why the index
-carries `hbios.ver_byte`/`upd_byte` at all: a binary whose core predates a
-release must not be offered that release, and it decides for itself rather than
-being told. This tree's core lists both — `ROMWBW_SUPPORTED_RELEASES` in
-`romwbw_emu/src/romwbw_pin.h` names 3.5.1 and 3.6.0 — so both are offered here.
-Since 1.6.1 reached the Store on 2026-09-12 that filter is live in the field as
-well; it was not when this section was written. Everything whose validity depends
+Which release is in play is a user choice among **every** entry the index
+publishes that has a `catalog_url`. There is no second filter. Until
+romwbw_emu v1.44 there was: each entry's version bytes went to the core through
+`RomWBWEmulator.supportsRomWBW(ver:upd:)`, which wrapped
+`emu_romwbw_release_supported()` and compared them against a compile-time
+`ROMWBW_SUPPORTED_RELEASES`, so a release published after a binary shipped was
+fetched and then hidden from its user. That header and both functions are gone,
+and so are the bridge method and `RomWBWIndex.offered`'s release half. The core
+now loads any ROM with a readable HBIOS configuration block, because what it
+depends on — two I/O ports and the set of HBIOS functions `hbios_dispatch.cc`
+services — is versioned by the catalog's own name rather than by a release
+number: a v0 index publishes only v0.
+
+`hbios.ver_byte`/`upd_byte` stay in every index entry, and `RomWBWHBIOS` still
+decodes them. They stopped being an emulator gate and remain what they always
+described, the ROM-to-disk-image pairing. Nothing in this app reads them today:
+its one pairing check, `romReleaseMismatchNotice`, compares release STRINGS.
+Everything whose validity depends
 on the release is keyed per (interface, release): the disk slots, the NVRAM
 blob, the last-seen generation, the on-disk filenames, and the catalog cache.
 Switching releases deletes nothing.

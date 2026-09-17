@@ -59,6 +59,17 @@ import Foundation
 /// (romwbw_disks writes them out of `versions/<ver>/version.json` verbatim).
 /// Making them integers would be a v0 break, so parsing them as strings is not
 /// defensive coding, it is the contract.
+///
+/// Nothing in this app reads them today. They are decoded anyway because they
+/// are still published in every entry and still describe the one axis that is
+/// real - the ROM-to-disk-image pairing the guest enforces with
+/// `*** WARNING: HBIOS/CBIOS Version Mismatch ***`. What they stopped being in
+/// romwbw_emu v1.44 is an emulator gate; `RomWBWIndex.offered` is where that
+/// went. The comparisons this app actually makes are in release STRINGS -
+/// `romwbwVersion` against `RomWBWEmulator.romWBWRelease(ofImageData:)` - so
+/// the packed bytes had no caller left once the filter went, and the accessors
+/// that unpacked them (`versionBytes`, `hexByte`) went with it rather than
+/// staying alive on their own unit tests.
 struct RomWBWHBIOS: Decodable, Equatable {
     let verByte: String?
     let updByte: String?
@@ -134,26 +145,6 @@ extension RomWBWIndexEntry {
         let raw = (status ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty, normalizedStatus != "stable" else { return displayLabel }
         return "\(displayLabel) (\(raw))"
-    }
-
-    /// The two bytes `emu_romwbw_release_supported()` wants, or nil when the
-    /// index does not say. Nil is treated as "cannot ask, so do not offer":
-    /// see `RomWBWIndex.offered(_:supported:)`.
-    var versionBytes: (ver: UInt8, upd: UInt8)? {
-        guard let ver = RomWBWIndexEntry.hexByte(hbios?.verByte),
-              let upd = RomWBWIndexEntry.hexByte(hbios?.updByte) else { return nil }
-        return (ver, upd)
-    }
-
-    /// `"0x35"` -> `0x35`. Nil for anything that is not one byte of hex, which
-    /// includes `"0x350"` - a value that does not fit is not a byte.
-    static func hexByte(_ text: String?) -> UInt8? {
-        guard var digits = text?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !digits.isEmpty else { return nil }
-        if digits.hasPrefix("0x") || digits.hasPrefix("0X") {
-            digits = String(digits.dropFirst(2))
-        }
-        return UInt8(digits, radix: 16)
     }
 
     /// What is wrong with the bytes fetched from `catalog_url`, or nil when
@@ -352,27 +343,29 @@ struct RomWBWIndex: Decodable {
 
 extension RomWBWIndex {
 
-    /// The entries this build can actually run.
+    /// The entries there is something to fetch for - which, since romwbw_emu
+    /// v1.44, is every entry the index publishes bar a broken one.
     ///
-    /// `supported` is the core's own answer - `emu_romwbw_release_supported()`
-    /// through the bridge - and not a comparison against a constant in this
-    /// app. A client can be built against a newer or an older core than it
-    /// expects, so the only honest source for "can this binary boot that
-    /// release" is the binary. Hardcoding "offer everything" would break the
-    /// first time romwbw_disks publishes a release the core has not been
-    /// checked against, which is the case the refusal in `emu_validate_rom_hcb`
-    /// exists for.
+    /// **This used to be two filters and is now one.** The second took each
+    /// entry's `hbios` bytes and asked the core `emu_romwbw_release_supported()`
+    /// through the bridge, so a release published after this binary was built
+    /// was never offered. That question no longer has an answer: the core loads
+    /// any ROM with a readable HBIOS configuration block, and what it actually
+    /// depends on - two I/O ports and the set of HBIOS functions
+    /// `hbios_dispatch.cc` services - is versioned by the catalog's own name.
+    /// Every release a **v0** index publishes speaks v0; an interface change
+    /// this core could not service would be published as `index-v1.json`, which
+    /// this app ignores by name. So a per-entry filter could only ever hide a
+    /// release the user could have booted.
     ///
-    /// An entry with no readable `hbios` bytes, or with no `catalog_url`, is
-    /// dropped: there is no way to ask about the first and nothing to fetch for
-    /// the second. Both would be publishing bugs upstream, and both are visible
-    /// to the caller as a shorter list rather than as a crash.
-    static func offered(_ entries: [RomWBWIndexEntry],
-                        supported: (UInt8, UInt8) -> Bool) -> [RomWBWIndexEntry] {
+    /// What survives is the `catalog_url` guard, which is not a release filter:
+    /// an entry with nowhere to fetch its catalog from cannot be selected
+    /// usefully, and offering it would turn a publishing bug upstream into a
+    /// catalog-hop failure here. That is a shorter list rather than a crash.
+    static func offered(_ entries: [RomWBWIndexEntry]) -> [RomWBWIndexEntry] {
         entries.filter { entry in
             guard let url = entry.catalogURL, !url.isEmpty else { return false }
-            guard let bytes = entry.versionBytes else { return false }
-            return supported(bytes.ver, bytes.upd)
+            return true
         }
     }
 

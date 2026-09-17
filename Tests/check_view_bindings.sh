@@ -106,18 +106,33 @@ check_pair "$ROOT/iOSCPM/Views/ContentView.swift" "EmulatorViewModel" \
 check_pair "$ROOT/iOSCPM/Views/HelpView.swift" "HelpViewModel" \
     "$ROOT/iOSCPM/Views/HelpView.swift"
 
-# The one Objective-C bridge call made from a file no compiler here can reach.
-# The view-model type-check covers every other bridge call; this one is in
-# ContentView.swift:448 and would otherwise be checked by nothing.
-for call in 'RomWBWEmulator.romWBWReleases()'; do
-    sym=$(printf '%s' "$call" | sed -E 's/RomWBWEmulator\.([A-Za-z_][A-Za-z0-9_]*).*/\1/')
-    if grep -q "$call" "$ROOT/iOSCPM/Views/ContentView.swift" &&
-       ! grep -qE "NS_SWIFT_NAME\($sym|[+-][[:space:]]*\([^)]*\)[[:space:]]*$sym" \
-            "$ROOT/iOSCPM/Bridge/RomWBWEmulator.h"; then
-        echo "FAIL: ContentView calls $call, which RomWBWEmulator.h does not declare"
+# Objective-C bridge calls made from ContentView.swift, a file no compiler here
+# can reach. The view-model type-check covers every other bridge call; anything
+# in this file would otherwise be checked by nothing.
+#
+# The list is DERIVED by grep and not written out. It used to be a one-element
+# `for` loop naming RomWBWEmulator.romWBWReleases(), and when that method was
+# deleted with romwbw_emu's release gate the loop went empty while the line
+# below still printed PASS - a check that passes because it has nothing left to
+# check is worse than no check. Today ContentView makes no direct bridge call
+# at all (the About screen asks the view model, which asks the bridge), so the
+# honest output is "none to check", and the day somebody adds one back this
+# picks it up without being edited.
+calls=$(grep -oE 'RomWBWEmulator\.[A-Za-z_][A-Za-z0-9_]*' \
+            "$ROOT/iOSCPM/Views/ContentView.swift" | sort -u || true)
+if [ -z "$calls" ]; then
+    echo "PASS: ContentView makes no direct bridge call"
+else
+    bad=0
+    for sym in $(printf '%s\n' "$calls" | sed -E 's/^RomWBWEmulator\.//'); do
+        grep -qE "NS_SWIFT_NAME\($sym|[+-][[:space:]]*\([^)]*\)[[:space:]]*$sym" \
+            "$ROOT/iOSCPM/Bridge/RomWBWEmulator.h" && continue
+        echo "FAIL: ContentView calls RomWBWEmulator.$sym, which RomWBWEmulator.h does not declare"
+        bad=1
         status=1
-    fi
-done
-[ "$status" -eq 0 ] && echo "PASS: the bridge call ContentView makes is declared"
+    done
+    [ "$bad" -eq 0 ] &&
+        echo "PASS: all $(printf '%s\n' "$calls" | grep -c .) bridge calls ContentView makes are declared"
+fi
 
 exit $status

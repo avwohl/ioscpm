@@ -103,26 +103,6 @@ extern "C" void emu_io_set_delegate(id delegate);
   BOOL _debug;
 }
 
-+ (NSString*)romWBWReleases {
-  // emu_romwbw_supported_list() rather than a compile-time string: the core
-  // stopped having one when the RomWBW version became runtime state read from
-  // the loaded ROM. This is the honest answer for an About screen, which may
-  // be shown before any ROM is loaded.
-  return [NSString stringWithUTF8String:emu_romwbw_supported_list()];
-}
-
-+ (BOOL)supportsRomWBWVer:(uint8_t)ver upd:(uint8_t)upd {
-  // emu_romwbw_release is a plain two-byte struct passed by value, which is
-  // why none of this can be reached from Swift directly: emu_init.h is C++
-  // (<string>, <vector>, no extern "C") and is deliberately not in
-  // iOSCPM-Bridging-Header.h. This file is Objective-C++ and already includes
-  // it, so the whole bridge is these three methods.
-  emu_romwbw_release release;
-  release.ver = ver;
-  release.upd = upd;
-  return emu_romwbw_release_supported(release) ? YES : NO;
-}
-
 + (nullable NSString*)romWBWReleaseOfImageData:(NSData*)data {
   if (!data) return nil;
   emu_romwbw_release release;
@@ -161,6 +141,21 @@ extern "C" void emu_io_set_delegate(id delegate);
 //=============================================================================
 // ROM Loading
 //=============================================================================
+
+- (nullable NSString*)loadedRomWBWRelease {
+  // Read out of the loaded ROM's HBIOS configuration block in emulated memory,
+  // not out of a constant: since romwbw_emu v1.44 there is no compile-time
+  // release in this core at all, so there is nothing else it could be read
+  // from. emu_romwbw_release_loaded() returns false when bank 0 carries no
+  // 'W' 0xA8 marker, which before a ROM is loaded is the whole of bank 0;
+  // nil is that "no answer yet", and it has to stay distinguishable from a
+  // real release rather than being flattened to a plausible-looking 0.0.0.
+  emu_romwbw_release release;
+  if (!emu_romwbw_release_loaded(_emulator->getMemory(), &release)) return nil;
+  char text[EMU_ROMWBW_STR_MAX];
+  emu_romwbw_release_str(release, text, sizeof(text));
+  return [NSString stringWithUTF8String:text];
+}
 
 - (BOOL)loadROMFromPath:(NSString*)path {
   NSData* data = [NSData dataWithContentsOfFile:path];

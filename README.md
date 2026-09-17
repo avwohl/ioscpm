@@ -95,11 +95,19 @@ it - a connection, or the other ROM that release publishes - rather than falling
 back to another release's ROM, which is what leaves RomWBW printing a version
 mismatch part-way through a boot.
 
-**A new RomWBW release needs a new build.** The picker offers only the releases
-this binary's core can boot (`ROMWBW_SUPPORTED_RELEASES`), because bank 0 of an
-`emu_*.rom` is ours and a release whose CBIOS called something the dispatcher
-does not implement would load and then misbehave. New *disks and ROMs within* an
-offered release do reach users without an update.
+**A new RomWBW release does NOT need a new build**, and neither do new disks or
+ROMs within one. The picker offers every release the published index lists.
+
+That is a change: until romwbw_emu v1.44 this app filtered the index against a
+compile-time list of releases its core had been checked against, so 3.7.0 would
+have been fetched and then hidden. The list gated the wrong axis. A release
+number is the pairing between HBIOS and a disk image's CBIOS - which the guest
+itself enforces, by printing *** WARNING: HBIOS/CBIOS Version Mismatch *** on a
+mismatched pair - and not what the emulator depends on. What the emulator
+depends on is two I/O ports and the set of HBIOS functions it services, and that
+interface is versioned by the catalog's own name: everything a **v0** index
+publishes speaks v0, and a change this core could not service would be published
+as `index-v1.json`, which this app does not read.
 
 Which releases exist, which is the default, and what each one carries are
 questions for the published index, not for this file - the app shows what it

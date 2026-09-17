@@ -798,16 +798,30 @@ rename is not the interesting case for most of what follows.
       404s the catalog URL, or a cached index naming a URL that does not exist)
       and confirm the message says the release list loaded and the catalog did
       not.  With both broken it must name the index, not the catalog.
-- [ ] **The picker offers 3.5.1 and 3.6.0, and marks NEITHER.**  The core
-      supports both today (`ROMWBW_SUPPORTED_RELEASES`, in
-      `iOSCPM/Core/romwbw_pin.h` - not `src/`, which is where this box used to
-      point and where no such file exists), so both appear.  Both now publish
+- [ ] **The picker offers EVERY release the index lists, and marks neither of
+      today's two.**  3.5.1 and 3.6.0 are what the live index publishes, so two
+      rows.  The right check is not "two" but "as many rows as
+      `romwbw_versions` has entries with a `catalog_url`": this build filters on
+      nothing else, and a third release appearing upstream must appear here with
+      no app update.  Nothing is greyed out and no row says "(needs a newer
+      build)" - there is no such state since romwbw_emu v1.44 deleted the
+      compile-time release list, and a row that looked unavailable would be a
+      regression rather than a correct refusal.  Both releases publish
       `"status": "stable"`, checked against the live index 2026-09-08, so
       neither row may carry a parenthesised suffix: `RomWBW 3.6.0 (preview)` was
       right when this was written and is wrong now.  Any status other than
       "stable" is shown verbatim, so a suffix coming back means upstream moved
-      the field rather than that the row is broken.  The About screen's
-      `RomWBW 3.5.1, 3.6.0 core` line should agree with what is offered.
+      the field rather than that the row is broken.
+- [ ] **The About screen names the release IN PLAY, not a list.**  It read
+      `RomWBW 3.5.1, 3.6.0 core` until the release list went; there is no list
+      to name now.  Open About before starting the machine and it must read
+      `RomWBW <selected> selected - no ROM loaded yet`; start the machine, open
+      it again, and it must read `RomWBW <release> ROM loaded` naming the
+      release the loaded ROM's HBIOS configuration block declares.  The second
+      is the answer to ask for in a bug report about an HBIOS/CBIOS mismatch,
+      because the mismatch means the disks disagree with exactly that value.
+      Worth one deliberate cross-check: it must agree with the release the
+      picker shows selected, and if it does not, that is the bug.
 - [ ] **A fresh install lands on 3.6.0.**  Install into an empty container, let
       the index land, and read the picker and `selectedRomWBWVersion.v0`.  3.6.0
       is the release flagged `"default": true` today (live index, 2026-09-08).

@@ -33,10 +33,15 @@ func section(_ title: String) {
     print(String(repeating: "-", count: 60))
 }
 
-// Two published releases, one stable and one preview, plus a third that no
-// core will admit to supporting and a fourth with nothing to fetch. The last
-// two are not hypothetical shapes: an index that lists a release this build
-// cannot run is the normal case the moment romwbw_disks publishes 3.7.0.
+// Two published releases, one stable and one preview, plus a third from a
+// future this build has never heard of and a fourth with nothing to fetch.
+// Neither of the last two is a hypothetical shape: an index that lists a
+// release published after this binary was built is the normal case the moment
+// romwbw_disks publishes 3.7.0, and since romwbw_emu v1.44 the right answer is
+// to OFFER it - there is no compile-time list of runnable releases left to
+// check it against, and the interface the core depends on is versioned by the
+// index's own name. 3.4.0, which publishes no `catalog_url`, is the only entry
+// still dropped, and for a reason that has nothing to do with the release.
 //
 // `default: true` is deliberately on the SECOND entry, not the first, and that
 // placement is the whole point of the "Which one is selected" section below.
@@ -168,15 +173,6 @@ let catalogJSON = """
 }
 """
 
-/// A core that runs 3.5.1 and 3.6.0 and nothing else - what
-/// iOSCPM/Core/romwbw_pin.h's ROMWBW_SUPPORTED_RELEASES says today.  Not
-/// src/romwbw_pin.h, which is romwbw_emu's spelling for it and is no path in
-/// this repository - the file here is a symlink into that one.  MANUAL_CHECKS
-/// section 20 corrected the same cite in its own box.
-func todaysCore(_ ver: UInt8, _ upd: UInt8) -> Bool {
-    (ver == 0x35 && upd == 0x10) || (ver == 0x36 && upd == 0x00)
-}
-
 func runAllTests() {
 
     let decoder = JSONDecoder()
@@ -194,7 +190,8 @@ func runAllTests() {
     section("The index decodes, unknown fields and all")
 
     check(index.interface == "v0" && index.romwbwVersions.count == 4,
-          "every entry survives, including the two this build cannot use")
+          "every entry survives decoding, including the one from a future release and "
+            + "the one with nothing to fetch")
     check(index.romwbwVersions.first?.romwbwVersion == "3.5.1",
           "romwbw_version is snake_case in the document and camelCase here - the one "
             + "mapping that decides whether anything at all is found")
@@ -213,41 +210,43 @@ func runAllTests() {
 
     // MARK: -
 
-    section("Hex version bytes, which are strings and not numbers")
-
-    check(RomWBWIndexEntry.hexByte("0x35") == 0x35, "the published spelling")
-    check(RomWBWIndexEntry.hexByte("0X36") == 0x36, "and an upper-case prefix")
-    check(RomWBWIndexEntry.hexByte("35") == 0x35, "a bare pair of hex digits")
-    check(RomWBWIndexEntry.hexByte("0x00") == 0x00, "0x00 is a value, not 'missing'")
-    check(RomWBWIndexEntry.hexByte(nil) == nil, "absent is nil")
-    check(RomWBWIndexEntry.hexByte("") == nil, "so is empty")
-    check(RomWBWIndexEntry.hexByte("0x350") == nil,
-          "and so is a number that does not fit in a byte - a wrong answer here would "
-            + "be handed to the core as a release it has never heard of")
-    check(RomWBWIndexEntry.hexByte("three") == nil, "and so is nonsense")
+    section("The packed version bytes are still decoded, as strings")
 
     let entry351 = index.romwbwVersions[0]
-    check(entry351.versionBytes?.ver == 0x35 && entry351.versionBytes?.upd == 0x10,
-          "3.5.1 packs to 35 10, which is what the HCB at 0x105/0x106 holds")
-    check(index.romwbwVersions[1].versionBytes?.upd == 0x00,
-          "3.6.0's update byte is 0x00 and must not be read as 'no value'")
+    check(entry351.hbios?.verByte == "0x35" && entry351.hbios?.updByte == "0x10",
+          "hex STRINGS, kept verbatim - 3.5.1 is what the HCB at 0x105/0x106 holds, and "
+            + "making these integers would be a v0 break")
+    check(index.romwbwVersions[1].hbios?.updByte == "0x00",
+          "3.6.0's update byte is \"0x00\" and must not decode as 'no value'")
+    check(index.romwbwVersions[3].hbios?.verByte == "0x34",
+          "and an entry with nothing else in it still carries them")
+
+    // These stopped being an emulator gate in romwbw_emu v1.44 and stayed in
+    // the document, because they describe the axis that is real: the
+    // ROM-to-disk-image pairing the guest enforces with
+    // *** WARNING: HBIOS/CBIOS Version Mismatch ***. Nothing in this app reads
+    // them today. `versionBytes` and `hexByte`, which unpacked them for the
+    // deleted filter, went with the filter rather than staying alive on these
+    // tests alone - the comparisons this app makes are in release STRINGS.
 
     // MARK: -
 
-    section("Which releases are offered, asked of the core and not assumed")
+    section("Which releases are offered: every one there is a catalog for")
 
-    let offered = RomWBWIndex.offered(index.romwbwVersions, supported: todaysCore)
-    check(offered.map { $0.romwbwVersion } == ["3.5.1", "3.6.0"],
-          "the two the core says it can run, in index order")
-    check(!offered.contains(where: { $0.romwbwVersion == "9.9.9" }),
-          "a published release this build has never been checked against is not offered - "
-            + "the core would refuse its ROM anyway, with a message about an untested release")
+    let offered = RomWBWIndex.offered(index.romwbwVersions)
+    check(offered.map { $0.romwbwVersion } == ["3.5.1", "3.6.0", "9.9.9"],
+          "three of the four, in index order")
+    check(offered.contains(where: { $0.romwbwVersion == "9.9.9" }),
+          "a release published after this binary was built IS offered - this is the check "
+            + "that reversed in romwbw_emu v1.44, and it reversed on purpose: there is no "
+            + "compile-time list to refuse it with, the core loads any ROM whose HBIOS "
+            + "configuration block it can read, and filtering could only hide a release "
+            + "the user could have booted")
     check(!offered.contains(where: { $0.romwbwVersion == "3.4.0" }),
-          "and neither is one with no catalog_url, because there would be nothing to fetch")
-    check(RomWBWIndex.offered(index.romwbwVersions, supported: { _, _ in false }).isEmpty,
-          "a core that supports nothing offers nothing - a real, reportable condition and "
-            + "not a reason to fall back to a hardcoded tag")
-    check(RomWBWIndex.offered([], supported: todaysCore).isEmpty,
+          "the one entry still dropped is the one with no catalog_url, because there "
+            + "would be nothing to fetch - that guard is not a release filter and had to "
+            + "survive the deletion of the one that was")
+    check(RomWBWIndex.offered([]).isEmpty,
           "an index with no entries offers nothing")
 
     // MARK: -
@@ -264,9 +263,12 @@ func runAllTests() {
     check(RomWBWIndex.preferred(among: offered, keeping: "")?.romwbwVersion == "3.6.0",
           "an empty stored choice is no choice, and falls through to the flagged default "
             + "rather than matching an entry whose version is somehow empty too")
-    check(RomWBWIndex.preferred(among: offered, keeping: "9.9.9")?.romwbwVersion == "3.6.0",
+    check(RomWBWIndex.preferred(among: offered, keeping: "3.3.0")?.romwbwVersion == "3.6.0",
           "a stored choice the index no longer offers does not select nothing; it falls "
-            + "through to the flagged default")
+            + "through to the flagged default. 3.3.0 and not 9.9.9: 9.9.9 IS offered now, "
+            + "so it would be kept, which is the whole point of the change")
+    check(RomWBWIndex.preferred(among: offered, keeping: "9.9.9")?.romwbwVersion == "9.9.9",
+          "and a release this build predates is kept once chosen, exactly like any other")
     check(RomWBWIndex.preferred(among: [], keeping: "3.5.1") == nil,
           "nothing offered selects nothing, which the caller has to report rather than paper over")
 
@@ -286,10 +288,10 @@ func runAllTests() {
 
     section("What order the picker draws them in")
 
-    check(RomWBWIndex.displayOrder(offered).map { $0.romwbwVersion } == ["3.6.0", "3.5.1"],
+    check(RomWBWIndex.displayOrder(offered).map { $0.romwbwVersion } == ["9.9.9", "3.6.0", "3.5.1"],
           "newest published first - the index's last entry is the picker's top row, so a "
             + "release added to the index is where a hand reaching for this control lands")
-    check(offered.map { $0.romwbwVersion } == ["3.5.1", "3.6.0"],
+    check(offered.map { $0.romwbwVersion } == ["3.5.1", "3.6.0", "9.9.9"],
           "and the array the decisions read is untouched by that: display order is a "
             + "separate function precisely so reversing rows cannot reach `preferred`")
     check(RomWBWIndex.displayOrder(offered).map { $0.romwbwVersion }

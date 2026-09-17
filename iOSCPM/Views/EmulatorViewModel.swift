@@ -160,11 +160,6 @@ struct CatalogFailure: Equatable {
         case index
         /// That release's catalog-v0-<ver>.json.
         case catalog(romwbwVersion: String)
-        /// The index was read and this build's emulator core can run none of
-        /// the releases in it. Not a network problem and not recoverable by
-        /// retrying: it means the core is older (or newer) than everything
-        /// romwbw_disks publishes.
-        case noSupportedRelease
     }
 
     let stage: Stage
@@ -184,8 +179,6 @@ struct CatalogFailure: Equatable {
             return servedFromCache
                 ? "Using the saved RomWBW \(version) disk catalog - the current one could not be fetched."
                 : "The RomWBW release list loaded, but the \(version) disk catalog did not."
-        case .noSupportedRelease:
-            return "This app's emulator cannot run any of the published RomWBW releases."
         }
     }
 
@@ -3574,6 +3567,29 @@ class EmulatorViewModel: NSObject, ObservableObject {
             + "started on it."
     }
 
+    /// What the About screen says about RomWBW, and the first thing to ask for
+    /// in a bug report.
+    ///
+    /// It used to read `RomWBW 3.5.1, 3.6.0 core` - the releases this BINARY
+    /// could run, off a compile-time list in the core. There is no such list
+    /// any more (romwbw_emu v1.44), and there is no honest way to write one
+    /// back: this core loads any ROM whose HBIOS configuration block it can
+    /// read. So the question changed from "what can this build run" to "what is
+    /// this machine running", which has an answer worth putting in a bug
+    /// report and the old line did not.
+    ///
+    /// Two answers, and the difference matters. Once a ROM is loaded the core
+    /// reads the release out of bank 0, which is the same four bytes the guest
+    /// reports and the release the disks have to agree with. Before that there
+    /// is nothing loaded to ask about, and the honest answer names the release
+    /// SELECTED rather than pretending it is running.
+    var romWBWReleaseSummary: String {
+        if let loaded = emulator?.loadedRomWBWRelease() {
+            return "RomWBW \(loaded) ROM loaded"
+        }
+        return "RomWBW \(romwbwVersion) selected - no ROM loaded yet"
+    }
+
     // MARK: - Disk catalog: the two-hop fetch
 
     /// Fetch the release index, then the selected release's catalog.
@@ -3684,28 +3700,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// Decide which release to be on, then fetch its catalog.
     private func adoptIndex(_ index: RomWBWIndex, indexProblem: String?) {
-        // Ask the core, per entry, rather than comparing against a constant:
-        // there is no compile-time pin left, and a build can carry a core that
-        // is newer or older than the releases this index lists.
-        let offered = RomWBWIndex.offered(index.romwbwVersions) { ver, upd in
-            RomWBWEmulator.supportsRomWBW(ver: ver, upd: upd)
-        }
-
-        guard !offered.isEmpty else {
-            // A real condition, and one worth saying out loud: this build's
-            // core can run none of the releases this repository publishes. Not
-            // a network failure, not fixed by retrying, and emphatically not a
-            // reason to fall back to a hardcoded tag.
-            debugPrint("[Catalog] No published release is supported by this core")
-            romwbwVersions = [RomWBWIndexEntry.placeholder(romwbwVersion: romwbwVersion)]
-            catalogFailure = CatalogFailure(
-                stage: .noSupportedRelease,
-                detail: "It runs RomWBW \(RomWBWEmulator.romWBWReleases()); "
-                    + "the catalog publishes none of those.",
-                servedFromCache: false)
-            loadCachedCatalog()
-            return
-        }
+        // Every release the index publishes, minus any entry with no catalog
+        // to fetch. There is no longer a per-entry "can this build run it?"
+        // question to ask: the core loads any ROM with a readable HBIOS
+        // configuration block, and the interface it actually depends on is
+        // versioned by the index's own name - a v1 would arrive as
+        // index-v1.json, which this app never reads. See RomWBWIndex.offered.
+        let offered = RomWBWIndex.offered(index.romwbwVersions)
 
         romwbwVersions = offered
 
@@ -3756,10 +3757,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 return
             }
 
-            // The release in play is no longer published, or was never
-            // supported by this core. Move, but do not re-fetch from inside the
-            // move - this call is already the fetch, and the catalog hop below
-            // is the one that finishes it.
+            // The release in play is no longer published. Move, but do not
+            // re-fetch from inside the move - this call is already the fetch,
+            // and the catalog hop below is the one that finishes it.
             debugPrint("[Catalog] RomWBW \(romwbwVersion) is not offered; moving to \(entry.romwbwVersion)")
             adoptRomWBWVersion(entry.romwbwVersion, refetch: false)
         }
@@ -4112,12 +4112,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // against them is the same question a live fetch would ask.
         reassessDiskFreshness()
 
-        if let failure = catalogFailure, failure.stage != .noSupportedRelease {
+        if let failure = catalogFailure {
             // Something IS on screen, so downgrade the failure to a note that
-            // says which half of it is stale. Not for .noSupportedRelease: a
-            // cached catalog does not make "this build's core can run none of
-            // the published releases" any less true, and it is the one
-            // condition here that a retry cannot fix.
+            // says which half of it is stale. There used to be an exception
+            // here - .noSupportedRelease, which a cached catalog could not make
+            // any less true - and it went with that stage: both remaining
+            // stages are network hops, and a cached document is exactly the
+            // answer to one.
             catalogFailure = CatalogFailure(stage: failure.stage,
                                             detail: failure.detail,
                                             servedFromCache: true)

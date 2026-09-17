@@ -373,7 +373,7 @@ struct ContentView: View {
                 Text("This disk may be replaced when the app updates. Any changes you save could be lost.\n\nTo keep changes permanently, use 'Save Disk As' to copy to your own file.")
             }
             .sheet(isPresented: $showingAbout) {
-                AboutView()
+                AboutView(viewModel: viewModel)
             }
             .sheet(isPresented: $showingHelp) {
                 HelpView()
@@ -466,6 +466,7 @@ struct ContentView: View {
 // MARK: - About View
 
 struct AboutView: View {
+    @ObservedObject var viewModel: EmulatorViewModel
     @Environment(\.presentationMode) private var presentationMode
 
     var body: some View {
@@ -482,11 +483,17 @@ struct AboutView: View {
                 Text("Version \(appVersion) (\(appBuild))")
                     .foregroundColor(.secondary)
 
-                // The RomWBW releases this core can run. A disk slice built by
-                // a release other than the loaded ROM's prints an HBIOS/CBIOS
-                // version mismatch, so this is the first thing to ask for in a
-                // bug report.
-                Text("RomWBW \(RomWBWEmulator.romWBWReleases()) core")
+                // The RomWBW release this machine is on - the loaded ROM's,
+                // or the selected one before anything is loaded. A disk slice
+                // built by a release other than the loaded ROM's prints an
+                // HBIOS/CBIOS version mismatch, so this is the first thing to
+                // ask for in a bug report.
+                //
+                // It named the releases this BUILD could run until romwbw_emu
+                // v1.44 deleted the compile-time list behind it. There is no
+                // list to name now: the core loads any ROM with a readable
+                // HBIOS configuration block.
+                Text(viewModel.romWBWReleaseSummary)
                     .font(.caption)
                     .foregroundColor(.secondary)
 

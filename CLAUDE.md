@@ -137,19 +137,35 @@ Three rules follow from it, and each has been broken here at least once:
 - **Publishing is not shipping it.**  There is no `releaseTag` in
   `EmulatorViewModel.swift` any more — the app compiles in one index URL and
   reads everything else out of the catalog — so the shape of this rule changed
-  but not its force.  Adding a ROM or a disk to an **already-supported** RomWBW
+  but not its force.  Adding a ROM or a disk to an **already-published** RomWBW
   release reaches a *shipped* client with no app release at all, which is the
   point.
 
-  A whole new RomWBW release does **not**, and saying otherwise is the easy
-  mistake to make here.  `ROMWBW_SUPPORTED_RELEASES` in
-  `romwbw_emu/src/romwbw_pin.h` is a compile-time list — 3.5.1 and 3.6.0 today —
-  and a client filters the index by asking its own core
-  (`emu_romwbw_release_supported`), so a 3.7.0 entry is simply not offered by any
-  binary built before somebody added it there and booted it.  That is deliberate:
-  bank 0 of an `emu_*.rom` is ours, and a release whose CBIOS calls something the
-  dispatcher does not implement would load and then misbehave.  Adding a release
-  is a claim that somebody ran it.
+  **A whole new RomWBW release reaches a shipped client too, since romwbw_emu
+  v1.44.**  This paragraph used to say the opposite, at length, and was right
+  when it was written: `ROMWBW_SUPPORTED_RELEASES` in
+  `romwbw_emu/src/romwbw_pin.h` was a compile-time list, every client filtered
+  the index by asking its own core `emu_romwbw_release_supported()`, and a 3.7.0
+  entry was fetched and then hidden by every binary built before somebody added
+  it there.  That header, those two functions and this app's filter are all
+  gone.  The picker now offers every release the index publishes.
+
+  The reason the list went is worth keeping, because re-introducing it is easy.
+  It gated the wrong axis.  A release number is the HBIOS-to-CBIOS pairing — a
+  fact about a ROM and a disk image, which the GUEST enforces by printing
+  `*** WARNING: HBIOS/CBIOS Version Mismatch ***` — and not what the emulator
+  depends on.  What the emulator depends on is two I/O ports and the set of
+  HBIOS functions `hbios_dispatch.cc` services, and that interface is versioned
+  by the catalog's own name: everything a **v0** index publishes speaks v0, and
+  a change this core could not service would be published as `index-v1.json`,
+  which no v0 client reads.  The claim that somebody ran a release is now made
+  where the release is published — `romwbw_disks`' `tools/boot_test.sh`, at
+  publish time, against the artifact being published — instead of by a macro
+  edited months earlier and never re-checked.
+
+  What still must match is the ROM and the disks in the drives:
+  `romReleaseMismatchNotice` is this app's half of that, and the index's
+  `hbios.ver_byte`/`upd_byte` are what the catalog says about it.
 
   What still needs a release is a change to this app's own code, and it reaches
   users only through a build that carries the edit *and* that Apple has actually

@@ -1,1 +1,0 @@
-../../../romwbw_emu/src/romwbw_pin.h
