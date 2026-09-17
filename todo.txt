@@ -34,6 +34,19 @@ build.  Tag each item with what it needs, so a session on another machine can
 see at a glance what that machine can take.
 
 
+- [MAC] Delete RomWBWIndex.offered and the romWBWReleaseSupported bridge method
+  once romwbw_emu drops its release gate.  The filter keys on the RomWBW release,
+  which is the HBIOS-to-disk-image axis; what the emulator actually depends on is
+  romwbw_disks' interface v0, which already versions it.  Not a bug and not
+  urgent - a client that still filters is correct, it just cannot see a new
+  release - but it is why publishing RomWBW 3.7.0 would need an App Store
+  submission.  The argument and the per-repo list is
+  romwbw_emu/docs/RELEASE_GATE.md.
+    CLAUDE.md's "Adding a release is a claim that somebody ran it" paragraph
+  states the compile-time list as permanent design.  It becomes wrong the day
+  romwbw_emu cuts the macro, so it has to move in the same pass.
+
+
 What a released build carries, and what the next one still owes
 ----------------------------------------------------------------------
 
