@@ -892,9 +892,11 @@ rename is not the interesting case for most of what follows.
       `saveDownloadedDisks()` writes the guest's live image back to the file the
       SLOT names, so the periodic flush and the one in `stop()` would both find
       nothing to write to and drop the user's work without a word.  Stage it by
-      being on a release the index does not offer: put a release the core still
-      supports but the index has dropped into `selectedRomWBWVersion.v0` in the
-      preferences plist, or serve a doctored index.  Start the emulator, create
+      being on a release the index does not offer: put a release the index has
+      dropped into `selectedRomWBWVersion.v0` in the preferences plist, or
+      serve a doctored index.  ("A release the core still supports" was the
+      other half of this sentence until romwbw_emu v1.44; there is no such
+      category now, and any release string the index does not list will do.)  Start the emulator, create
       a file in CP/M, and let the fetch land.  The log must read
       `[Catalog] RomWBW <new> held: the machine is running on <old>`, the slots
       must not move, and the disk list must stay the running release's.  Then

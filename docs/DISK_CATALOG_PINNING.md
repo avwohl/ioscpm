@@ -79,7 +79,10 @@ version, or CP/M prints `*** WARNING: HBIOS/CBIOS Version Mismatch ***` at cold
 boot. **That constraint is unchanged, and it is the whole reason any of this
 exists.** What changed is where the guarantee comes from: a pin froze one
 release's disks against one build's ROM, whereas the v0 catalog pairs them by
-RomWBW release and lets the core say which releases it can run.
+RomWBW release — every ROM and every disk in a release's catalog belongs to
+that release, so the user's choice of release chooses a matched set. It also
+let the core say which releases it could run, until romwbw_emu v1.44; item 2
+under "What still holds" is what replaced that.
 
 To guarantee the match, the disk catalog was **pinned** to one explicit ioscpm
 release instead of `latest`. Where each port stands as of 2026-09-08:
@@ -139,8 +142,10 @@ The v0 catalog keeps the protection and drops the cost. A client that reads
 `base_url` out of a per-release catalog can be handed a corrected image the
 moment it is published, while still never being handed a *different RomWBW
 release's* disks — the pairing the pin existed to enforce is now enforced by the
-release the catalog belongs to, and by the core being asked whether it can run
-it, rather than by a constant nobody can change from outside the App Store.
+release the catalog belongs to, rather than by a constant nobody can change from
+outside the App Store. It was enforced a second time by the core being asked
+whether it could run that release; that half went in romwbw_emu v1.44, and item
+2 under "What still holds" has why and what carries it now.
 
 The lesson generalises past this app: a pin is a promise that nothing will
 change, and "nothing" includes the fix.

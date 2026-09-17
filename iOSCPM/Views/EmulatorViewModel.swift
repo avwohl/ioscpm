@@ -551,8 +551,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
     // 3.5.1 -> 3.6.0 -> 3.5.1 comes back to exactly the slots, boot string and
     // downloaded images it left.
 
-    /// The releases the picker offers: what the index publishes, filtered to
-    /// what this build's emulator core says it can run.
+    /// The releases the picker offers: every release the index publishes that
+    /// has a `catalog_url`, and nothing narrower. This said "filtered to what
+    /// this build's emulator core says it can run" until romwbw_emu v1.44
+    /// deleted the compile-time release list that answer came from;
+    /// `RomWBWIndex.offered` is where the one surviving guard lives and why.
     ///
     /// Seeded with the release in play so the picker always has a row matching
     /// its selection - an unmatched selection renders blank, and on a first
@@ -1822,8 +1825,10 @@ class EmulatorViewModel: NSObject, ObservableObject {
         guard emulator?.loadROM(from: romImage) == true else {
             // The bridge records why: unreadable, or rejected by the core's HCB
             // validation. That check stays the last line of defence - verifying
-            // a hash says the bytes are the published ones, not that this build
-            // can run them.
+            // a hash says the bytes are the ones the catalog published, not
+            // that they are a ROM at all. It stopped judging the RELEASE in
+            // romwbw_emu v1.44; the release is checked above, against the one
+            // the disks in the drives belong to.
             let reason = emulator?.lastROMError ?? "\(romOption.filename) could not be loaded"
             debugPrint("[EmulatorVM] ERROR: Failed to load ROM: \(romOption.filename) - \(reason)")
             showError("Failed to load ROM: \(romOption.filename)\n\(reason)")
@@ -3712,6 +3717,19 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         guard let entry = RomWBWIndex.preferred(among: offered,
                                                 keeping: romWBWVersionToKeep) else {
+            // `preferred` returns nil only for an empty list, so this is "the
+            // index published nothing with a catalog to fetch" - a publishing
+            // bug upstream, and no longer the "this core can run none of them"
+            // case, which went with the release filter.
+            //
+            // Put the release in play back before falling back to the cache.
+            // `romwbwVersions` is documented to always carry a row matching the
+            // picker's selection, because a SwiftUI Picker whose selection
+            // matches no tag renders blank - and the branch that seeded this
+            // placeholder for an empty list was the `noSupportedRelease` one.
+            // Deleting that branch is what left this path assigning [].
+            debugPrint("[Catalog] The index offers no release with a catalog to fetch")
+            romwbwVersions = [RomWBWIndexEntry.placeholder(romwbwVersion: romwbwVersion)]
             loadCachedCatalog()
             return
         }

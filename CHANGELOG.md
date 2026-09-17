@@ -54,10 +54,22 @@ What changed here:
   `RomWBW 3.6.0 selected - no ROM loaded yet` before that. `AboutView` takes the
   view model to reach it.
 - **The `noSupportedRelease` `CatalogFailure` stage is gone**, with its summary
-  line, the `RomWBWIndexEntry.placeholder` branch in `adoptIndex` that raised
-  it, and its exception in the stale-catalog downgrade. Both remaining stages
-  are network hops, and a cached document is exactly the answer to one — which
-  is why that exception existed and why it no longer has a case.
+  line, the `adoptIndex` branch that raised it, and its exception in the
+  stale-catalog downgrade. Both remaining stages are network hops, and a cached
+  document is exactly the answer to one — which is why that exception existed
+  and why it no longer has a case.
+- **The `RomWBWIndexEntry.placeholder` that branch seeded did NOT go with it**,
+  and for one review pass it had. That branch did two things as well: it raised
+  the failure, and it put the release in play back into an otherwise empty
+  `romwbwVersions`. `romwbwVersions` is documented to always carry a row
+  matching the picker's selection — a SwiftUI Picker whose selection matches no
+  tag renders blank — so deleting the branch outright left an index that
+  publishes no entry with a `catalog_url` (or no entries at all) drawing a blank
+  picker with no message anywhere. The seed now lives in the
+  `RomWBWIndex.preferred` guard below it, which is the same condition:
+  `preferred` returns nil only for an empty list. Upstream would have to publish
+  a broken index to reach it, which is exactly why it must not be the path that
+  says nothing.
 - **`RomWBWIndexEntry.versionBytes` and `hexByte` went too, and that was a
   choice.** `hbios.ver_byte`/`upd_byte` stay in every index entry and
   `RomWBWHBIOS` still decodes them: romwbw_emu's `RELEASE_GATE.md` keeps them
@@ -96,6 +108,31 @@ paragraph, and `MANUAL_CHECKS.md` §20's box, which now checks that the picker
 offers as many rows as the index has fetchable entries with nothing greyed out,
 and has a second box for the About line's two states. `todo.txt`'s item asking
 for exactly this work is closed and deleted.
+
+Four more places said it and were missed on the first pass, all found by
+grepping for the claim rather than for the symbol — the symbols were all gone,
+which is what made them easy to miss:
+
+- `romwbwVersions`' own doc comment, still "filtered to what this build's
+  emulator core says it can run", four lines above the sentence stating the
+  invariant the empty-index path had just stopped keeping.
+- `loadROM`'s comment on `emu_validate_rom_hcb`, still calling it the check for
+  whether "this build can run them". It judges the ROM's shape now and nothing
+  about the release; the release is checked a few lines above it, against the
+  release the disks in the drives belong to.
+- `docs/DISK_CATALOG_PINNING.md` in two places outside item 2 — the v0 catalog
+  "lets the core say which releases it can run", and the pairing being enforced
+  "by the core being asked whether it can run it" — both now pointing at item 2
+  for what replaced that half.
+- `MANUAL_CHECKS.md`'s held-move check, which staged itself on "a release the
+  core still supports but the index has dropped". There is no such category now;
+  any release string the index does not list will do.
+
+`docs/whats_new_2026_08.md` says the old thing in three places and was left
+alone on purpose. It is a dated forum post — the filename is the only date it
+carries, by design — describing the build the Store serves, which still has the
+filter in it. Rewriting it would make an August post describe an unshipped
+change. The next post is a new file.
 
 **Not done, and deliberately.** `Tests/run_tests.sh` passes in full on this
 machine (21 suites, no skips), but it cannot compile the five files that import
