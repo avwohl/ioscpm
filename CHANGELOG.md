@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Development snapshots are offered only if you ask, and off by default
+
+romwbw_disks publishes a RomWBW development snapshot alongside the releases -
+`3.7.0-dev.14` since 2026-09-18 - flagged `prerelease: true` and never
+`default`. Its contract (`docs/CATALOG_SCHEMA.md` 2.3.1) is that a client MUST
+NOT offer one unattended. This build did: `prerelease` was an unknown field, so
+the entry was listed beside the releases like any other.
+
+`RomWBWIndexEntry.prerelease` is decoded now, and **Settings -> RomWBW Release
+-> Show Development Snapshots** feeds `RomWBWIndex.offered`. It is off unless
+asked for, and `UserDefaults.bool` answers false for a key never written, so an
+upgrading install gets that with no migration.
+
+**The release you are ON is always offered, whatever the setting says.** Turning
+the toggle off while a snapshot is selected would otherwise have three bad ends,
+each worse than one extra row: a SwiftUI Picker whose selection matches no tag
+renders blank; a release switch is refused outright while the machine is running,
+because the disks in the drives belong to the old release, so the toggle could
+not act on its own; and it would silently discard a choice made on purpose. So
+the toggle stops a snapshot being offered and recommended - it does not yank the
+one in use. Pick a stable release and it leaves the list.
+
+The toggle sits with the release picker rather than under Preferences, because
+what it changes is the list directly above it, and it re-derives from the entries
+the last index published rather than re-fetching: what it changes is what is
+OFFERED, not what exists.
+
+Nine assertions in `CatalogDocumentTests`, including the two that matter most -
+a snapshot the user is not on stays hidden, and with snapshots ON the app still
+selects the DEFAULT release rather than the newest. Checked against the live
+published index as well as the fixture: off offers 3.5.1 and 3.6.0, on adds
+3.7.0-dev.14, and 3.6.0 is selected either way.
+
 ### A development snapshot downloaded, verified, and then would not start
 
 `loadSelectedResources()` compared the release a ROM declares against the one

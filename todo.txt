@@ -263,7 +263,4 @@ Open questions
   the current code is believed right; MANUAL_CHECKS.md section 12 is the check
   that answers it.
 
-- [ANY] the index may now carry prerelease:true entries (RomWBW dev snapshots).
-CatalogDocument decodes them as ordinary versions; hide them behind a "show
-development snapshots" toggle. romwbw_disks docs/CATALOG_SCHEMA.md 2.3.1.
 

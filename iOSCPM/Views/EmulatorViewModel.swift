@@ -858,6 +858,49 @@ class EmulatorViewModel: NSObject, ObservableObject {
         CatalogMigration.versionedKey("emulatorNvram", romwbwVersion: romwbwVersion)
     }
 
+    // Development snapshots: OFF unless the user asks. romwbw_disks may publish
+    // a RomWBW development snapshot alongside the releases, flagged
+    // `prerelease: true` and never `default`; its contract
+    // (docs/CATALOG_SCHEMA.md 2.3.1) is that a client must not offer one
+    // unattended. A snapshot's HCB is byte-for-byte what the release it
+    // precedes will carry, so a user cannot tell them apart from the machine -
+    // which is the reason to make asking for one deliberate.
+    //
+    // UserDefaults.bool answers false for a key that was never written, so an
+    // upgrading install starts with this off without a migration.
+    private static let showPrereleaseVersionsKey =
+        "showPrereleaseRomWBWVersions.\(CatalogMigration.interface)"
+
+    var showPrereleaseVersions: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.showPrereleaseVersionsKey) }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.showPrereleaseVersionsKey)
+            // Re-derive from what the index already published rather than
+            // re-fetching it: the toggle changes what is OFFERED, not what
+            // exists. Nothing switches release here - see RomWBWIndex.offered
+            // for why the current one stays in the list either way.
+            reapplyOfferedReleases()
+        }
+    }
+
+    /// Every entry the last index published, before the prerelease opt-in is
+    /// applied. Kept so the toggle above can re-derive `romwbwVersions` with no
+    /// network and no release switch.
+    private var publishedIndexEntries: [RomWBWIndexEntry] = []
+
+    /// Recompute the offered list from the retained entries.
+    ///
+    /// Deliberately does NOT touch `romwbwVersion`: `offered` keeps the current
+    /// selection in the list whatever the setting says, so there is never a
+    /// selection with no row - and a release switch is refused outright while
+    /// the machine is running.
+    private func reapplyOfferedReleases() {
+        guard !publishedIndexEntries.isEmpty else { return }
+        romwbwVersions = RomWBWIndex.offered(publishedIndexEntries,
+                                             includingPrereleases: showPrereleaseVersions,
+                                             keeping: romwbwVersion)
+    }
+
     // Manifest disk write warning setting (defaults to true = warnings enabled)
     private static let warnManifestWritesKey = "warnManifestWrites"
 
@@ -3718,7 +3761,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // configuration block, and the interface it actually depends on is
         // versioned by the index's own name - a v1 would arrive as
         // index-v1.json, which this app never reads. See RomWBWIndex.offered.
-        let offered = RomWBWIndex.offered(index.romwbwVersions)
+        // Retained so the prerelease toggle can re-derive this list without a
+        // re-fetch.
+        publishedIndexEntries = index.romwbwVersions
+
+        let offered = RomWBWIndex.offered(index.romwbwVersions,
+                                          includingPrereleases: showPrereleaseVersions,
+                                          keeping: romWBWVersionToKeep)
 
         romwbwVersions = offered
 

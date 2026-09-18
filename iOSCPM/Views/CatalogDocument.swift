@@ -97,6 +97,13 @@ struct RomWBWIndexEntry: Decodable, Equatable, Identifiable {
     let label: String?
     let status: String?
     let isDefault: Bool?
+    /// **Upstream does not call this a release.** `true` on a RomWBW
+    /// development snapshot the publisher is carrying deliberately; ABSENT on a
+    /// real release, which is why this is optional and why `isPrerelease`
+    /// treats nil as false. romwbw_disks emits it only when true, so that a
+    /// released version's catalog stays byte-identical to the one already on
+    /// its immutable tag.
+    let prerelease: Bool?
     let hbios: RomWBWHBIOS?
     let catalogURL: String?
     let catalogSHA256: String?
@@ -110,6 +117,7 @@ struct RomWBWIndexEntry: Decodable, Equatable, Identifiable {
         case label
         case status
         case isDefault = "default"
+        case prerelease
         case hbios
         case catalogURL = "catalog_url"
         case catalogSHA256 = "catalog_sha256"
@@ -125,7 +133,16 @@ extension RomWBWIndexEntry {
     /// What to call this release. `label` is a display string the index
     /// provides ("RomWBW 3.5.1") and explicitly must not be parsed; this is the
     /// fallback for an index that omits it.
+    ///
+    /// For a snapshot the publisher puts the warning in here - "RomWBW
+    /// 3.7.0-dev.14 (development snapshot)" - because `label` is the one field
+    /// every client renders everywhere it names a release, and `status` and
+    /// `prerelease` are not shown on every screen.
     var displayLabel: String { label ?? "RomWBW \(romwbwVersion)" }
+
+    /// Absent means "a real release". An index written before the field existed
+    /// has no key at all, and must not read as a snapshot.
+    var isPrerelease: Bool { prerelease ?? false }
 
     /// Published as not-yet-recommended. **No released entry carries this
     /// today**: 3.6.0 did until romwbw_disks promoted it on 2026-09-05, and the
@@ -202,6 +219,10 @@ extension RomWBWIndexEntry {
                          label: nil,
                          status: nil,
                          isDefault: nil,
+                         // Not a snapshot: the placeholder claims nothing about
+                         // the release except its name, and "nothing" must not
+                         // read as "development snapshot".
+                         prerelease: nil,
                          hbios: nil,
                          catalogURL: nil,
                          catalogSHA256: nil,
@@ -407,9 +428,35 @@ extension RomWBWIndex {
     /// an entry with nowhere to fetch its catalog from cannot be selected
     /// usefully, and offering it would turn a publishing bug upstream into a
     /// catalog-hop failure here. That is a shorter list rather than a crash.
-    static func offered(_ entries: [RomWBWIndexEntry]) -> [RomWBWIndexEntry] {
+    /// **The prerelease opt-in.** Since 2026-09-18 the index may carry a RomWBW
+    /// development snapshot, flagged `prerelease: true` and never `default`.
+    /// romwbw_disks' contract (`docs/CATALOG_SCHEMA.md` 2.3.1) is that a client
+    /// MUST NOT offer one unless the user asked, so `includingPrereleases` is
+    /// off by default in the setting that feeds it.
+    ///
+    /// **The release the user is ON is always offered**, whatever the setting
+    /// says, and that is the whole reason `keeping` is here. Dropping it from
+    /// the list the moment the toggle went off would have three bad ends, all
+    /// of them worse than showing one extra row:
+    ///
+    ///   - a SwiftUI Picker whose selection matches no tag renders BLANK. That
+    ///     hazard is documented on `romwbwVersions` and on `preferred` already.
+    ///   - moving the selection is refused outright while the machine is
+    ///     running, because the disks in the drives belong to the old release
+    ///     (see the `romwbwVersion` observer), so the toggle could not act.
+    ///   - it would silently discard a choice the user made on purpose.
+    ///
+    /// So turning it off stops a snapshot being OFFERED and stops it being
+    /// recommended; it does not yank the one in use. Pick a stable release and
+    /// the snapshot leaves the list on its own.
+    static func offered(_ entries: [RomWBWIndexEntry],
+                        includingPrereleases: Bool,
+                        keeping current: String?) -> [RomWBWIndexEntry] {
         entries.filter { entry in
             guard let url = entry.catalogURL, !url.isEmpty else { return false }
+            if entry.isPrerelease && !includingPrereleases {
+                return entry.romwbwVersion == current
+            }
             return true
         }
     }

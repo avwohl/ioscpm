@@ -758,6 +758,23 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+
+                    // The opt-in, HERE rather than under Preferences, because
+                    // what it changes is the list directly above it.
+                    Toggle("Show Development Snapshots", isOn: Binding(
+                        get: { viewModel.showPrereleaseVersions },
+                        set: { viewModel.showPrereleaseVersions = $0 }
+                    ))
+                    Text("Off by default. RomWBW publishes development snapshots "
+                         + "between releases; they are unfinished and are never "
+                         + "what this app picks on its own. A snapshot reports "
+                         + "itself as the release it precedes, so once one is "
+                         + "running there is no way to tell from inside the "
+                         + "machine which you are on. Turning this off leaves a "
+                         + "snapshot you are already using in the list until you "
+                         + "pick something else.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
 
                 // Where the catalog itself comes from.

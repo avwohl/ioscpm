@@ -233,7 +233,13 @@ func runAllTests() {
 
     section("Which releases are offered: every one there is a catalog for")
 
-    let offered = RomWBWIndex.offered(index.romwbwVersions)
+    // Explicit on both, because the signature has no defaults on purpose: a
+    // caller that forgets the opt-in should not compile. The fixture carries no
+    // prerelease entry, so these two say nothing about snapshots - that is
+    // runPrereleaseOptInTests' job.
+    let offered = RomWBWIndex.offered(index.romwbwVersions,
+                                      includingPrereleases: false,
+                                      keeping: nil)
     check(offered.map { $0.romwbwVersion } == ["3.5.1", "3.6.0", "9.9.9"],
           "three of the four, in index order")
     check(offered.contains(where: { $0.romwbwVersion == "9.9.9" }),
@@ -246,7 +252,7 @@ func runAllTests() {
           "the one entry still dropped is the one with no catalog_url, because there "
             + "would be nothing to fetch - that guard is not a release filter and had to "
             + "survive the deletion of the one that was")
-    check(RomWBWIndex.offered([]).isEmpty,
+    check(RomWBWIndex.offered([], includingPrereleases: false, keeping: nil).isEmpty,
           "an index with no entries offers nothing")
 
     // MARK: -
@@ -669,6 +675,72 @@ func runHelpTests() {
           "an index carrying no help block at all is not an error")
 }
 
+func runPrereleaseOptInTests() {
+    section("Development snapshots are off unless asked for")
+
+    // Built here rather than added to indexJSON so the shape is explicit: one
+    // real release that is the default, one snapshot, one entry with no
+    // catalog_url (which the pre-existing guard drops whatever the setting is).
+    let json = """
+    {
+      "romwbw_versions": [
+        { "romwbw_version": "3.6.0", "label": "RomWBW 3.6.0", "default": true,
+          "catalog_url": "https://example.invalid/a.json" },
+        { "romwbw_version": "3.7.0-dev.14",
+          "label": "RomWBW 3.7.0-dev.14 (development snapshot)",
+          "status": "snapshot", "default": false, "prerelease": true,
+          "catalog_url": "https://example.invalid/b.json" },
+        { "romwbw_version": "9.9.9", "label": "nowhere to fetch from" }
+      ]
+    }
+    """
+    guard let idx = try? JSONDecoder().decode(RomWBWIndex.self,
+                                              from: Data(json.utf8)) else {
+        print("FAIL: the prerelease fixture did not decode")
+        failures += 1
+        return
+    }
+    let all = idx.romwbwVersions
+
+    check(all.count == 3, "all three entries decode, snapshot and unusable alike")
+    check(all[1].isPrerelease, "prerelease: true decodes")
+    check(!all[0].isPrerelease,
+          "and an entry with no prerelease key is NOT a snapshot - absent means false")
+
+    // OFF: the default, and what an upgrading install gets with no migration.
+    let off = RomWBWIndex.offered(all, includingPrereleases: false, keeping: nil)
+    check(off.map(\.romwbwVersion) == ["3.6.0"],
+          "off: the snapshot is not offered, and neither is the entry with no catalog")
+
+    // ON.
+    let on = RomWBWIndex.offered(all, includingPrereleases: true, keeping: nil)
+    check(on.map(\.romwbwVersion) == ["3.6.0", "3.7.0-dev.14"],
+          "on: the snapshot is offered; the entry with no catalog still is not")
+
+    // THE CASE THAT PROTECTS THE PICKER. A user on the snapshot who turns the
+    // toggle off keeps it in the list: a SwiftUI Picker whose selection matches
+    // no tag renders blank, and a release switch is refused outright while the
+    // machine is running, so dropping it here would strand the control.
+    let kept = RomWBWIndex.offered(all, includingPrereleases: false,
+                                   keeping: "3.7.0-dev.14")
+    check(kept.map(\.romwbwVersion) == ["3.6.0", "3.7.0-dev.14"],
+          "off, but the snapshot IN USE stays offered so the picker keeps a row")
+
+    // And it is only ever the one in use that is spared.
+    let notMine = RomWBWIndex.offered(all, includingPrereleases: false,
+                                      keeping: "3.6.0")
+    check(notMine.map(\.romwbwVersion) == ["3.6.0"],
+          "a snapshot the user is NOT on is still hidden")
+
+    // A snapshot must never be what the app picks by itself. The publisher
+    // enforces never-default in two independent checks; this is the client
+    // half - with the snapshot hidden, preferred lands on the real default.
+    check(RomWBWIndex.preferred(among: off, keeping: nil)?.romwbwVersion == "3.6.0",
+          "with snapshots off, the app selects the default release")
+    check(RomWBWIndex.preferred(among: on, keeping: nil)?.romwbwVersion == "3.6.0",
+          "and with them ON it still selects the default, not the newest")
+}
+
 func runReleaseMatchTests() {
     section("A ROM declares three numbers; a snapshot's catalog entry has four")
 
@@ -715,6 +787,7 @@ enum CatalogDocumentTestMain {
     static func main() {
         runAllTests()
         runReleaseMatchTests()
+        runPrereleaseOptInTests()
         print("\n" + String(repeating: "=", count: 60))
         print("Results: \(checks - failures) passed, \(failures) failed")
         if failures > 0 {
