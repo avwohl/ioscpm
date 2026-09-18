@@ -3612,6 +3612,20 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// Deleting it would take away the only warning such a user gets before
     /// RomWBW prints *** WARNING: HBIOS/CBIOS Version Mismatch *** in the middle
     /// of a boot. It is cheap and it is the last line of defence.
+    /// **Both sides of this are CATALOG strings, so `!=` is right here.**
+    /// `option.romwbwRelease` is `document.romwbwVersion ?? romwbwVersion`
+    /// (see `availableROMs`) - the release the CATALOG names, not the one the
+    /// ROM's two HCB bytes declare. So a development snapshot compares
+    /// "3.7.0-dev.14" against "3.7.0-dev.14" and this stays silent, correctly.
+    ///
+    /// Worth stating because the sibling comparison in `loadSelectedResources()`
+    /// looks identical and is NOT: that one takes
+    /// `RomWBWEmulator.romWBWRelease(ofImageData:)`, which is HCB-derived and
+    /// cannot carry a pre-release suffix, and it needed
+    /// `RomWBWRelease.romServes`. z80cpmw filed the same bug on 2026-09-18 in
+    /// SettingsDialogWx.cpp, where the comparison really is against the loaded
+    /// ROM's release - the shape to check is which SIDE the string came from,
+    /// not how the comparison reads.
     var romReleaseMismatchNotice: String? {
         guard let option = romInPlay,
               let release = option.romwbwRelease,
