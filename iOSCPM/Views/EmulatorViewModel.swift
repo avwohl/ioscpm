@@ -877,8 +877,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
             UserDefaults.standard.set(newValue, forKey: Self.showPrereleaseVersionsKey)
             // Re-derive from what the index already published rather than
             // re-fetching it: the toggle changes what is OFFERED, not what
-            // exists. Nothing switches release here - see RomWBWIndex.offered
-            // for why the current one stays in the list either way.
+            // exists. Unticking it DOES move the machine when it is sitting on
+            // a snapshot - see reapplyOfferedReleases.
             reapplyOfferedReleases()
         }
     }
@@ -888,17 +888,55 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// network and no release switch.
     private var publishedIndexEntries: [RomWBWIndexEntry] = []
 
-    /// Recompute the offered list from the retained entries.
+    /// Recompute the offered list from the retained entries, and move off a
+    /// release that is no longer offered.
     ///
-    /// Deliberately does NOT touch `romwbwVersion`: `offered` keeps the current
-    /// selection in the list whatever the setting says, so there is never a
-    /// selection with no row - and a release switch is refused outright while
-    /// the machine is running.
+    /// Unticking the box while sitting on a snapshot moves the machine to the
+    /// index default. That is what the setting is for, and it is safe because
+    /// `applyRomWBWVersionSwitch` deletes nothing: every store is keyed per
+    /// release, so the snapshot's slots, boot string and downloaded images stay
+    /// exactly where they are and come back on switching back. See
+    /// `RomWBWIndex.offered` for why this replaced a rule that deliberately did
+    /// the opposite.
     private func reapplyOfferedReleases() {
         guard !publishedIndexEntries.isEmpty else { return }
-        romwbwVersions = RomWBWIndex.offered(publishedIndexEntries,
-                                             includingPrereleases: showPrereleaseVersions,
-                                             keeping: romwbwVersion)
+        let offered = RomWBWIndex.offered(publishedIndexEntries,
+                                          includingPrereleases: showPrereleaseVersions)
+        romwbwVersions = offered
+
+        // Still offered? Then nothing moves, and that is the common case - the
+        // box being TICKED only ever lengthens the list.
+        guard !offered.contains(where: { $0.romwbwVersion == romwbwVersion }) else { return }
+        guard let entry = RomWBWIndex.preferred(among: offered,
+                                                keeping: romWBWVersionToKeep) else {
+            // Nothing left to move to. Keep a row matching the selection, or a
+            // SwiftUI Picker whose selection matches no tag renders blank.
+            romwbwVersions = [RomWBWIndexEntry.placeholder(romwbwVersion: romwbwVersion)]
+            return
+        }
+
+        // NOT under a running machine, for the same reason the index hop is not:
+        // this reaches applyRomWBWVersionSwitch without passing the isRunning
+        // guard in romwbwVersion's didSet, and emptying the four slots under a
+        // running guest makes saveDownloadedDisks() write its live image to a
+        // file no slot names. Held and taken in stop(), exactly as a held index
+        // move is - and the row goes back so the picker does not blank while the
+        // user is still on it.
+        //
+        // In practice Settings cannot be opened while running (both routes are
+        // guarded), so this is the belt to that braces.
+        if isRunning {
+            debugPrint("[Release] RomWBW \(entry.romwbwVersion) held: running on \(romwbwVersion)")
+            pendingRomWBWVersion = entry.romwbwVersion
+            if !romwbwVersions.contains(where: { $0.romwbwVersion == romwbwVersion }) {
+                romwbwVersions.insert(
+                    RomWBWIndexEntry.placeholder(romwbwVersion: romwbwVersion), at: 0)
+            }
+            return
+        }
+
+        debugPrint("[Release] no longer offered: \(romwbwVersion) -> \(entry.romwbwVersion)")
+        adoptRomWBWVersion(entry.romwbwVersion, refetch: true)
     }
 
     // Manifest disk write warning setting (defaults to true = warnings enabled)
@@ -3780,8 +3818,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         publishedIndexEntries = index.romwbwVersions
 
         let offered = RomWBWIndex.offered(index.romwbwVersions,
-                                          includingPrereleases: showPrereleaseVersions,
-                                          keeping: romWBWVersionToKeep)
+                                          includingPrereleases: showPrereleaseVersions)
 
         romwbwVersions = offered
 

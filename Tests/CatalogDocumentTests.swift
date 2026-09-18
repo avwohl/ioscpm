@@ -238,8 +238,7 @@ func runAllTests() {
     // prerelease entry, so these two say nothing about snapshots - that is
     // runPrereleaseOptInTests' job.
     let offered = RomWBWIndex.offered(index.romwbwVersions,
-                                      includingPrereleases: false,
-                                      keeping: nil)
+                                      includingPrereleases: false)
     check(offered.map { $0.romwbwVersion } == ["3.5.1", "3.6.0", "9.9.9"],
           "three of the four, in index order")
     check(offered.contains(where: { $0.romwbwVersion == "9.9.9" }),
@@ -252,7 +251,7 @@ func runAllTests() {
           "the one entry still dropped is the one with no catalog_url, because there "
             + "would be nothing to fetch - that guard is not a release filter and had to "
             + "survive the deletion of the one that was")
-    check(RomWBWIndex.offered([], includingPrereleases: false, keeping: nil).isEmpty,
+    check(RomWBWIndex.offered([], includingPrereleases: false).isEmpty,
           "an index with no entries offers nothing")
 
     // MARK: -
@@ -730,29 +729,34 @@ func runPrereleaseOptInTests() {
           "and an entry with no prerelease key is NOT a snapshot - absent means false")
 
     // OFF: the default, and what an upgrading install gets with no migration.
-    let off = RomWBWIndex.offered(all, includingPrereleases: false, keeping: nil)
+    let off = RomWBWIndex.offered(all, includingPrereleases: false)
     check(off.map(\.romwbwVersion) == ["3.6.0"],
           "off: the snapshot is not offered, and neither is the entry with no catalog")
 
     // ON.
-    let on = RomWBWIndex.offered(all, includingPrereleases: true, keeping: nil)
+    let on = RomWBWIndex.offered(all, includingPrereleases: true)
     check(on.map(\.romwbwVersion) == ["3.6.0", "3.7.0-dev.14"],
           "on: the snapshot is offered; the entry with no catalog still is not")
 
-    // THE CASE THAT PROTECTS THE PICKER. A user on the snapshot who turns the
-    // toggle off keeps it in the list: a SwiftUI Picker whose selection matches
-    // no tag renders blank, and a release switch is refused outright while the
-    // machine is running, so dropping it here would strand the control.
-    let kept = RomWBWIndex.offered(all, includingPrereleases: false,
-                                   keeping: "3.7.0-dev.14")
-    check(kept.map(\.romwbwVersion) == ["3.6.0", "3.7.0-dev.14"],
-          "off, but the snapshot IN USE stays offered so the picker keeps a row")
-
-    // And it is only ever the one in use that is spared.
-    let notMine = RomWBWIndex.offered(all, includingPrereleases: false,
-                                      keeping: "3.6.0")
-    check(notMine.map(\.romwbwVersion) == ["3.6.0"],
-          "a snapshot the user is NOT on is still hidden")
+    // REVERSED 2026-09-18. `offered` took a `keeping:` argument for one day, so
+    // that the release a user was ON stayed listed whatever the box said and
+    // unticking could not move the machine. The reasoning was that moving it
+    // would leave the four slots on the old release's images - a mismatch.
+    //
+    // It is not true here: applyRomWBWVersionSwitch deletes nothing and every
+    // store is keyed per release, so leaving a snapshot is reversible. z80cpmw
+    // reversed the identical decision on the identical report - a box unticked,
+    // still unticked after a restart, and a -dev release still selected.
+    //
+    // So nothing is spared now, and THIS is what makes unticking work: the
+    // snapshot leaves the list, `preferred` will not keep a `current` that is
+    // not in the list, and the machine lands on the default.
+    check(off.map(\.romwbwVersion) == ["3.6.0"],
+          "off: the snapshot is gone from the list even for a user sitting on it")
+    check(RomWBWIndex.preferred(among: off, keeping: "3.7.0-dev.14")?.romwbwVersion == "3.6.0",
+          "so a stored preference for the snapshot is not honoured while the box is off")
+    check(RomWBWIndex.preferred(among: on, keeping: "3.7.0-dev.14")?.romwbwVersion == "3.7.0-dev.14",
+          "and IS honoured while it is on - the preference is kept, not cleared")
 
     // A snapshot must never be what the app picks by itself. The publisher
     // enforces never-default in two independent checks; this is the client

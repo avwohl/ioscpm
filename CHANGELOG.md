@@ -15,14 +15,33 @@ the entry was listed beside the releases like any other.
 asked for, and `UserDefaults.bool` answers false for a key never written, so an
 upgrading install gets that with no migration.
 
-**The release you are ON is always offered, whatever the setting says.** Turning
-the toggle off while a snapshot is selected would otherwise have three bad ends,
-each worse than one extra row: a SwiftUI Picker whose selection matches no tag
-renders blank; a release switch is refused outright while the machine is running,
-because the disks in the drives belong to the old release, so the toggle could
-not act on its own; and it would silently discard a choice made on purpose. So
-the toggle stops a snapshot being offered and recommended - it does not yank the
-one in use. Pick a stable release and it leaves the list.
+**Unticking it moves you off a snapshot, to the recommended release.** That
+reverses a decision this entry originally described at length: the box governed
+visibility only, because moving the release looked as though it would leave the
+four slots on images built for the release being left - the HBIOS/CBIOS mismatch
+the whole mechanism prevents.
+
+The premise was false for this port. `applyRomWBWVersionSwitch` deletes nothing
+and every store it moves off is keyed per release - the slots, the boot string,
+the generation, the downloaded images, the saved catalog - so leaving a snapshot
+is reversible by turning the box back on, and no mismatched pair is ever
+mounted. z80cpmw reversed the identical decision on 2026-09-18 on the identical
+report ("the box was unticked, it stayed unticked across a restart, and a -dev
+release was still selected - a machine sitting on a release its own Settings page
+will not list"); it had to BUILD that reconcile first, and ioscpm has had it
+since the v0 migration.
+
+`offered` therefore lost the `keeping:` argument it carried for one day, and
+that is what makes the reversal work rather than a special case: the snapshot
+leaves the list, `preferred` will not keep a `current` that is not in the list,
+and a config already pairing `3.7.0-dev.14` with the box off returns to the
+default on the next launch with nobody touching a control. The preference itself
+is kept rather than cleared, so re-ticking puts you back.
+
+Under a running machine the move is HELD in `pendingRomWBWVersion` and taken in
+`stop()`, reusing what a held index move already does - including putting the
+current row back so the Picker cannot render blank. In practice Settings cannot
+be opened while running, so that is the belt to this braces.
 
 The toggle sits with the release picker rather than under Preferences, because
 what it changes is the list directly above it, and it re-derives from the entries

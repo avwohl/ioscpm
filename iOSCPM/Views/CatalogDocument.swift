@@ -453,30 +453,33 @@ extension RomWBWIndex {
     /// MUST NOT offer one unless the user asked, so `includingPrereleases` is
     /// off by default in the setting that feeds it.
     ///
-    /// **The release the user is ON is always offered**, whatever the setting
-    /// says, and that is the whole reason `keeping` is here. Dropping it from
-    /// the list the moment the toggle went off would have three bad ends, all
-    /// of them worse than showing one extra row:
+    /// **This took a `keeping:` argument for one day, and losing it is the
+    /// point.** The rule was that the release a user was ON stayed offered
+    /// whatever the setting said, so that unticking the box could not move a
+    /// machine. The reasoning was that moving it would leave the four slots on
+    /// images built for the release being left - an HBIOS/CBIOS mismatch, which
+    /// is the whole thing the release mechanism prevents.
     ///
-    ///   - a SwiftUI Picker whose selection matches no tag renders BLANK. That
-    ///     hazard is documented on `romwbwVersions` and on `preferred` already.
-    ///   - moving the selection is refused outright while the machine is
-    ///     running, because the disks in the drives belong to the old release
-    ///     (see the `romwbwVersion` observer), so the toggle could not act.
-    ///   - it would silently discard a choice the user made on purpose.
+    /// That premise is false here, and z80cpmw reversed the identical decision
+    /// on the identical report: a box that is unticked, stays unticked across a
+    /// restart, and leaves a -dev release selected describes a machine sitting
+    /// on a release its own Settings page will not list.
+    /// `applyRomWBWVersionSwitch` deletes nothing and every store it moves off
+    /// is keyed per release - the slots, the boot string, the generation, the
+    /// images, the saved catalog - so leaving a snapshot is reversible by
+    /// switching back, and the mismatch cannot happen. z80cpmw had to BUILD
+    /// that reconcile first; ioscpm has had it since the v0 migration.
     ///
-    /// So turning it off stops a snapshot being OFFERED and stops it being
-    /// recommended; it does not yank the one in use. Pick a stable release and
-    /// the snapshot leaves the list on its own.
+    /// So unticking now moves the machine to the index default, and a stored
+    /// preference for a snapshot is not honoured while the box is off:
+    /// `preferred` only keeps a `current` that is still in this list, so a
+    /// config already pairing 3.7.0-dev.14 with the box off returns to the
+    /// default on the next launch with nobody touching a control.
     static func offered(_ entries: [RomWBWIndexEntry],
-                        includingPrereleases: Bool,
-                        keeping current: String?) -> [RomWBWIndexEntry] {
+                        includingPrereleases: Bool) -> [RomWBWIndexEntry] {
         entries.filter { entry in
             guard let url = entry.catalogURL, !url.isEmpty else { return false }
-            if entry.isPrerelease && !includingPrereleases {
-                return entry.romwbwVersion == current
-            }
-            return true
+            return includingPrereleases || !entry.isPrerelease
         }
     }
 

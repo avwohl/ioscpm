@@ -803,9 +803,10 @@ struct SettingsView: View {
                          + "what this app picks on its own. A snapshot reports "
                          + "itself as the release it precedes, so once one is "
                          + "running there is no way to tell from inside the "
-                         + "machine which you are on. Turning this off leaves a "
-                         + "snapshot you are already using in the list until you "
-                         + "pick something else.")
+                         + "machine which you are on. Turning this off while a "
+                         + "snapshot is selected moves you back to the "
+                         + "recommended release; nothing is deleted, and its "
+                         + "disks are still there if you turn it on again.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
