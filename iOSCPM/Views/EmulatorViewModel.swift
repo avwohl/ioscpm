@@ -1813,8 +1813,15 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // and what the disks have to agree with. A ROM that verifies against
         // the wrong release's catalog entry is a publishing mistake upstream,
         // and starting on it is exactly the pairing this refuses to make.
+        //
+        // NOT a straight !=. A ROM declares its release from two HCB bytes, so
+        // it can only ever say "3.7.0"; a catalog entry for a development
+        // snapshot says "3.7.0-dev.14". Both are right, and comparing them for
+        // equality refused every snapshot AFTER downloading and hash-verifying
+        // it. RomWBWRelease.romServes has the rule and the reasoning.
         if let declared = RomWBWEmulator.romWBWRelease(ofImageData: romImage),
-           declared != romwbwVersion {
+           !RomWBWRelease.romServes(catalogVersion: romwbwVersion,
+                                    declaredByROM: declared) {
             reportROMProblem(romProblemText(
                 file: romOption.filename,
                 reason: "the image says it is RomWBW \(declared), not \(romwbwVersion)"))

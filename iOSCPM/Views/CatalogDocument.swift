@@ -66,10 +66,14 @@ import Foundation
 /// `*** WARNING: HBIOS/CBIOS Version Mismatch ***`. What they stopped being in
 /// romwbw_emu v1.44 is an emulator gate; `RomWBWIndex.offered` is where that
 /// went. The comparisons this app actually makes are in release STRINGS -
-/// `romwbwVersion` against `RomWBWEmulator.romWBWRelease(ofImageData:)` - so
-/// the packed bytes had no caller left once the filter went, and the accessors
-/// that unpacked them (`versionBytes`, `hexByte`) went with it rather than
-/// staying alive on their own unit tests.
+/// `romwbwVersion` against `RomWBWEmulator.romWBWRelease(ofImageData:)`,
+/// through `RomWBWRelease.romServes` - so the packed bytes had no caller left
+/// once the filter went, and the accessors that unpacked them (`versionBytes`,
+/// `hexByte`) went with it rather than staying alive on their own unit tests.
+///
+/// These two bytes are also exactly why that comparison cannot be `==`: they
+/// are all a ROM has to describe itself with, and they cannot hold the
+/// `-dev.14` a snapshot's catalog entry carries. See `RomWBWRelease`.
 struct RomWBWHBIOS: Decodable, Equatable {
     let verByte: String?
     let updByte: String?
@@ -211,6 +215,47 @@ extension RomWBWIndexEntry {
 /// index-v0.json itself.
 /// One in-app help topic, out of the index's optional `help` block.
 ///
+/// Release strings, and the one comparison this app makes with them.
+///
+/// **A ROM cannot say which pre-release it is.** The release a ROM declares is
+/// read out of two bytes of its HBIOS configuration block - the version and
+/// update bytes at 0x103 - so `RomWBWEmulator.romWBWRelease(ofImageData:)` can
+/// only ever answer three numbers: `"3.7.0"`. The catalog, which is a document
+/// and not two bytes, names the full upstream tag: `"3.7.0-dev.14"`.
+///
+/// The publisher measured that pair and carries it deliberately. A RomWBW
+/// development snapshot's HCB is byte-for-byte what the release it precedes
+/// will carry - `v3.7.0-dev.14` reads `57 a8 37 00`, exactly what a released
+/// 3.7.0 will read - so nothing computed from those bytes can separate them.
+/// What separates them is the CBIOS banner inside the disk image, which is a
+/// string: `CBIOS v3.7.0-dev.14 [WBW]`. See romwbw_disks
+/// `docs/CATALOG_SCHEMA.md` section 2.3.1.
+///
+/// So a straight `!=` between the two rejected every snapshot: the ROM
+/// downloaded, verified against its published sha256, and then would not start
+/// because "the image says it is RomWBW 3.7.0, not 3.7.0-dev.14". Both
+/// statements were true and the conclusion was wrong.
+enum RomWBWRelease {
+
+    /// May a ROM declaring `declaredByROM` serve a catalog entry for
+    /// `catalogVersion`?
+    ///
+    /// True when they are the same release, or when the catalog entry is a
+    /// **pre-release of** what the ROM declares - semver's rule, where
+    /// `3.7.0-dev.14` has the core version `3.7.0`.
+    ///
+    /// This cannot let a genuinely wrong pairing through, which is why it needs
+    /// no help from the entry's `prerelease` flag: a 3.6.0 ROM against a
+    /// `3.7.0-dev.14` entry matches neither arm, and a released `3.7.0` ROM
+    /// against a `3.7.0` entry matches the first. Only the suffix is forgiven,
+    /// and only in the direction the HCB is incapable of expressing.
+    static func romServes(catalogVersion: String, declaredByROM: String) -> Bool {
+        if catalogVersion == declaredByROM { return true }
+        // The separator matters: without it "3.7.01" would match a "3.7.0" ROM.
+        return catalogVersion.hasPrefix(declaredByROM + "-")
+    }
+}
+
 /// **Shaped like a disk or a ROM on purpose.** It carries an `id`, a
 /// `filename`, a `size` and a `sha256` under a shared `base_url`, because that
 /// is what every other asset this catalog publishes carries - and help had been

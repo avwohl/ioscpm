@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### A development snapshot downloaded, verified, and then would not start
+
+`loadSelectedResources()` compared the release a ROM declares against the one
+its catalog entry names, with `!=`. Those two strings cannot be equal for a
+RomWBW development snapshot, and romwbw_disks began publishing one -
+`3.7.0-dev.14` - on 2026-09-18.
+
+A ROM describes itself with **two bytes**: the version and update bytes of its
+HBIOS configuration block at 0x103. `RomWBWEmulator.romWBWRelease(ofImageData:)`
+reads them and can only ever answer three numbers, `"3.7.0"`. The catalog is a
+document, not two bytes, and names the full upstream tag, `"3.7.0-dev.14"`. So
+the ROM downloaded, verified against its published sha256, and was then refused
+with "the image says it is RomWBW 3.7.0, not 3.7.0-dev.14" - two true statements
+and a wrong conclusion.
+
+The publisher carries that ambiguity deliberately and measured it: a snapshot's
+HCB is byte-for-byte what the release it precedes will carry (`57 a8 37 00`),
+so nothing computed from those bytes can separate them. What separates them is
+the CBIOS banner inside the disk image, which is a string. romwbw_disks
+`docs/CATALOG_SCHEMA.md` section 2.3.1 is the contract.
+
+**`RomWBWRelease.romServes(catalogVersion:declaredByROM:)`** now holds the rule:
+the same release, or a catalog entry that is a *pre-release of* what the ROM
+declares - semver, where `3.7.0-dev.14` has the core version `3.7.0`. It lives
+in `CatalogDocument.swift` because it is catalog semantics and because that file
+is in a suite that RUNS, not only one that type-checks.
+
+It cannot admit a wrong pairing, which is why it needs no help from the entry's
+`prerelease` flag, and the tests say so as loudly as they say the new case
+works: a 3.6.0 ROM still does not serve a `3.7.0-dev.14` entry, the rule is not
+symmetric (a snapshot ROM does not serve a release entry), and the `-` separator
+is load-bearing - without it `3.7.01` would match a `3.7.0` ROM. Nine assertions
+in `CatalogDocumentTests`, and reverting the helper to the old `==` fails
+exactly one of them.
+
+**Still open:** the index may carry `prerelease: true` entries and nothing here
+hides them behind an opt-in yet, so a snapshot is listed beside the releases. It
+is never the default - the publisher enforces that - and it now boots. `todo.txt`
+carries the opt-in.
+
+
 ### The release filter is gone: every published RomWBW release is offered
 
 romwbw_emu v1.44 (`a6fa3db`) deleted its compile-time release gate —

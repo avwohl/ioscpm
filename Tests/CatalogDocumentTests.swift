@@ -669,10 +669,52 @@ func runHelpTests() {
           "an index carrying no help block at all is not an error")
 }
 
+func runReleaseMatchTests() {
+    section("A ROM declares three numbers; a snapshot's catalog entry has four")
+
+    // The case that was broken: the ROM can only read "3.7.0" out of its two
+    // HCB bytes, and the catalog entry for the snapshot says "3.7.0-dev.14".
+    check(RomWBWRelease.romServes(catalogVersion: "3.7.0-dev.14",
+                                  declaredByROM: "3.7.0"),
+          "a 3.7.0 ROM serves the 3.7.0-dev.14 entry it was published under")
+
+    // The ordinary case, which must keep working.
+    check(RomWBWRelease.romServes(catalogVersion: "3.6.0", declaredByROM: "3.6.0"),
+          "a 3.6.0 ROM serves the 3.6.0 entry")
+    check(RomWBWRelease.romServes(catalogVersion: "3.5.1", declaredByROM: "3.5.1"),
+          "a 3.5.1 ROM serves the 3.5.1 entry")
+
+    // THE REFUSALS. This is the half worth testing: the whole point of the
+    // check is to refuse a mismatched pair, and loosening it must not loosen
+    // that.
+    check(!RomWBWRelease.romServes(catalogVersion: "3.7.0-dev.14",
+                                   declaredByROM: "3.6.0"),
+          "a 3.6.0 ROM does NOT serve the 3.7.0-dev.14 entry")
+    check(!RomWBWRelease.romServes(catalogVersion: "3.6.0", declaredByROM: "3.5.1"),
+          "a 3.5.1 ROM does NOT serve the 3.6.0 entry")
+    check(!RomWBWRelease.romServes(catalogVersion: "3.5.1", declaredByROM: "3.6.0"),
+          "a 3.6.0 ROM does NOT serve the 3.5.1 entry")
+
+    // The forgiveness runs one way only. A ROM cannot declare a suffix, but if
+    // some future one did, it must not be accepted against the bare release -
+    // that direction would mean running a snapshot ROM on release disks.
+    check(!RomWBWRelease.romServes(catalogVersion: "3.7.0",
+                                   declaredByROM: "3.7.0-dev.14"),
+          "and the rule is not symmetric: a 3.7.0-dev.14 ROM does not serve 3.7.0")
+
+    // The separator is load-bearing. Without the "-" in the prefix test, a
+    // hypothetical "3.7.01" would match a "3.7.0" ROM.
+    check(!RomWBWRelease.romServes(catalogVersion: "3.7.01", declaredByROM: "3.7.0"),
+          "a longer release number is not a pre-release of a shorter one")
+    check(!RomWBWRelease.romServes(catalogVersion: "3.7.0dev", declaredByROM: "3.7.0"),
+          "and neither is one that omits the separator")
+}
+
 @main
 enum CatalogDocumentTestMain {
     static func main() {
         runAllTests()
+        runReleaseMatchTests()
         print("\n" + String(repeating: "=", count: 60))
         print("Results: \(checks - failures) passed, \(failures) failed")
         if failures > 0 {
