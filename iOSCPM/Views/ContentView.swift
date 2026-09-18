@@ -759,6 +759,39 @@ struct SettingsView: View {
                         }
                     }
 
+                    // WHY THE LIST IS SHORT, SAID WHERE THE LIST IS.
+                    //
+                    // A failed index hop leaves `romwbwVersions` holding one
+                    // placeholder row, and until 2026-09-18 the only sign of it
+                    // anywhere in Settings was a notice and a Retry under the
+                    // "Download Disk Images" heading, a Section and 165 lines
+                    // further down. So the symptom a user reports is "the
+                    // release is stuck and there is nothing to change it to" -
+                    // which is a true description of a one-row menu, and says
+                    // nothing about a network failure, because nothing here
+                    // did.
+                    //
+                    // This file already stated the rule it was breaking, a few
+                    // lines up: say it where the choice is made rather than in
+                    // a note further down the screen.
+                    if let failure = viewModel.catalogFailure,
+                       case .index = failure.stage {
+                        HStack(alignment: .top) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text(failure.summary)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        // The same call the Retry further down makes. Two
+                        // buttons for one action is the right trade against a
+                        // user who cannot find the one.
+                        Button("Retry Fetching Releases") {
+                            viewModel.fetchDiskCatalog()
+                        }
+                        .disabled(viewModel.catalogLoading)
+                    }
+
                     // The opt-in, HERE rather than under Preferences, because
                     // what it changes is the list directly above it.
                     Toggle("Show Development Snapshots", isOn: Binding(

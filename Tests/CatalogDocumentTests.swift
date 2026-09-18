@@ -320,8 +320,30 @@ func runAllTests() {
           "and a preview says so where the choice is made, not in a note further down")
     check(index.romwbwVersions[1].isPreview && !entry351.isPreview,
           "which is decided from `status`, the index's own field")
-    check(RomWBWIndexEntry.placeholder(romwbwVersion: "3.5.1").pickerLabel == "RomWBW 3.5.1",
-          "an entry with no status claims nothing about itself")
+    // REVERSED 2026-09-18, and the old assertion is worth stating because it was
+    // deliberate: the placeholder "claims nothing about itself", so its row read
+    // "RomWBW 3.5.1" - identical to the published 3.5.1 above it.
+    //
+    // That is what makes a failed index hop unreadable. romwbwVersions collapses
+    // to exactly one of these, seeded from the release last in play, which on a
+    // fresh or migrated install is legacyRomWBWVersion = "3.5.1". A one-row menu
+    // reading "RomWBW 3.5.1" looks like an app that has DECIDED, not one that
+    // could not ask - the reported symptom being "it is stuck on 3.5.1 and there
+    // is no way to change it".
+    //
+    // The old rule conflated two claims. Refusing to invent a STATUS the entry
+    // does not carry is right, and still holds. Refusing to say the list did not
+    // load is not modesty - the app knows that, and it is the only thing the row
+    // can usefully say.
+    let ph = RomWBWIndexEntry.placeholder(romwbwVersion: "3.5.1")
+    check(ph.pickerLabel == "RomWBW 3.5.1 - release list not loaded",
+          "the placeholder row says the list did not load, rather than passing for a release")
+    check(ph.pickerLabel != entry351.pickerLabel,
+          "so it cannot be confused with the published 3.5.1 - the point of the change")
+    check(ph.isPlaceholder && !entry351.isPlaceholder,
+          "and that is decided by an explicit marker, not by a missing catalog_url")
+    check(index.romwbwVersions.allSatisfy { !$0.isPlaceholder },
+          "nothing the index published is ever a placeholder, including the entry with no catalog_url")
     check(RomWBWIndexEntry.placeholder(romwbwVersion: "3.5.1").displayLabel == "RomWBW 3.5.1",
           "and one with no label is still named after its release")
 

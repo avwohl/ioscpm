@@ -104,6 +104,15 @@ struct RomWBWIndexEntry: Decodable, Equatable, Identifiable {
     /// released version's catalog stays byte-identical to the one already on
     /// its immutable tag.
     let prerelease: Bool?
+    /// True only for the row `placeholder(romwbwVersion:)` builds. Not decoded -
+    /// it is absent from `CodingKeys`, so it keeps this default for every entry
+    /// that came out of the index.
+    ///
+    /// Deliberately NOT "has no catalog_url": a PUBLISHED entry can lack one
+    /// too (an index bug, which `offered` drops it for), and that is a different
+    /// thing from a row this app invented because it had no list at all. They
+    /// want different labels, so they need different tests.
+    var isPlaceholder: Bool = false
     let hbios: RomWBWHBIOS?
     let catalogURL: String?
     let catalogSHA256: String?
@@ -163,6 +172,15 @@ extension RomWBWIndexEntry {
     /// heard of is exactly the one a user should be told about rather than
     /// offered silently.
     var pickerLabel: String {
+        // A PLACEHOLDER MUST NOT READ AS A PUBLISHED RELEASE. When the index
+        // hop does not land, `romwbwVersions` becomes exactly one of these -
+        // seeded from the release last in play, which on a fresh or migrated
+        // install is CatalogMigration.legacyRomWBWVersion, "3.5.1". The row
+        // then said "RomWBW 3.5.1", indistinguishable from the real 3.5.1, and
+        // a one-row menu offering it looks like an app that has decided rather
+        // than one that failed to ask. That is the shape of "it is stuck on
+        // 3.5.1 and there is no way to change it".
+        if isPlaceholder { return "\(displayLabel) - release list not loaded" }
         let raw = (status ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty, normalizedStatus != "stable" else { return displayLabel }
         return "\(displayLabel) (\(raw))"
@@ -223,6 +241,7 @@ extension RomWBWIndexEntry {
                          // the release except its name, and "nothing" must not
                          // read as "development snapshot".
                          prerelease: nil,
+                         isPlaceholder: true,
                          hbios: nil,
                          catalogURL: nil,
                          catalogSHA256: nil,
