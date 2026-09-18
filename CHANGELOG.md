@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### The release picker comes first, above the ROM and the slots it governs
+
+It was the fourth section of Settings, under the ROM picker and the four disk
+slots — and it decides all of them. Which ROMs are listed, which images the slots
+can hold, the boot string and which catalog is fetched are all per release.
+
+z80cpmw moved its own picker up on 2026-09-18 for a report that lands here
+unchanged: a user ticked the snapshot box, picked the snapshot, went back to the
+ROM and saw nothing change. Nothing could — the ROM file names are identical in
+every release, so the only visible difference was above the control that caused
+it, and the slots list only images already downloaded.
+
+Order is now: **RomWBW Release → ROM Image → Disk Images → Boot Options →
+Catalog → …**
+
+**Not verified by any automated check, and that is worth stating.**
+`Tests/run_tests.sh` type-checks thirteen view-model files and deliberately skips
+the five that import UIKit — `ContentView.swift` among them — because they need
+an iOS SDK. So a moved SwiftUI block is exactly the change this suite cannot see,
+and no Xcode build has run against it either. What was verified instead:
+delimiter counts are byte-identical before and after the move, and a line-multiset
+diff shows the only removal is a redundant comment header and the only additions
+are the new comment. The move neither lost nor duplicated a line.
+
 ### Development snapshots are offered only if you ask, and off by default
 
 romwbw_disks publishes a RomWBW development snapshot alongside the releases -

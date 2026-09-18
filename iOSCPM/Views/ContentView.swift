@@ -621,97 +621,17 @@ struct SettingsView: View {
                 }
                 .listRowBackground(Color.clear)
 
-                // The ROM.
-                //
-                // Its own view, for the reason ProfileSection is: this Form is
-                // already large enough to be worth keeping out of one
-                // type-check, and this section grew a status line, a progress
-                // bar and a button.
-                ROMSection(viewModel: viewModel)
-
-                // Disk Section
-                Section(header: Text("Disk Images")) {
-                    ForEach(0..<4, id: \.self) { unit in
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(viewModel.diskLabels[unit])
-                                    .font(.subheadline)
-                                Spacer()
-                                if viewModel.localDiskURLs[unit] != nil {
-                                    Image(systemName: "doc.fill")
-                                        .foregroundColor(.blue)
-                                        .font(.caption)
-                                }
-                            }
-
-                            Picker("", selection: $viewModel.selectedDisks[unit]) {
-                                ForEach(viewModel.availableDisks) { disk in
-                                    Text(disk.name).tag(disk as DiskOption?)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .labelsHidden()
-                            // Re-pointing a slot does not reload the core, and
-                            // saveDownloadedDisks() writes the drive's live
-                            // image to the file the slot names. Under a running
-                            // machine that overwrites the newly picked file with
-                            // the old one's contents. Settings should not be
-                            // reachable while running at all now; this is here so
-                            // that a third way in cannot reopen the hole.
-                            .disabled(viewModel.isRunning)
-
-                            HStack(spacing: 12) {
-                                Button("Open File...") {
-                                    viewModel.openLocalDisk(unit: unit)
-                                    presentationMode.wrappedValue.dismiss()
-                                }
-                                .font(.caption)
-
-                                Button("Create New...") {
-                                    viewModel.createLocalDisk(unit: unit)
-                                    presentationMode.wrappedValue.dismiss()
-                                }
-                                .font(.caption)
-
-                                if viewModel.localDiskURLs[unit] != nil {
-                                    Button("Save") {
-                                        viewModel.saveDiskToFile(unit: unit)
-                                    }
-                                    .font(.caption)
-                                }
-                            }
-                            .buttonStyle(.borderless)
-                        }
-                        .padding(.vertical, 2)
-                    }
-
-                }
-
-                // Boot Section
-                Section(header: Text("Boot Options")) {
-                    HStack {
-                        Text("Auto-Boot")
-                        Spacer()
-                        if viewModel.bootString.isEmpty {
-                            Text("Off (shows menu)")
-                                .foregroundColor(.secondary)
-                        } else {
-                            Text(viewModel.bootString)
-                                .foregroundColor(.primary)
-                        }
-                    }
-                    Text("Configure via ROM 'W' menu (SYSCONF)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    if !viewModel.bootString.isEmpty {
-                        Button("Clear Auto-Boot") {
-                            viewModel.clearAutoboot()
-                        }
-                    }
-                }
-
-                // RomWBW release.
+                // THE RELEASE COMES FIRST, because it governs everything
+                // below it: the ROM list, the four disk slots, the boot
+                // string and which catalog is fetched are all per release.
+                // It used to sit FOURTH, under the ROM and the slots it
+                // decides - so a user who changed release looked at an
+                // unchanged ROM name above it and concluded nothing had
+                // happened. z80cpmw moved its own picker up on 2026-09-18
+                // for exactly that report: "they ticked the box, picked the
+                // snapshot, went back to the ROM and saw nothing change".
+                // The ROM file names are identical in every release, so
+                // there was nothing to see.
                 //
                 // Which release's disks the catalog offers, which files they are
                 // (hd1k_combo-v0-3.5.1.img is not hd1k_combo-v0-3.6.0.img), and
@@ -810,6 +730,97 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+
+                // The ROM.
+                //
+                // Its own view, for the reason ProfileSection is: this Form is
+                // already large enough to be worth keeping out of one
+                // type-check, and this section grew a status line, a progress
+                // bar and a button.
+                ROMSection(viewModel: viewModel)
+
+                // Disk Section
+                Section(header: Text("Disk Images")) {
+                    ForEach(0..<4, id: \.self) { unit in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(viewModel.diskLabels[unit])
+                                    .font(.subheadline)
+                                Spacer()
+                                if viewModel.localDiskURLs[unit] != nil {
+                                    Image(systemName: "doc.fill")
+                                        .foregroundColor(.blue)
+                                        .font(.caption)
+                                }
+                            }
+
+                            Picker("", selection: $viewModel.selectedDisks[unit]) {
+                                ForEach(viewModel.availableDisks) { disk in
+                                    Text(disk.name).tag(disk as DiskOption?)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                            // Re-pointing a slot does not reload the core, and
+                            // saveDownloadedDisks() writes the drive's live
+                            // image to the file the slot names. Under a running
+                            // machine that overwrites the newly picked file with
+                            // the old one's contents. Settings should not be
+                            // reachable while running at all now; this is here so
+                            // that a third way in cannot reopen the hole.
+                            .disabled(viewModel.isRunning)
+
+                            HStack(spacing: 12) {
+                                Button("Open File...") {
+                                    viewModel.openLocalDisk(unit: unit)
+                                    presentationMode.wrappedValue.dismiss()
+                                }
+                                .font(.caption)
+
+                                Button("Create New...") {
+                                    viewModel.createLocalDisk(unit: unit)
+                                    presentationMode.wrappedValue.dismiss()
+                                }
+                                .font(.caption)
+
+                                if viewModel.localDiskURLs[unit] != nil {
+                                    Button("Save") {
+                                        viewModel.saveDiskToFile(unit: unit)
+                                    }
+                                    .font(.caption)
+                                }
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                        .padding(.vertical, 2)
+                    }
+
+                }
+
+                // Boot Section
+                Section(header: Text("Boot Options")) {
+                    HStack {
+                        Text("Auto-Boot")
+                        Spacer()
+                        if viewModel.bootString.isEmpty {
+                            Text("Off (shows menu)")
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text(viewModel.bootString)
+                                .foregroundColor(.primary)
+                        }
+                    }
+                    Text("Configure via ROM 'W' menu (SYSCONF)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    if !viewModel.bootString.isEmpty {
+                        Button("Clear Auto-Boot") {
+                            viewModel.clearAutoboot()
+                        }
+                    }
+                }
+
 
                 // Where the catalog itself comes from.
                 //
