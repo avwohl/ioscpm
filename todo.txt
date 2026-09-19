@@ -252,6 +252,46 @@ The index scoping of build 69 does not cover the install itself
   simulator check that shipped with build 69 could not have caught it - it pointed
   at https://example.invalid, where no download ever completes.
 
+- [MAC] defaultSlot IS A SLICE INDEX, NOT A DRIVE SLOT, and this port reads it as
+  a drive slot.  DownloadableDisk.defaultSlot is commented "use this disk as
+  default in this slot (0-3) on first launch"; restoreDiskSelections guards it
+  with slot >= 0, slot < 4 and assigns selectedDisks[slot], and the first-launch
+  arm picks the entry whose defaultSlot == 0.  romwbw_disks
+  docs/CATALOG_SCHEMA.md 3.3 calls it "the slice a client should boot from when it
+  mounts this image" - an index INSIDE hd1k_combo, saying nothing about which
+  drive an image belongs in.
+  It works today by luck: the only entry publishing it is hd1k_combo with value 0,
+  so drive 0 gets combo - the right outcome for the wrong reason.  A published
+  defaultSlot of 3 would mount combo in drive 3 and leave drive 0 empty.
+  There is no default-DRIVE flag anywhere in the catalog to read instead: roms[]
+  carries default:true, disks[] carries nothing equivalent, in the schema or in
+  any published document.  A client has to choose its own list; cpmdroid and
+  z80cpmw both name hd1k_combo then hd1k_games by catalog id.
+  Filed 2026-09-18 from a z80cpmw session that made the identical mistake and had
+  it caught in review.  Re-checked against build 73 before writing this down.
+
+- [MAC] romWBWReleaseSummary cannot name a development snapshot, and the snapshot
+  opt-in just made that reachable.  Once a ROM is loaded it answers from
+  loadedRomWBWRelease(), which spells three numbers out of the two HCB bytes - so
+  a machine running the 3.7.0-dev.14 ROM reports "RomWBW 3.7.0 ROM loaded", which
+  is the release that snapshot PRECEDES.  Before the ROM loads it names the
+  selected release and is right.  The catalog's own romwbwVersion string is the
+  only place the suffix exists; the ROM does not carry it and cannot be made to.
+  Deciding which of the two to show is the item: naming the catalog release loses
+  the point of asking bank 0 in the first place, which
+  romReleaseMismatchNotice's doc comment sets out.
+
+- [MAC] the release Picker and the four slot Pickers carry .disabled(isRunning)
+  and never consult catalogLoading, so for the several seconds of the launch fetch
+  the panel reads authoritative and is about to rewrite itself.  z80cpmw had a
+  user report in those words - "it shows wrong info in a way that makes it look
+  current when it is not".  The catalog-index buttons and Retry Fetching Releases
+  already take catalogLoading into their guards, and the failure notice inside the
+  release Section is new in build 73, so what is left is the two controls that
+  still look usable while the answer behind them is in flight.  Clear it on EVERY
+  terminus - fetch failed, nothing to do, switch superseded, download failed
+  partway - not only on success.
+
 Open questions
 --------------
 
@@ -263,4 +303,18 @@ Open questions
   the current code is believed right; MANUAL_CHECKS.md section 12 is the check
   that answers it.
 
-
+- [MAC] should the disk slots follow a release change?  applyRomWBWVersionSwitch
+  blanks selectedDisks and restoreDiskSelections re-reads the new release's own
+  key, so switching release arrives with four empty drives and the previous
+  release's choices parked where they were.  Nothing is broken by that - every
+  store is keyed per release, so switching back restores the slots, the boot
+  string, the generation and the images - and it is the reason unticking the
+  snapshot opt-in is safe here.  The question is whether a switch should instead
+  carry the slot IDENTITIES across: resolve each occupied slot's catalog id in the
+  new release, fetch what is missing, mount it, and fall back to the default disks
+  into EMPTY drives only.
+  Two premises this arrived with from z80cpmw are false for this port and are not
+  reasons to do it: availableDisks already offers the new release's undownloaded
+  images, labelled "(download)", so a slot list is not limited to what is on the
+  device; and nothing on the switch path deletes or unmounts anything, so the
+  library-destroying failure that argument was built on cannot happen here.
