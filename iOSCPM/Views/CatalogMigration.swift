@@ -349,6 +349,58 @@ enum CatalogMigration {
         stored.map { migratedName($0, notMoved: notMoved, romwbwVersion: romwbwVersion) ?? $0 }
     }
 
+    /// What `persistSelectedDisks()` should write into a release's
+    /// `selectedDisks` key - or nil for "write nothing at all".
+    ///
+    /// Two decisions, and the first one is the one that loses data.
+    ///
+    /// `awaitingCatalog` says the four slots in `selected` are the teardown's
+    /// blanks and not a machine anybody configured. A release switch empties
+    /// them before fetching the new release's catalog, and when that fetch
+    /// fails nothing refills them - so the next slot the user touches would
+    /// persist three blanks plus their one edit over a key that may already
+    /// hold the selection they made the last time they were on this release.
+    /// Worse on a release the device has never visited, where the key is
+    /// absent: writing `["", "", "", ""]` makes `restoreDiskSelections()`'s
+    /// `hasSavedSelections` true for good, and the first-launch disks
+    /// (`RomWBWCatalogDocument.defaultDiskIDs`) never reach slots 1-3 on that
+    /// release again. Nothing is lost by
+    /// declining to write: while the catalog is empty the picker offers only
+    /// "None", and a slot bound to a local file is remembered in the bookmarks
+    /// key by `saveLocalDiskBindings()`, not here. A caller with a deliberate
+    /// selection to record - `applyProfile` - passes false and is written.
+    ///
+    /// `remembered` is what the key held before `restoreDiskSelections()` ran,
+    /// and it is passed only from there. A slot whose stored name the catalog
+    /// cannot resolve right now is nil in memory - the restore assigns the
+    /// lookup's optional result - and writing that nil straight back is what
+    /// permanently erased a configured disk the first time a catalog stopped
+    /// naming it. A remembered name costs nothing to keep: the slot is still
+    /// empty in the UI and `start()` still skips it, so it cannot brick the
+    /// Play button, and it comes back on its own the moment the catalog names
+    /// it again.
+    ///
+    /// A slot bound to a local file is excluded by `localBound`.
+    /// `restoreLocalDiskBindings()` runs inside the same bracket and
+    /// deliberately writes `filename: ""` over whatever catalog name that slot
+    /// had; putting the name back would fight with it every launch.
+    static func slotNamesToPersist(selected: [String],
+                                   remembered: [String]?,
+                                   localBound: [Bool],
+                                   awaitingCatalog: Bool) -> [String]? {
+        guard !awaitingCatalog else { return nil }
+        var filenames = selected
+        if let remembered = remembered {
+            for i in filenames.indices {
+                guard filenames[i].isEmpty,
+                      i < remembered.count,
+                      i < localBound.count, !localBound[i] else { continue }
+                filenames[i] = remembered[i]
+            }
+        }
+        return filenames
+    }
+
     /// Every saved profile's disk slots.
     ///
     /// `romFilename` is deliberately NOT migrated, and it stopped needing to be
@@ -466,6 +518,33 @@ enum CatalogMigration {
         return release != fold(romwbwVersion)
     }
 
+    /// The release a file's NAME claims, when that is not the release in play -
+    /// nil when the name claims none, or claims this one.
+    ///
+    /// `belongsToAnotherRelease` answers the PICKER's question, "may this app
+    /// offer the file", and gates on `knownStems` so that a user's own
+    /// `my-v0-3.5.1.img` is never hidden. This answers a different question
+    /// about a file the user reached for by hand out of Files, and deliberately
+    /// drops that gate. Nothing here hides or refuses anything: the file is
+    /// mounted whatever it is called, and someone deliberately booting another
+    /// release's image keeps working. So the two sides are not symmetric - a
+    /// warning may fire where a hide must not, and the only cost of speaking up
+    /// about `my-v0-3.5.1.img` is a sentence about a pairing the user may well
+    /// have meant. The cost of staying quiet is
+    /// *** WARNING: HBIOS/CBIOS Version Mismatch *** in the middle of a boot
+    /// with nothing having said why.
+    ///
+    /// That asymmetry is why the caller's wording says the file NAMES a release
+    /// rather than belongs to one. The filename is the whole evidence: a disk
+    /// image carries no release inside it that this app can read, and one the
+    /// user made is named by the user.
+    static func releaseNamedByLocalFile(_ filename: String,
+                                        romwbwVersion: String) -> String? {
+        guard let (_, release) = versionedParts(of: filename),
+              release != fold(romwbwVersion) else { return nil }
+        return release
+    }
+
     /// The catalog id a stored disk name refers to, across releases.
     ///
     /// `hd1k_combo-v0-3.5.1.img` and the pre-v0 `hd1k_combo.img` both answer
@@ -519,7 +598,13 @@ enum CatalogMigration {
     /// pass keeps the v0 copy and deletes neither, so the old one stays where
     /// it is and reappears in the picker as a user-added disk. That is the
     /// unavoidable outcome of a reinstall over an old `Documents`, and it is
-    /// the harmless one.
+    /// harmless only if the STORED names stay behind with the file.
+    /// `blockedByExistingDestination(in:)` is the other half of that answer,
+    /// and a caller that asks this function without asking that one rewrites a
+    /// slot, a profile and a ledger record onto a name this pass never created
+    /// - a DIFFERENT image in the ordinary case, where the v0 file is the one
+    /// the user downloaded, and no file at all where the blocker is a directory
+    /// or a case variant.
     ///
     /// Sorted, so a device with two names that fold together renames the same
     /// one on every run. The caller still has to re-check the destination
@@ -535,5 +620,39 @@ enum CatalogMigration {
             renames.append(Rename(from: name, to: new))
         }
         return renames
+    }
+
+    /// The folded legacy names that `renames(in:)` leaves out because their v0
+    /// name is already taken, and which therefore must not be rewritten in any
+    /// of the four stores.
+    ///
+    /// This and `renames(in:)` partition the names `migratedName` recognises:
+    /// one says which files move, the other says which ones are staying under
+    /// the name they have. Both have to be asked, because the stored names
+    /// follow the FILE and not the plan - a slot rewritten to
+    /// `hd1k_combo-v0-3.5.1.img` while this device's `hd1k_combo.img` is still
+    /// called that names the OTHER image, the one already sitting there, and
+    /// `saveDownloadedDisks()` then writes the running machine back over it.
+    ///
+    /// Unlike a rename that threw, this is permanent: the pass deletes neither
+    /// copy, so every later launch finds the same collision. The caller must
+    /// keep it apart from the transient deferral for that reason - see
+    /// `migrateStorageToInterfaceV0`, where holding the done flag back for this
+    /// would re-run the whole pass on every launch for the life of the install.
+    ///
+    /// Folded, because that is what `migratedName(_:notMoved:romwbwVersion:)`
+    /// compares against.
+    static func blockedByExistingDestination(
+        in directoryContents: [String],
+        romwbwVersion: String = legacyRomWBWVersion
+    ) -> Set<String> {
+        let present = Set(directoryContents.map(fold))
+        var blocked: Set<String> = []
+        for name in directoryContents {
+            guard let new = migratedName(name, romwbwVersion: romwbwVersion),
+                  present.contains(fold(new)) else { continue }
+            blocked.insert(fold(name))
+        }
+        return blocked
     }
 }

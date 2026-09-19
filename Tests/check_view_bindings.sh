@@ -135,4 +135,75 @@ else
         echo "PASS: all $(printf '%s\n' "$calls" | grep -c .) bridge calls ContentView makes are declared"
 fi
 
+# The three Pickers the catalog fetch rewrites underneath, and the flag that
+# says it is in flight.
+#
+# WHY THIS IS HERE AND NOT A SUITE
+#
+# Nothing in this repository constructs an EmulatorViewModel - every suite above
+# compiles the small types that were split OUT of it - and the file that draws
+# these controls is one of the five no compiler here can reach. So this is a
+# shape check over the source, for the same reason the isStarting one in
+# run_tests.sh is, and it lives beside the bridge-call block above rather than
+# in a new file: this script is already "the checks on ContentView.swift that
+# only Xcode would otherwise make", and its first block is only the largest of
+# them.
+#
+# WHAT IT IS ANSWERING
+#
+# adoptCatalog() ends in refreshAvailableDisks(), restoreROMSelection() and
+# restoreDiskSelections(), and adoptIndex() assigns `romwbwVersions` outright.
+# Those four writes are exactly what these three Pickers show, so until a fetch
+# lands each of them is offering the PREVIOUS catalog's rows. It cannot see
+# whether the expression is otherwise right - `.disabled(true)` would pass - and
+# it deliberately does not require `isRunning`, which the ROM Picker has never
+# carried and does not need.
+printf '%s\n' "=== CatalogPickerGating ==="
+
+# The `.disabled(...)` modifier attached to a given Picker: the first one within
+# 20 statement lines of the selection, taken from `.disabled(` until its
+# parentheses balance so that a wrapped expression is read whole.
+gating_of() { # $1 = the selection expression, $2 = file
+    awk -v want="$1" '
+        function balanced(s,   t, opens, closes) {
+            t = s; opens  = gsub(/\(/, "", t)
+            t = s; closes = gsub(/\)/, "", t)
+            return (opens > 0 && opens == closes)
+        }
+        !found && index($0, want) { found = 1; next }
+        # Prose carries no modifier, and this file discusses `.disabled(` at
+        # length in comments that sit between controls.
+        found && text == "" && /^[[:space:]]*\/\// { next }
+        found && text == "" {
+            i = index($0, ".disabled(")
+            if (i == 0) { if (++n > 20) exit; next }
+            text = substr($0, i)
+            if (balanced(text)) { print text; exit }
+            next
+        }
+        found {
+            sub(/^[[:space:]]+/, "")
+            text = text " " $0
+            if (balanced(text)) { print text; exit }
+        }' "$2"
+}
+
+CV="$ROOT/iOSCPM/Views/ContentView.swift"
+for sel in '$viewModel.romwbwVersion' '$viewModel.selectedDisks[unit]' \
+           '$viewModel.selectedROM'; do
+    got=$(gating_of "selection: $sel" "$CV")
+    if [ -z "$got" ]; then
+        echo "FAIL: the Picker on $sel carries no .disabled(...) at all"
+        echo "      A catalog fetch rewrites its rows while it is open."
+        status=1
+    elif printf '%s\n' "$got" | grep -q 'catalogLoading'; then
+        echo "PASS: the Picker on $sel is off while the catalog is being read"
+    else
+        echo "FAIL: the Picker on $sel is not disabled on catalogLoading:"
+        echo "        $got"
+        echo "      Its rows are the previous fetch's until this one lands."
+        status=1
+    fi
+done
+
 exit $status

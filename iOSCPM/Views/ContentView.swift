@@ -181,6 +181,20 @@ struct ContentView: View {
                     } label: {
                         Image(systemName: viewModel.isRunning ? "stop.fill" : "play.fill")
                     }
+                    // Taken away only while a start is in flight AND nothing is
+                    // running, which is exactly the window this is one Play and
+                    // not two - the ROM and disk downloads, during which the
+                    // button still reads Play because `isRunning` is false.
+                    //
+                    // NOT a plain `.disabled(viewModel.isStarting)`. This is one
+                    // combined Play/Stop control, so that would take the STOP
+                    // away too, and a start that set the flag and somehow did
+                    // not clear it would leave a running machine with no control
+                    // on screen at all. The `!viewModel.isRunning` half means
+                    // the worst a leaked flag can do is disable a Play while
+                    // nothing is running, and `stop()` and `reset()` both clear
+                    // it, so Reset next door is always the way back.
+                    .disabled(!viewModel.isRunning && viewModel.isStarting)
 
                     Button {
                         showingResetConfirm = true
@@ -419,7 +433,18 @@ struct ContentView: View {
     private func perform(_ command: EmulatorMenuCommand) {
         switch command {
         case .startStop:
-            if viewModel.isRunning { viewModel.stop() } else { viewModel.start() }
+            // The toolbar button above is disabled while a start is in flight;
+            // this route has a Cmd-key shortcut and cannot be, so it says the
+            // same thing in code. `start()` refuses a second entry on its own
+            // account too - this is here so a keyboard press during a download
+            // is as inert as the button is, rather than relying on the view
+            // model to be the only line of defence. Same shape and same reason
+            // as the `.settings` case below.
+            if viewModel.isRunning {
+                viewModel.stop()
+            } else if !viewModel.isStarting {
+                viewModel.start()
+            }
         case .reset:
             showingResetConfirm = true
         case .clearScreen:
@@ -661,10 +686,31 @@ struct SettingsView: View {
                     // names - so doing it under a running machine would discard
                     // the user's work on the next flush. The view model refuses
                     // it too; this is so the control does not look available.
-                    .disabled(viewModel.isRunning)
+                    //
+                    // `catalogLoading` for the reason the two buttons in the
+                    // Catalog section carry it, and for one of this control's
+                    // own. Theirs: fetchDiskCatalog() has no in-flight guard, so
+                    // a second index hop started on top of the first is decided
+                    // by whichever answers last rather than by what was tapped.
+                    // Its own: adoptIndex() assigns `romwbwVersions` outright,
+                    // so until a fetch lands these rows are the PREVIOUS one's
+                    // list - and a release picked off a list that is about to be
+                    // replaced is a choice made about a menu nobody can see yet.
+                    .disabled(viewModel.isRunning || viewModel.catalogLoading)
 
                     if viewModel.isRunning {
                         Text("Stop the emulator to change release.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else if viewModel.catalogLoading {
+                        // Said here as well as under "Download Disk Images",
+                        // because a greyed control owes the user the sentence
+                        // that turns it on where the control is - the rule the
+                        // release-list failure a few lines down is also here to
+                        // follow.
+                        Text("Reading the release list now. Wait for it to finish - "
+                             + "these rows are rewritten when it lands, and a switch "
+                             + "started on top of it would race it.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -768,7 +814,36 @@ struct SettingsView: View {
                             // the old one's contents. Settings should not be
                             // reachable while running at all now; this is here so
                             // that a third way in cannot reopen the hole.
-                            .disabled(viewModel.isRunning)
+                            //
+                            // `catalogLoading` because adoptCatalog() ends in
+                            // refreshAvailableDisks() and restoreDiskSelections(),
+                            // which rewrite both these rows and what is chosen in
+                            // them: until the fetch lands this menu offers the
+                            // PREVIOUS release's filenames, and hd1k_combo-v0-3.5.1.img
+                            // is not hd1k_combo-v0-3.6.0.img.
+                            .disabled(viewModel.isRunning
+                                      || viewModel.catalogLoading)
+
+                            // The file in this slot names a release that is not
+                            // the one the machine is set to. A warning and not a
+                            // refusal: it is a file the user went and chose, and
+                            // booting another release's image on purpose is
+                            // something this app has no business preventing.
+                            //
+                            // Said here as well as in `statusText`, because this
+                            // is where it is still true tomorrow - the status
+                            // line is one write away from being about something
+                            // else, and a binding made out of Files survives
+                            // every launch until it is cleared.
+                            if let notice = viewModel.localDiskReleaseNotices[unit] {
+                                HStack(alignment: .top) {
+                                    Image(systemName: "exclamationmark.triangle")
+                                        .foregroundColor(.orange)
+                                    Text(notice)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
 
                             HStack(spacing: 12) {
                                 Button("Open File...") {
@@ -1644,6 +1719,25 @@ struct ROMSection: View {
                     }
                 }
                 .pickerStyle(.menu)
+                // The rows are the LAST catalog's `roms[]` while a fetch is in
+                // flight - `availableROMs` is computed from `catalogDocument`,
+                // which adoptCatalog() assigns when the fetch lands - so during a
+                // release switch this menu offers the ROMs of the release being
+                // left, under the name of the one being joined.
+                //
+                // Not a LOST selection, which is worth saying because that is the
+                // easier thing to assume: selectedROM's didSet writes the catalog
+                // id to selectedROMIDKey and restoreROMSelection() reads that key
+                // first, so a ROM picked mid-fetch is re-resolved to itself if the
+                // arriving catalog publishes it. It is a menu answering a question
+                // about the wrong release.
+                //
+                // `isRunning` is deliberately NOT part of this, because it never
+                // was: changing the ROM under a running machine writes a default
+                // and nothing else - the bytes are read at start() - so there is
+                // nothing here to protect, and the two pickers above have their
+                // guard for what a switch does to the SLOTS.
+                .disabled(viewModel.catalogLoading)
             }
 
             Text(viewModel.romStatusDescription)

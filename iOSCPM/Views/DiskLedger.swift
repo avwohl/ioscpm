@@ -269,6 +269,35 @@ struct DiskLedger: Equatable {
         return size == facts.size && modified == facts.modified
     }
 
+    /// Whether the measured bytes are the image `catalogSha256` names - which is
+    /// not always the same question as whether the two hashes are equal.
+    ///
+    /// `freshness` decides staleness from provenance and calls the one migrated
+    /// image current through `CatalogMigration.isEquivalentPriorImage`. A caller
+    /// that compares `measuredSha256` with the catalog hash by itself contradicts
+    /// it on exactly that image: the row says current and offers nothing while the
+    /// hash beside it is painted red. `EmulatorViewModel.installedChecksumStatus`
+    /// did, so the decision lives here where both can reach it and neither can
+    /// drift.
+    ///
+    /// The equivalence arm is deliberately narrower than `freshness`'s. It is
+    /// reached only when the measurement equals the recorded PROVENANCE, so the
+    /// bytes are the ones we downloaded and have not been written to since. An
+    /// image dropped in through the Files app has no provenance and is left to
+    /// fail here, because it is offered an Update control - blessing its hash
+    /// would build the same contradiction the other way round. And a disk the
+    /// user has saved a file into genuinely does not hash to the catalog, so it
+    /// is not blessed either, whatever its provenance says.
+    static func measurementMatchesCatalog(_ record: DiskRecord, catalogSha256: String) -> Bool {
+        guard let measured = record.measuredSha256,
+              let catalog = normalizedHash(catalogSha256) else { return false }
+        if measured == catalog { return true }
+        guard let provenance = normalizedHash(record.installedCatalogSha256),
+              measured == provenance else { return false }
+        return CatalogMigration.isEquivalentPriorImage(provenance: provenance,
+                                                      catalogSha256: catalog)
+    }
+
     /// The verdict for one catalog entry.
     ///
     /// `facts` is nil when there is no file. `catalogSha256` is the entry's

@@ -78,7 +78,17 @@ The manifest is an XML file listing all available disk images:
 | `size` | Yes | File size in bytes |
 | `license` | Yes | License type: Mixed, Abandonware, Open Source, Freeware |
 | `sha256` | Yes | SHA256 checksum, verified on install since build 55 — see Integrity Verification |
-| `defaultSlot` | No | Optional default disk slot (0-3) for auto-mounting |
+| `defaultSlot` | No | The slice to boot inside a multi-slice image. **Not a drive number** — see below |
+
+`defaultSlot` is published only on `hd1k_combo`, and its only published value
+is `0`. It says which of that image's six slices a client should boot from when
+it mounts it with no other instruction (romwbw_disks `docs/CATALOG_SCHEMA.md`
+§3.3) — it says nothing about which of the four drives an image belongs in. This
+row said "default disk slot (0-3) for auto-mounting", and the app read it that
+way: a release that started publishing `3` on the combo would have filled drive
+3 and left a first launch with nothing to boot in drive 0. Which disks a first
+launch mounts is `RomWBWCatalogDocument.defaultDiskIDs`, keyed on the catalog's
+`id`, because `disks[]` carries no `default` flag the way `roms[]` does.
 
 ### Version Attribute
 
@@ -304,8 +314,9 @@ Two hops from there:
 
 1. **The index.** `romwbw_versions[]`, one entry per published RomWBW release,
    each with `hbios.ver_byte`/`upd_byte` (hex *strings*), a `status`, a
-   `default` flag, a `generation`, and an absolute `catalog_url` with that
-   catalog's `catalog_sha256` and `catalog_size`.
+   `default` flag, a `generation`, a `prerelease` boolean that is emitted only
+   when true, and an absolute `catalog_url` with that catalog's
+   `catalog_sha256` and `catalog_size`.
 2. **That release's catalog**, verified against those two values *before* it is
    parsed. It carries `base_url` (ending in `/`), `roms[]` and `disks[]`.
 
@@ -320,8 +331,18 @@ to insert is gone — under v0 the separator is in the document, and reproducing
 the fixup would double it.
 
 Which release is in play is a user choice among **every** entry the index
-publishes that has a `catalog_url`. There is no second filter. Until
-romwbw_emu v1.44 there was: each entry's version bytes went to the core through
+publishes that has a `catalog_url` and that upstream calls a release. The one
+filter left is the `prerelease` flag: since 2026-09-18 the index may carry a
+RomWBW development snapshot marked with it, and `CATALOG_SCHEMA.md` §2.3
+requires every client to keep such an entry behind an explicit opt-in, so
+`RomWBWIndex.offered` drops it unless Settings → RomWBW Release → Show
+Development Snapshots is on. That is a switch in front of the user rather than
+a list compiled into the binary, which is the distinction the rest of this
+section is about: it hides nothing this core could not run, and turning it on
+costs a tick rather than an App Store submission.
+
+There used to be a filter of the other kind. Until romwbw_emu v1.44 each
+entry's version bytes went to the core through
 `RomWBWEmulator.supportsRomWBW(ver:upd:)`, which wrapped
 `emu_romwbw_release_supported()` and compared them against a compile-time
 `ROMWBW_SUPPORTED_RELEASES`, so a release published after a binary shipped was

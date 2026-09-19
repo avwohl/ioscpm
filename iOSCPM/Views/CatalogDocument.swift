@@ -165,12 +165,37 @@ extension RomWBWIndexEntry {
         (status ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    /// `displayLabel` lowercased and cut into words at every non-alphanumeric,
+    /// which is what lets `pickerLabel` ask whether the label already says what
+    /// `status` says. Splitting on punctuation is the point: the live snapshot
+    /// carries its marker inside parentheses.
+    private var displayLabelWords: [String] {
+        displayLabel.lowercased()
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map(String.init)
+    }
+
     /// The picker row: `"RomWBW 3.6.0 (preview)"`.
     ///
     /// Any status other than "stable" is shown verbatim, not just "preview".
     /// The set is open, and a release marked something this build has never
     /// heard of is exactly the one a user should be told about rather than
     /// offered silently.
+    ///
+    /// **Unless the label already carries it.** The publisher puts the warning
+    /// in `label` for a snapshot - "RomWBW 3.7.0-dev.14 (development snapshot)"
+    /// against `"status": "snapshot"` - because `label` is the field every
+    /// client renders everywhere, and appending the status to that produced
+    /// "RomWBW 3.7.0-dev.14 (development snapshot) (snapshot)".
+    ///
+    /// The test is for the status as a WORD of the label and not as a
+    /// substring, and that is the difference between a cosmetic fix and a
+    /// silent one: "rc" is a substring of "Source" and of "March", so a plain
+    /// `contains` would drop the marker from "RomWBW 3.8.0 Source Build" - an
+    /// unfamiliar status on a label that never mentioned it, which is the exact
+    /// case the paragraph above exists for. A status of several words matches
+    /// no single word and keeps its marker, which is the safe direction: a
+    /// marker shown twice is ugly, one that is never shown is the bug.
     var pickerLabel: String {
         // A PLACEHOLDER MUST NOT READ AS A PUBLISHED RELEASE. When the index
         // hop does not land, `romwbwVersions` becomes exactly one of these -
@@ -183,6 +208,7 @@ extension RomWBWIndexEntry {
         if isPlaceholder { return "\(displayLabel) - release list not loaded" }
         let raw = (status ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty, normalizedStatus != "stable" else { return displayLabel }
+        if displayLabelWords.contains(normalizedStatus) { return displayLabel }
         return "\(displayLabel) (\(raw))"
     }
 
@@ -293,6 +319,118 @@ enum RomWBWRelease {
         if catalogVersion == declaredByROM { return true }
         // The separator matters: without it "3.7.01" would match a "3.7.0" ROM.
         return catalogVersion.hasPrefix(declaredByROM + "-")
+    }
+
+    /// What to say about the ROM in bank 0 and the release the machine is set
+    /// to, in one string.
+    ///
+    /// **Pure, and that is what it is for.** Its one caller is
+    /// `romWBWReleaseSummary` in EmulatorViewModel, which said "RomWBW 3.7.0
+    /// ROM loaded" on a machine set to 3.7.0-dev.14 while it built the string
+    /// itself. The rule lives here so it can be tested with no bridge and no
+    /// UIKit - nothing in this repository constructs EmulatorViewModel, so a
+    /// rule written there is type-checked and never run.
+    ///
+    /// `loadedByROM` is what the ROM says about itself, read out of the two HCB
+    /// bytes by `RomWBWEmulator.loadedRomWBWRelease()` - three numbers, or four
+    /// when the patch nibble is non-zero ("3.7.0.1"). `selected` is the catalog
+    /// string for the release in play, which is the only one of the two that
+    /// can carry a `-dev.14`.
+    ///
+    /// The measured numbers lead, because asking bank 0 is the whole point of
+    /// reading it at all - see `romReleaseMismatchNotice` - and the catalog's
+    /// tag is added only where `romServes` says the selection is a pre-release
+    /// of exactly what the ROM declares. So a stale 3.6.0 ROM does not acquire
+    /// a "-dev.14" because the picker moved, and that is a state a running app
+    /// reaches: the emulator is built once in `init()` and the release picker
+    /// is not.
+    ///
+    /// The one pair nothing on this machine can tell apart is a released 3.7.0
+    /// ROM while 3.7.0-dev.14 is selected, since a snapshot's HCB is
+    /// byte-for-byte what the release it precedes will carry. The wording is
+    /// therefore a claim about the SELECTION and never about the bytes.
+    /// z80cpmw's About box (`MainWindow.cpp`) says the same thing against the
+    /// same `romServes`.
+    static func summary(loadedByROM: String?, selected: String) -> String {
+        guard let loaded = loadedByROM else {
+            return "RomWBW \(selected) selected - no ROM loaded yet"
+        }
+        if loaded != selected,
+           romServes(catalogVersion: selected, declaredByROM: loaded) {
+            return "RomWBW \(loaded) ROM loaded - set to RomWBW \(selected),"
+                + " a development snapshot the ROM's version bytes cannot spell"
+        }
+        return "RomWBW \(loaded) ROM loaded"
+    }
+
+    /// What this machine is about to run, said before it runs: the release, the
+    /// ROM file published under it, and what is in the drives.
+    ///
+    /// **Pure, and that is what it is for**, exactly as `summary` above is. Its
+    /// one caller is `startEmulator()` in EmulatorViewModel, which nothing in
+    /// this repository constructs, so a rule written there is type-checked and
+    /// never run. It returns lines and prints nothing: the terminal belongs to
+    /// the caller, and so does the `"\n"` that `TerminalScreen.write` turns into
+    /// CR+LF.
+    ///
+    /// **The release the machine is SET to, never what the ROM declares.** That
+    /// is the choice z80cpmw's `MainWindow::startEmulator` and cpmdroid's
+    /// `createMachineBanner` both made, for the reason `summary` spells out
+    /// above: two HCB bytes spell three numbers, so asking the loaded image
+    /// would print "3.7.0" on a machine running 3.7.0-dev.14. The suffix exists
+    /// only in the catalog string and in the v0 filename.
+    ///
+    /// `diskFilenames` carries one entry per DRIVE and the number printed is
+    /// that drive, not the position among the surviving entries: a machine with
+    /// one image in drive 2 has to say `Disk 2`. Empty drives are skipped rather
+    /// than listed as "(none)", matching both siblings - three of the four are
+    /// empty on a default machine, and naming them spends three lines of a
+    /// 24-line screen to say nothing.
+    ///
+    /// Each name is reduced to its last path component. z80cpmw reduces for the
+    /// reason this port shares and cpmdroid does not: a slot here may hold a
+    /// file the user browsed to, and the container's own path is wider than the
+    /// screen on its own. That matters more here than on either sibling, because
+    /// `TerminalScreen.write` is the host's printf and stops at the right margin
+    /// rather than folding - an over-long line loses its tail in silence. The
+    /// longest real case, `Starting RomWBW 3.7.0-dev.14 -
+    /// emu_avw-v0-3.7.0-dev.14.rom`, is 58 columns; a disk line is 40.
+    ///
+    /// **Nothing is invented.** With no release there is no banner at all, which
+    /// is the rule the whole ROM gate follows, and with no ROM filename the
+    /// release line stands by itself rather than naming a file this app cannot
+    /// name - again what both siblings do. Naming ANOTHER release's ROM is the
+    /// one thing this must never do, and it cannot: both strings come from the
+    /// caller's single selection.
+    static func startBanner(release: String,
+                            romFilename: String?,
+                            diskFilenames: [String?]) -> [String] {
+        guard !release.isEmpty else { return [] }
+
+        var first = "Starting RomWBW \(release)"
+        let rom = basename(romFilename ?? "")
+        if !rom.isEmpty { first += " - \(rom)" }
+
+        var lines = [first]
+        for (drive, name) in diskFilenames.enumerated() {
+            let leaf = basename(name ?? "")
+            if leaf.isEmpty { continue }
+            lines.append("  Disk \(drive): \(leaf)")
+        }
+        return lines
+    }
+
+    /// The last path component of `path`, or "" when there is nothing left.
+    ///
+    /// `split` rather than `NSString.lastPathComponent` for the reason
+    /// `ExportPath.leafName` gives: `lastPathComponent` of `"///"` is `"/"`, so a
+    /// separator-only string does not reduce to nothing the way an empty one
+    /// does, and the caller's test for empty then misses it. This one is not the
+    /// guest's data path, so unlike that one it knows only about `/` and has no
+    /// fallback name to offer - a banner says less rather than saying something
+    /// made up.
+    private static func basename(_ path: String) -> String {
+        path.split(separator: "/").last.map(String.init) ?? ""
     }
 }
 
@@ -497,6 +635,17 @@ extension RomWBWIndex {
     ///      arrives, and passing that seed here matched this rule on every
     ///      launch. See `romWBWVersionToKeep` in EmulatorViewModel, which is
     ///      where the distinction lives.
+    ///
+    ///      **An empty `current` is not a choice**, and falls through to
+    ///      `default: true`. Nothing stops the index publishing a row whose
+    ///      `romwbw_version` is "": it is a non-optional String with no
+    ///      emptiness gate, and `offered` drops an entry only for want of a
+    ///      `catalog_url`, so such a row is decoded, offered, and - without
+    ///      this guard - matched by an empty stored value and selected.
+    ///      `storedRomWBWVersion()` in EmulatorViewModel refuses an empty
+    ///      string as well, which is a different question: that one is about
+    ///      what this app has written down, and this one is about what ""
+    ///      MEANS here, for every caller.
     ///   2. `default: true`. The index promises exactly one, and
     ///      romwbw_disks' release check enforces it, but this still picks the
     ///      first if it ever saw two.
@@ -512,7 +661,7 @@ extension RomWBWIndex {
     /// to rank above `default: true`.
     static func preferred(among offered: [RomWBWIndexEntry],
                           keeping current: String?) -> RomWBWIndexEntry? {
-        if let current = current,
+        if let current = current, !current.isEmpty,
            let kept = offered.first(where: { $0.romwbwVersion == current }) {
             return kept
         }
@@ -663,6 +812,17 @@ struct CatalogDisk: Decodable, Equatable {
     let size: Int64?
     let sha256: String?
     let license: String?
+    /// The slice to boot from INSIDE this image. **Not a drive number.**
+    ///
+    /// CATALOG_SCHEMA.md 3.3: "the slice a client should boot from when it
+    /// mounts this image with no other instruction". It is published only on
+    /// `hd1k_combo`, whose only value is 0, and that is the whole reason
+    /// reading it as one of the four drives worked for as long as it did - a
+    /// release that published 3 on it would have put the combo in drive 3 and
+    /// left a first launch with nothing in drive 0.
+    ///
+    /// Which disks a first launch mounts is `defaultDiskIDs`; the catalog does
+    /// not say, and `disks[]` carries no `default` flag the way `roms[]` does.
     let defaultSlot: Int?
 }
 
@@ -699,6 +859,43 @@ extension RomWBWCatalogDocument {
     /// which is why every caller has to handle nil.
     var defaultROM: CatalogROM? {
         romEntries.first(where: { $0.isDefault == true }) ?? romEntries.first
+    }
+
+    /// The disks a device with no saved selection gets, drive 0 first.
+    ///
+    /// **The catalog does not name a default disk**, and this list is the
+    /// honest consequence. A `roms[]` entry carries `default: true` and
+    /// `defaultROM` above reads it; a `disks[]` entry carries no such flag -
+    /// not in CATALOG_SCHEMA.md's field table and not in any published
+    /// catalog. `CatalogDisk.defaultSlot` looks like a candidate and is not
+    /// one: it is an index INSIDE hd1k_combo and has nothing to say about
+    /// which of the four drives an image belongs in.
+    ///
+    /// So the choice is this app's to make and is written down here rather
+    /// than inferred from a field that means something else. Same two ids in
+    /// the same order as z80cpmw's `DEFAULT_DISK_IDS` (DiskCatalog.h), and for
+    /// the same reasons; both are published by every release in the v0 catalog.
+    static let defaultDiskIDs = ["hd1k_combo", "hd1k_games"]
+
+    /// The filename to mount in each of `driveCount` drives on a first launch.
+    ///
+    /// Nil for a drive `defaultDiskIDs` does not name, and nil for an id this
+    /// release does not publish - a drive left empty is the right answer there,
+    /// since substituting whatever else the catalog happens to list would put
+    /// an arbitrary disk in front of someone who has chosen nothing.
+    ///
+    /// It takes `(id, filename)` pairs rather than reading this document's own
+    /// `diskEntries` because the view model has already turned the document
+    /// into `[DownloadableDisk]` by the time `restoreDiskSelections()` needs
+    /// the answer, and one rule with two callers is the point.
+    static func defaultDiskFilenames(
+            driveCount: Int = 4,
+            published: [(id: String, filename: String)]) -> [String?] {
+        (0..<max(0, driveCount)).map { drive -> String? in
+            guard drive < defaultDiskIDs.count else { return nil }
+            let wanted = defaultDiskIDs[drive]
+            return published.first(where: { $0.id == wanted })?.filename
+        }
     }
 
     /// Where an asset actually lives.
@@ -765,5 +962,171 @@ enum CatalogTransfer {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let last = trimmed.last else { return trimmed }
         return ".!?".contains(last) ? trimmed : trimmed + "."
+    }
+}
+
+// MARK: - Reading back what this app saved
+
+/// Whether a document that came out of this app's own cache is the one this
+/// app put there.
+///
+/// **Nothing used to ask.** The fetch path gates a catalog twice -
+/// `RomWBWIndexEntry.payloadProblem` against the size and checksum the index
+/// promised, then `documentProblem` against the release and interface that
+/// were asked for - and then writes the bytes to the disk library under
+/// `Documents`. That directory is published over `UIFileSharingEnabled` and
+/// `LSSupportsOpeningDocumentsInPlace`, so the copy that comes back is not
+/// necessarily the copy that went in, and the offline path decoded it and
+/// adopted it with no check at all.
+///
+/// A catalog is exactly the document worth editing. It names the `base_url`
+/// every disk image is fetched from AND the `sha256` each one is checked
+/// against, so whoever supplies both supplies neither: `downloadDiskFromSettings`
+/// would verify an attacker's image against the attacker's hash and report it
+/// as good. The same is true of the saved release list, which is where the
+/// catalog's own URL and checksum come from - verifying one against the other
+/// is circular, and both are in the same user-writable directory.
+///
+/// So a fetch that passes those gates also records the size and SHA-256 of the
+/// bytes it wrote, in `UserDefaults`, and this compares the two.
+///
+/// **What this does not defend against**, said plainly rather than implied:
+/// on Mac Catalyst the preferences store is as reachable as the Documents
+/// directory, so the stamp separates them on iOS and is a consistency check on
+/// the Mac. See "The cache stamp is a boundary on iOS only" in
+/// `KNOWN_PROBLEMS.md`.
+enum CachedCatalog {
+
+    /// Adopt the saved copy, decline it, or decline it and throw it away.
+    ///
+    /// The line between the last two is the one that matters, and it is this:
+    /// **delete only what can be proven wrong, never what merely cannot be
+    /// checked.**
+    ///
+    /// Every install that predates the stamp has a cache and no stamp, and
+    /// `start()` returns early on an empty `diskCatalog`. Deleting an unstamped
+    /// cache on the upgrade launch would leave a device with no connection
+    /// nothing to boot and no way back - that file is the only copy, and the
+    /// fetch that would replace it is precisely what is unavailable. That is
+    /// why an absent stamp keeps the file.
+    ///
+    /// **And why it is now ADOPTED as well, not merely kept.** This paragraph
+    /// used to say that declining to adopt "costs the same launch and is undone
+    /// by the next one with a connection". That was wrong in the way that
+    /// matters: the launch it costs is the launch with no connection, which is
+    /// the only launch on which the cache is load-bearing at all. A device that
+    /// had booted offline for weeks would have updated the app and then found
+    /// Play refusing, with every byte it needed already on it. Declining and
+    /// deleting differ in how long the damage lasts, not in what it is.
+    ///
+    /// So an unverifiable cache is adopted and marked UNTRUSTED, and the app
+    /// refuses the one thing a doctored catalog is worth doctoring for: it will
+    /// not start a new transfer while the document it would take the URL and
+    /// the expected checksum from cannot be verified. Booting from images that
+    /// are already on the device - and were hash-checked when they arrived -
+    /// costs the attacker nothing they did not already have, since anyone who
+    /// can rewrite the cache can rewrite those images too.
+    ///
+    /// A stamp that is present and disagrees is a different claim: these bytes
+    /// are provably not the ones this app last verified. Keeping them buys
+    /// nothing, since they would be declined on every launch from here on.
+    enum Verdict: Equatable {
+        case verified
+        case unverifiable(String)
+        case rejected(String)
+    }
+
+    /// The stamp check, for either of the two documents this app caches.
+    ///
+    /// Both halves of the stamp have to be there. They are written together by
+    /// one caller, so half a stamp means something lost one of them, and a
+    /// gate that cannot verify must not say yes - the same position
+    /// `payloadProblem` takes on an index entry with no checksum.
+    static func stampVerdict(byteCount: Int,
+                             sha256: String,
+                             stampedSize: Int?,
+                             stampedSHA256: String?) -> Verdict {
+        guard let expectedHash = stampedSHA256?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !expectedHash.isEmpty,
+              let expectedSize = stampedSize else {
+            return .unverifiable("this app has no record of the copy it saved,"
+                                 + " so what is on the device cannot be checked")
+        }
+        if expectedSize != byteCount {
+            return .rejected("the saved copy is \(byteCount) bytes,"
+                             + " and this app saved \(expectedSize)")
+        }
+        guard expectedHash.lowercased() == sha256.lowercased() else {
+            return .rejected("the saved copy's checksum is \(String(sha256.prefix(16)))…,"
+                             + " and this app saved \(String(expectedHash.prefix(16)))…")
+        }
+        return .verified
+    }
+
+    /// The stamp check, plus the two `RomWBWIndexEntry.documentProblem` makes.
+    ///
+    /// Those two are belt and braces and are documented as such: `interface`
+    /// and `romwbw_version` are both optional in the document, so each is a
+    /// no-op on a catalog that omits its field, and a document whose bytes
+    /// match the stamp is by construction one this app already ran
+    /// `documentProblem` over. The stamp is the gate that does the work. They
+    /// are still asked, because the file is named for the release and the
+    /// stamp is keyed by it, and a cache that somehow ends up under the wrong
+    /// name is a 3.6.0 catalog that a 3.5.1 launch would resolve its slots
+    /// against.
+    static func catalogVerdict(byteCount: Int,
+                               sha256: String,
+                               stampedSize: Int?,
+                               stampedSHA256: String?,
+                               document: RomWBWCatalogDocument,
+                               expectedRelease: String,
+                               expectedInterface: String) -> Verdict {
+        let stamp = stampVerdict(byteCount: byteCount,
+                                 sha256: sha256,
+                                 stampedSize: stampedSize,
+                                 stampedSHA256: stampedSHA256)
+        guard case .verified = stamp else { return stamp }
+
+        if let interface = document.interface, interface != expectedInterface {
+            return .rejected("the saved catalog is interface \(interface),"
+                             + " and this app reads \(expectedInterface)")
+        }
+        if let version = document.romwbwVersion, version != expectedRelease {
+            return .rejected("the saved catalog is for RomWBW \(version), not \(expectedRelease)")
+        }
+        return .verified
+    }
+}
+
+extension CachedCatalog.Verdict {
+
+    /// Why the saved copy is not being adopted, or nil when it is.
+    var problem: String? {
+        switch self {
+        case .verified: return nil
+        case .unverifiable(let why), .rejected(let why): return why
+        }
+    }
+
+    /// Whether the file should be deleted as well as declined. See `Verdict`.
+    var discardsFile: Bool {
+        if case .rejected = self { return true }
+        return false
+    }
+
+    /// Whether the saved copy may be used at all. Only `.rejected` refuses:
+    /// bytes this app can prove are not the ones it saved. See `Verdict`.
+    var adoptsFile: Bool {
+        if case .rejected = self { return false }
+        return true
+    }
+
+    /// Whether what was adopted may be treated as this app's own. False for an
+    /// unstamped copy, which is adopted so the device still boots but must not
+    /// be allowed to name a URL to fetch from or a checksum to fetch against.
+    var trustworthy: Bool {
+        if case .verified = self { return true }
+        return false
     }
 }

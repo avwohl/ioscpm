@@ -2,6 +2,240 @@
 
 ## Unreleased
 
+### The saved catalog is checked, and an unstamped one is used but not trusted
+
+The offline path adopted the saved disk catalog on nothing more than "it
+decoded", with none of the gates a fetched one passes — and both cache files sit
+in `Documents/Disks`, which the app publishes over `UIFileSharingEnabled`, so a
+catalog edited in the Files app supplied both the URL each disk image is
+downloaded from and the `sha256` it is checked against. A verified fetch now
+records the size and SHA-256 of what it wrote in `UserDefaults`, which the Files
+app does not reach, and the saved catalog and the saved release list are both
+checked against that stamp before use.
+
+**The first version of this refused an unstamped cache, and that was a worse
+bug than the one it fixed.** Every install predating the stamp is unstamped, and
+`start()` returns early on an empty `diskCatalog` — so a device that had been
+booting offline for weeks would have taken the update and found Play refusing,
+with every byte it needed already on it. The reasoning that "declining costs one
+launch" was wrong about *which* launch: the one it costs is the launch with no
+connection, which is the only launch the cache is load-bearing on at all.
+
+So an unstamped cache is now adopted and marked untrusted — `catalogIsUnverified`
+— and the app withholds the one capability a doctored catalog is worth doctoring
+for: it will not start a transfer whose URL and expected checksum come from a
+document it cannot verify. Booting from images already on the device concedes
+nothing, since whoever can rewrite the cache can rewrite those images too. One
+successful fetch clears it. Only a stamp that is present and *disagrees* still
+declines and deletes.
+
+### A first launch no longer needs the games disk in order to boot
+
+`downloadDisksAndStart` was all-or-nothing: the first transfer that did not
+finish called `failStart` and the machine did not boot. That went unnoticed
+while a first launch selected exactly one disk. It stopped being unnoticeable
+when first-launch drives moved to `defaultDiskIDs`, which fills two — at which
+point a flaky connection on the optional 8 MB games image refused a boot the
+verified 49 MB system image in drive 0 could perfectly well have done, and
+`start()`'s own comment ("A disk that will not download leaves an empty drive")
+became false on the default configuration.
+
+A failure is now fatal only in drive 0. Any other drive is left empty, named
+once at the end, and the machine starts — the same rule `loadSelectedResources`
+already applied to a disk that is selected but absent. A cancel is included
+deliberately: cancelling the games disk is a reason to skip the games disk, not
+a reason to refuse the boot.
+
+### Start refuses a live machine, and says what it is starting
+
+Pressing Play on a running machine cleared the screen, emptied the scrollback,
+closed every disk and cold-restarted the guest — reachable by pressing Reset
+during a disk download, which hands Play back, and then Play again.
+`startEmulator()` now guards on `isRunning`. And where Start used to print only
+`Z80CPM v<ver>.<build>`, it prints `Starting RomWBW <release> - <rom>` and one
+`Disk N: <file>` line per drive that took an image, with the status line reading
+`Running RomWBW <release>` where the guest cannot overwrite it. The wording is
+`RomWBWRelease.startBanner`, so the tests can drive it, and it names the
+SELECTED release rather than the ROM's two HCB bytes, which cannot spell a
+`-dev.14` suffix. Matches z80cpmw's 542325c/1725bf7 and cpmdroid's efe9554.
+
+### Pressing Play twice during a download started a second machine over the first
+
+`isRunning` is not set until the very end of `start()`, so the toolbar button
+read Play for the entire ROM-and-disk download window and nothing refused the
+second press: the second transfer orphaned the first in `downloadTasks`' single
+slot and raced it to the same destination, `closeAllDisks()` ran under disks the
+first start had already opened, and a second twenty-second disk-save timer was
+scheduled without the first being invalidated. `start()` now refuses a second
+entry while one is in flight and clears that state at every way out — each early
+return, a refused ROM, a failed or cancelled download, and success — while Stop
+and Reset both hand a working Play back. `Tests/run_tests.sh` gained a
+`StartReentrancyGuard` stage that fails if a future early return forgets it.
+
+### The three pickers a catalog fetch rewrites are off while it is in flight
+
+The release picker, the four disk slots and the ROM picker stayed live during
+the launch fetch, so they offered the previous catalog's rows: the release being
+left, and filenames like `hd1k_combo-v0-3.5.1.img` under the name of a release
+that publishes `hd1k_combo-v0-3.6.0.img`. Picking a release from that list also
+started a second index hop beside the first, leaving the winner to be whichever
+answered last rather than what was tapped. All three are now disabled while
+`catalogLoading` is set, the release Section says why where the control is, and
+the index hop drops a response whose catalog URL is no longer in play — which
+previously could save the departing catalog's release list into the arriving
+catalog's cache. z80cpmw had a user report in those words: "it shows wrong info
+in a way that makes it look current when it is not."
+
+### A disk opened from Files says when it names another release
+
+A local image was mounted with no check that its name matched the release the
+machine is set to, so pairing a 3.5.1 image with a 3.6.0 machine said nothing
+until the guest printed `*** WARNING: HBIOS/CBIOS Version Mismatch ***` in the
+middle of a boot. The slot now carries a warning naming the release the file
+claims, drawn in its Settings row and on the status line — both, because "Open
+File..." dismisses Settings before the picker opens, so the row it belongs to is
+not on screen when the file arrives.
+
+The remedy it offers is checked against what Settings actually lists. The
+release comes out of a filename and is deliberately matched against nothing, so
+"switch to RomWBW X" could name a release the picker does not offer — either not
+a release at all, or a development snapshot with the opt-in switched off, which
+is the default. Each case now gets its own ending. It says the boot *can* print
+the mismatch warning, not that it will: the guest raises that by comparing HBIOS
+and CBIOS versions, which two releases can share.
+
+It is a warning and nothing else — the file is mounted either way, so booting
+another release's image on purpose keeps working.
+
+### The v0 migration rebound stored names to files it had never moved
+
+`CatalogMigration.renames(in:)` drops a rename whose destination already exists,
+and recorded nothing when it did — so `notMoved` missed it and the slot, every
+saved profile and the ledger record were rebound to an image this pass never
+moved or verified, with `saveDownloadedDisks()` then writing the running machine
+back over it. A user holding both `hd1k_combo.img` and
+`hd1k_combo-v0-3.5.1.img`, which is what a reinstall over an old Documents
+leaves, would see a slot silently change which disk it meant. The migration now
+reads the blocked names off the directory before it moves anything and leaves
+their stored names alone, keeping them separate from a rename that *threw*: a
+blocked destination is permanent, so it no longer holds the "migration done"
+flag back and cannot make the pass re-run on every launch for ever.
+
+### Switching release could persist four blank slots over a saved configuration
+
+The switch emptied the four slots before fetching the new catalog, and nothing
+refilled them when that fetch failed. The next slot the user touched persisted
+three blanks plus their one edit over the new release's key — destroying the
+slots they had set last time they were on that release or, on a release the
+device had never visited, creating the key as four blanks so that
+`hasSavedSelections` was true for ever and that release's default disks never
+reached it again. The slots now carry a `slotsAwaitingCatalog` flag, raised by
+both teardowns and lowered by `restoreDiskSelections` before it persists, and
+while it is raised an incidental slot write persists nothing at all;
+`applyProfile` passes an explicit override so a profile applied in that window is
+still recorded.
+
+### First-launch drives come from catalog ids, not from a slice index
+
+`restoreDiskSelections` chose a first launch's drives by reading each catalog
+entry's `defaultSlot` as a drive number. That is the slice to boot *inside* an
+image (romwbw_disks `CATALOG_SCHEMA.md` §3.3), and it read as correct only
+because the one entry publishing it is `hd1k_combo` with value 0 — a release
+that published 3 would have mounted the combo in drive 3 and left a fresh
+install with nothing to boot in drive 0, and nothing in the catalog would have
+looked wrong. The drives now come from `RomWBWCatalogDocument.defaultDiskIDs`,
+keyed on the catalog's stable id, the same list and reasoning as z80cpmw's
+`DEFAULT_DISK_IDS`, because `disks[]` carries no `default` flag the way `roms[]`
+does. `defaultSlot` is still parsed; nothing reads it as a drive any more.
+
+### A development snapshot is named as one
+
+`romWBWReleaseSummary` built its string from `loadedRomWBWRelease()` alone, and
+those two HBIOS configuration bytes cannot spell a pre-release suffix — so a
+machine running the 3.7.0-dev.14 ROM said "RomWBW 3.7.0 ROM loaded", naming the
+release that snapshot precedes, in the first line of every bug report. It now
+goes through `RomWBWRelease.summary(loadedByROM:selected:)`, which keeps the
+measured bytes leading and appends the catalog's tag only where
+`RomWBWRelease.romServes` says the selection is a pre-release of exactly what the
+ROM declares. The picker also stopped rendering "RomWBW 3.7.0-dev.14
+(development snapshot) (snapshot)": `pickerLabel` suppresses the marker when the
+status already appears as a *word* of the label, which keeps "(rc)" on a label
+like "RomWBW 3.8.0 Source Build" that a substring test would have swallowed.
+
+### The checksum badge stopped contradicting the row beside it
+
+Settings compared the measured hash with the catalog hash directly, while the
+row's freshness verdict went through `CatalogMigration.isEquivalentPriorImage`.
+On a migrated device `hd1k_combo-v0-3.5.1.img` therefore showed its hash in red
+beside a row that correctly called the disk current and offered no Update — two
+halves of one row saying opposite things about the same file. The decision now
+lives once, in `DiskLedger.measurementMatchesCatalog`, and honours the
+equivalence only while the measurement still equals the recorded provenance, so
+a Files-app drop of the prior image stays red as before.
+
+### A download under a custom index landed outside that index's library
+
+`downloadDiskFromSettings`'s completion handler built `Documents/Disks` by hand
+and never picked up the `CatalogMigration.indexScope` suffix that
+`disksDirectoryURL` grew when scoped libraries were added, so a user on a custom
+index watched a 49 MB download complete and then found the disk still offered as
+"(download)". The directory is now captured synchronously before the transfer
+starts, so switching index mid-transfer cannot land one catalog's bytes in
+another catalog's library — two catalogs publish different bytes under the same
+filename, which is what the scoping exists to keep apart.
+
+### HBIOS reverse scroll did nothing
+
+`BF_VDASCR` takes its line count in register E as a signed byte, and a negative
+one means scroll back — what a full-screen editor sends to pan up through a
+file. romwbw_emu's dispatcher audit made that register signed; the count reached
+`TerminalScreen` with its sign intact and was then thrown away by `scrollUp`'s
+`guard lines > 0`. `vdaScrollUp` now dispatches on the sign, through the
+row-shifting loop the ANSI SD handler already used, which is the shared private
+`scrollDown(top:bottom:lines:)`. Forward scrolling, SD and the scrollback are
+unchanged: nothing leaves the top of the screen on a reverse scroll, so nothing
+is captured as history.
+
+### run_tests.sh type-checks at the deployment floor
+
+The network API surface was only ever checked against the host macOS SDK, where
+nothing is too new — so an API added above `IPHONEOS_DEPLOYMENT_TARGET`
+type-checked clean in every check in the repository and would have trapped on a
+user's iOS 15 device instead. `WIP.md` recorded that somebody had once run the
+floor check by hand, which is not a check that notices a regression. There is now
+a `DeploymentFloorTypechecks` stage compiling the same files at
+`arm64-apple-ios$FLOOR-macabi`, with the floor read out of the pbxproj so raising
+it moves the check, and it additionally reaches the one
+`#if targetEnvironment(macCatalyst)` arm the host-SDK stage never sees. It
+reports SKIP rather than FAIL where nothing could be checked — no pbxproj, or a
+floor Mac Catalyst's own rising minimum will not accept (it already refuses
+13.0).
+
+### The attestation covers six ROMs, and three documents stop overpromising
+
+`docs/ROM_ATTESTATION.md` enumerated four downloadable ROMs; the catalog has
+published six since 2026-09-18, and build 73's "Show Development Snapshots"
+toggle makes the 3.7.0-dev.14 pair reachable — so an App Review reader could
+have fetched two ROMs the attestation neither covered nor authorized. It now
+lists all six with sizes and SHA-256s, says which two are a development snapshot
+behind a deliberate opt-in, records where each hash came from, and widens the
+Apple grant from four files to six. Its `Date:` line now reads 2026-09-19, the
+day it was revised, rather than contradicting the provenance note eleven lines
+above it. Filing it is still a person's job and stays in `todo.txt`.
+
+`CLAUDE.md`, `docs/DISK_CATALOG_PINNING.md` and `docs/DISK_DISTRIBUTION.md` all
+still claimed the picker offers every release the index publishes with no second
+filter, which the snapshot opt-in falsified in build 73; all three now describe
+the opt-in and distinguish it from the compile-time release list romwbw_emu v1.44
+deleted.
+
+### An index row with a blank release could outrank the one flagged default
+
+`RomWBWIndex.preferred(among:keeping:)` treated an empty stored choice as a
+choice, so a row published with a blank `romwbw_version` would have been selected
+over the release flagged `default: true`. The test that claimed to cover this
+passed only because no fixture carried a blank row; it now decodes one.
+
 ### The release picker comes first, above the ROM and the slots it governs
 
 It was the fourth section of Settings, under the ROM picker and the four disk

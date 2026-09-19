@@ -662,15 +662,35 @@ saved profile and a ledger with a record for each is enough for all of it.
       depends on which files moved, and this same launch writes that key later.
       Confirm the versioned key exists afterwards and the legacy one is still
       beside it.
-- [ ] **A destination that already exists is kept, and nothing is deleted.**
-      Put both `hd1k_combo.img` and `hd1k_combo-v0-3.5.1.img` in the directory,
-      run it, and confirm both are still there afterwards and the app boots off
-      the v0 one.
-- [ ] **A rename that fails leaves everything consistent.**  Make one move fail
-      (a directory named `hd1k_bp-v0-3.5.1.img`, say, is enough to make
-      `moveItem` throw) and confirm that slot still names the *old* file, that
-      the emulator still boots off it, and that the migration runs again on the
-      next launch rather than freezing half-done.
+- [ ] **A destination that already exists is kept, and the slot stays on the
+      OLD name.**  Put both `hd1k_combo.img` and `hd1k_combo-v0-3.5.1.img` in
+      the directory with a slot naming `hd1k_combo.img`, run it, and confirm
+      both files are still there afterwards **and that
+      `selectedDisks.v0.3.5.1` still says `hd1k_combo.img`**.  Rewriting that
+      slot to the v0 name binds it to the OTHER image - the one that was
+      already sitting there, which this pass neither moved nor verified - and
+      `saveDownloadedDisks()` then writes the running machine back over that
+      one.  `CatalogMigration.blockedByExistingDestination(in:)` is what keeps
+      the stored names behind with the file, and the old file is offered again
+      as a user-added disk, because a pre-v0 name has no release in it for
+      `belongsToAnotherRelease` to object to.  The app boots off whichever the
+      slot names.  `migratedToInterfaceV0` must still be SET afterwards: this
+      collision is permanent - the pass deletes neither copy, so every later
+      launch would find it again - and holding the flag back for it would
+      re-run the whole pass on every launch for the life of the install while
+      printing a deferral that can never come true.
+- [ ] **A rename that fails leaves everything consistent.**  **Not with a
+      directory at the destination**, which is what this box used to say.
+      `contentsOfDirectory` lists a directory like any other name, so
+      `renames(in:)` drops that rename before `moveItem` is ever reached and
+      what you would measure is the box above instead.  For the move itself to
+      throw, the destination has to be ABSENT from the listing: `chmod 555` on
+      `Documents/Disks` leaves it listable and makes every `moveItem` into it
+      fail.  Confirm each affected slot still names the *old* file, that the
+      emulator still boots off it, and that `migratedToInterfaceV0` is absent
+      afterwards so the migration runs again on the next launch rather than
+      freezing half-done.  Restore the permissions, relaunch, and confirm the
+      names are rewritten then and the flag is set.
 - [x] **Running it twice changes nothing.**  MEASURED: after a relaunch no
       image mtime moved, no name gained a second `-v0-`, and
       `migratedToInterfaceV0` stayed set.  Clear `migratedToInterfaceV0` in
@@ -1101,3 +1121,82 @@ regression check, and the first thing to establish is that Help opens at all.
       That is the whole point of decoding that key with `try?`, and it is the
       one failure in this change that would cost the user their catalog rather
       than their help.
+
+## 22. Two presses of Play during a download
+
+`start()` now refuses a second entry while one is in flight, and the toolbar
+Play/Stop button is disabled for exactly that window.  What no check here can
+settle is the window itself: it only exists while the ROM and the disks are
+actually being fetched, so it needs a real transfer that lasts long enough to
+press a button twice.  `Tests/run_tests.sh`'s `StartReentrancyGuard` stage
+checks the shape of the code and cannot press anything.
+
+Give yourself a slow transfer: Network Link Conditioner, or a local index and
+catalog served from a throttled proxy.  A 49 MB combo image on a bad connection
+is the case this was written for.
+
+- [ ] With the ROM not yet downloaded for the selected release, press Play and
+      then press it again while "Downloading ... ROM" is up.  The button must be
+      **disabled** for the whole window, and the debug log must show
+      `[Start] a start is already in flight` if you reach it by the Cmd-key
+      route instead.  One transfer, one boot.
+- [ ] The same during the DISK download, which is the long one.  Watch
+      `Documents/Disks` (`xcrun simctl get_app_container booted com.awohl.cpm
+      data`): exactly one `.img` must appear, and no partial file may be left
+      behind.  Two starts used to orphan the first `URLSessionDownloadTask` and
+      race the same destination in `moveItem`.
+- [ ] Cancel the download from Settings while a start is waiting on it.  The
+      start must END - status "Error: download failed", one alert - and Play
+      must work again afterwards.  This is the terminus that is easiest to
+      leave out, because nothing on screen says the flag is still set.
+- [ ] Every other way a start can end, checked for the same thing: the release
+      has no ROM to be had (airplane mode with the ROM absent), a selected disk
+      is not in the catalog, no disk is selected at all.  After each one, Play
+      must be pressable again.
+- [ ] Press **Reset** while a start is in flight, then Play.  Reset carries no
+      `.disabled` and leaves the machine not running, so it clears the flag
+      itself; if Play is dead after a Reset, that is the bug.
+- [ ] Let a start finish, then Stop and Play again, twice over, and leave the
+      machine running for a minute.  `startEmulator()` now invalidates
+      `diskSaveTimer` before scheduling a new one; a leaked timer shows up as
+      two saves twenty seconds apart rather than one.
+
+## 23. What Start says, and a Start that lands on a running machine
+
+Two things no check in this repository can see.  `RomWBWRelease.startBanner` is
+tested by behaviour in `CatalogDocumentTests`, and the
+`StartRefusesALiveMachineAndSaysWhatItStarts` stage checks that
+`startEmulator()` asks it and refuses a live machine — but both are shape and
+string, and neither has ever been on a screen.  Nothing here constructs an
+`EmulatorViewModel`, and `TerminalScreen.write` truncates at the right margin
+rather than folding, so an over-long line loses its tail in silence.
+
+cpmdroid settled the question these checks leave open on a Galaxy Tab A8
+(efe9554): the RomWBW boot loader prints `RetroBrew SBC [SBC_simh_std] Boot
+Loader` **below** the banner rather than clearing it.  That is a different guest
+on a different terminal; it is the reason to expect these lines to survive and
+not evidence that they do here.
+
+- [ ] Press Play on a machine set to a **development snapshot**.  The first line
+      must read `Starting RomWBW 3.7.0-dev.14 - emu_avw-v0-3.7.0-dev.14.rom`,
+      whole, with the `-dev.14` on both halves and nothing cut off at column 80.
+      That is the longest real case: 58 columns, measured.
+- [ ] One `  Disk N: <file>` line per drive that actually has an image, and the
+      N is the **drive**.  Put an image in drive 2 and nothing in 0 or 1: it must
+      say `Disk 2`.
+- [ ] A slot whose image is missing or corrupt must be **absent** from the list,
+      not named.  Delete a downloaded `.img` out of `Documents/Disks` with the
+      slot still selected, press Play, and confirm the failed drive appears in
+      the error alert and NOT in the banner.
+- [ ] A slot bound to a file you browsed to shows the file's own name and not
+      the container path it came from.
+- [ ] The status line reads `Running RomWBW <release>` and **keeps** reading it
+      after the guest has painted over the terminal.  That is the half the guest
+      cannot reach, and the reason it is said twice.
+- [ ] **The guard.**  Press Play with a disk still to download, press Reset while
+      it downloads, press Play again, and let both flights land.  The machine
+      must come up **once**: the screen must not be cleared a second time, the
+      session's output must still be there, and the debug log must show
+      `[START] the machine is already running`.  Before this guard the second
+      flight cleared the screen, emptied the scrollback and cold-restarted the
+      guest.

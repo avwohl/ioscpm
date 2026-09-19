@@ -397,8 +397,25 @@ struct TerminalScreen {
         cursorCol = min(max(col, 0), cols - 1)
     }
 
+    /// BF_VDASCR reads its line count from E as a SIGNED byte, and emu_io.h's
+    /// contract for `emu_video_scroll_up` says a negative count means scroll
+    /// BACK - which is how a full-screen editor pans up through a file. The
+    /// sign survived the whole way here and then met `scrollUp`'s
+    /// `guard lines > 0`, so every reverse scroll a guest asked for was
+    /// silently dropped. Dispatching on the sign here rather than loosening
+    /// that guard keeps it doing its job for LF, ESC D/E, SU and scrollRegion,
+    /// none of which has a reverse form.
+    ///
+    /// The whole grid moves, not the scrolling region: the forward direction
+    /// goes through `scrollUp`, which ignores DECSTBM because the VDA is
+    /// HBIOS's own screen and knows nothing about it, so the reverse direction
+    /// has to ignore it too.
     mutating func vdaScrollUp(_ lines: Int) {
-        scrollUp(lines)
+        if lines < 0 {
+            scrollDown(top: 0, bottom: rows - 1, lines: -lines)
+        } else {
+            scrollUp(lines)
+        }
     }
 
     /// Attr is CGA-style: bits 0-3 = foreground, bits 4-6 = background,
@@ -939,15 +956,7 @@ struct TerminalScreen {
             // The reverse: blank lines enter at the top of the region and the
             // bottom line falls off. Never touches scrollback in either
             // direction - nothing is leaving the top.
-            for _ in 0..<max(p1, 1) {
-                let top = scrollTop, bottom = scrollBottom
-                if top <= bottom {
-                    for row in stride(from: bottom, through: top + 1, by: -1) {
-                        cells[row] = cells[row - 1]
-                    }
-                    cells[top] = Array(repeating: blankCell, count: cols)
-                }
-            }
+            scrollDown(top: scrollTop, bottom: scrollBottom, lines: max(p1, 1))
 
         case 0x6D: // 'm' - SGR (Select Graphic Rendition)
             // A private marker makes this something else entirely. ESC[>4;2m
@@ -1127,6 +1136,30 @@ struct TerminalScreen {
         let blank = blankCell
         for row in (bottom - lines + 1)...bottom {
             cells[row] = Array(repeating: blank, count: cols)
+        }
+    }
+
+    /// The reverse of scrollRegion(): blank lines enter at the top of
+    /// [top, bottom] and the rows pushed past the bottom are discarded.
+    ///
+    /// It never touches scrollbackLines, and that is not an omission. History
+    /// is what left the TOP of the screen, and nothing leaves the top here -
+    /// scrollUp() is still the one path that captures anything.
+    ///
+    /// This was the SD handler's body, inline under `case 0x54`. It is a
+    /// function because vdaScrollUp() needs the same primitive for a negative
+    /// BF_VDASCR count, and one row-shifting loop that both agree on is what
+    /// keeps a reverse VDA scroll and a reverse ANSI scroll drawing the same
+    /// screen. A single-row region is legal and simply blanks that row, which
+    /// is what SD did with it.
+    private mutating func scrollDown(top: Int, bottom: Int, lines: Int) {
+        guard lines > 0 && top >= 0 && bottom < rows && top <= bottom else { return }
+
+        for _ in 0..<lines {
+            for row in stride(from: bottom, through: top + 1, by: -1) {
+                cells[row] = cells[row - 1]
+            }
+            cells[top] = Array(repeating: blankCell, count: cols)
         }
     }
 }

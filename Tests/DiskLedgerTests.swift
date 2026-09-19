@@ -223,6 +223,74 @@ func runAllTests() {
 
     // MARK: -
 
+    section("The migrated combo: one verdict, not two")
+
+    // `0ca4ec60…` is what catalog-v0-3.5.1.json names for hd1k_combo, whose bytes
+    // genuinely did move; `89b8ae1a…` (newCombo above) is v1.4.12's, which the
+    // migration copies across when it renames the file. Both images carry the same
+    // 94 files byte for byte - CatalogMigration.equivalentPriorImage has the
+    // measurement - so freshness calls the migrated one .current and offers
+    // nothing. The hash beside it was painted red anyway, because
+    // installedChecksumStatus compared the two hashes itself. The row said two
+    // contradictory things about one file; these checks pin them together.
+    let v0Combo = "0ca4ec60cb8bca71b8f0287c4b634c3126887be483db9b59b41bdff424f89303"
+    let migratedCombo = "hd1k_combo-v0-3.5.1.img"
+
+    let v0Downloaded = DiskRecord(installedCatalogSha256: v0Combo,
+                                  measuredSha256: v0Combo,
+                                  measuredSize: facts.size,
+                                  measuredModified: facts.modified)
+    check(DiskLedger.measurementMatchesCatalog(v0Downloaded, catalogSha256: v0Combo) == true,
+          "a file that simply hashes to the catalog is green, as it always was")
+
+    let migrated = DiskRecord(installedCatalogSha256: newCombo,
+                              measuredSha256: newCombo,
+                              measuredSize: facts.size,
+                              measuredModified: facts.modified)
+    check(DiskLedger.measurementMatchesCatalog(migrated, catalogSha256: v0Combo) == true,
+          "and so is the migrated image, whose hash disagrees with the catalog naming it")
+    check(ledger(migrated, name: migratedCombo).freshness(filename: migratedCombo,
+                                                          catalogSha256: v0Combo,
+                                                          facts: facts) == .current,
+          "which is the SAME answer freshness gives it - the hash and the row can no longer disagree")
+
+    // The Files-app drop. No provenance, so nothing says these bytes came from the
+    // prior image rather than from anywhere else, and the row offers an Update.
+    // Blessing the hash here would build the contradiction the other way round.
+    let dropped = DiskRecord(installedCatalogSha256: "",
+                             measuredSha256: newCombo,
+                             measuredSize: facts.size,
+                             measuredModified: facts.modified)
+    check(DiskLedger.measurementMatchesCatalog(dropped, catalogSha256: v0Combo) == false,
+          "the same bytes with no provenance stay red - equivalence is keyed on where the file came from")
+    check(ledger(dropped, name: migratedCombo).freshness(filename: migratedCombo,
+                                                         catalogSha256: v0Combo,
+                                                         facts: facts)
+            == .unknownProvenance(matchesCatalog: false),
+          "and the row offers an Update for it, which a green hash would contradict")
+
+    let migratedAndWritten = DiskRecord(installedCatalogSha256: newCombo,
+                                        measuredSha256: userWritten,
+                                        measuredSize: facts.size,
+                                        measuredModified: facts.modified)
+    check(DiskLedger.measurementMatchesCatalog(migratedAndWritten, catalogSha256: v0Combo) == false,
+          "a disk the user has saved a file into is not blessed by its provenance - those bytes really are not the catalog's")
+
+    let supersededElsewhere = DiskRecord(installedCatalogSha256: oldCombo,
+                                         measuredSha256: oldCombo,
+                                         measuredSize: facts.size,
+                                         measuredModified: facts.modified)
+    check(DiskLedger.measurementMatchesCatalog(supersededElsewhere, catalogSha256: v0Combo) == false,
+          "and an ordinary superseded image is still red - exactly one pair is equivalent, not any pair that differs")
+
+    check(DiskLedger.measurementMatchesCatalog(DiskRecord(installedCatalogSha256: newCombo),
+                                               catalogSha256: v0Combo) == false,
+          "an unmeasured record is not a match - nothing has been hashed to match with")
+    check(DiskLedger.measurementMatchesCatalog(migrated, catalogSha256: "") == false,
+          "nor is anything a match against a catalog entry carrying no hash")
+
+    // MARK: -
+
     section("Adopting provenance for an image that is already current")
 
     var adopting = DiskLedger()

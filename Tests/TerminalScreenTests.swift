@@ -370,6 +370,20 @@ func runAllTests() {
         check(s.line(0) == "", "SD opens a blank line at the top of the region")
         check(s.line(1) == "TOP", "and pushes the rest down")
         check(s.scrollbackAvailable == 0, "SD never touches history - nothing is leaving the top")
+
+        // SD's row-shifting loop is shared with the reverse VDA scroll now, so
+        // these pin the behaviour the extraction had to leave alone: the count,
+        // and a region that is not the whole screen.
+        s = term("TOP\u{0A}SECOND\u{0A}THIRD\(ESC)[2T")
+        check(s.line(0) == "" && s.line(1) == "", "a count opens that many lines")
+        check(s.line(2) == "TOP" && s.line(3) == "SECOND", "and moves the rest down by it")
+
+        s = term("\(ESC)[5;10r\(ESC)[1;1HABOVE\(ESC)[5;1HR0\(ESC)[10;1HR5\(ESC)[11;1HBELOW\(ESC)[1T")
+        check(s.line(4) == "", "SD blanks the top row of a partial region")
+        check(s.line(5) == "R0", "shifts the region down")
+        check(s.line(9) == "", "drops what falls off the bottom of it")
+        check(s.line(0) == "ABOVE" && s.line(10) == "BELOW", "and moves nothing outside it")
+        check(s.scrollbackAvailable == 0, "and a partial region captures nothing either")
     }
 
     section("Save and restore the cursor") {
@@ -707,6 +721,38 @@ func runAllTests() {
         var u = term("TOP\(ESC)[25;1H")
         u.vdaScrollUp(1)
         check(u.scrollbackAvailable == 1, "and the VDA scroll captures history like any other")
+
+        // BF_VDASCR's count is signed and a negative one is a reverse scroll -
+        // what a full-screen editor sends to pan up through a file. It used to
+        // reach scrollUp()'s `guard lines > 0` and vanish.
+        var v = term("TOP\u{0A}SECOND")
+        v.vdaScrollUp(-1)
+        check(v.line(0) == "", "a negative VDA count scrolls the screen BACK")
+        check(v.line(1) == "TOP" && v.line(2) == "SECOND", "carrying the screen down with it")
+        check(v.scrollbackAvailable == 0,
+              "and captures nothing - a reverse scroll pushes nothing off the top")
+
+        var w = term("\(ESC)[25;1HBOTTOM\(ESC)[1;1HTOP")
+        w.vdaScrollUp(-1)
+        check(w.line(24) == "", "the row pushed off the bottom is discarded")
+        check(w.scrollbackAvailable == 0, "and is not history either - it did not leave the top")
+
+        // E is an int8_t, so -128 is the largest reverse scroll a guest can ask
+        // for; more lines than the screen has must blank it, not trap.
+        var x = term("TOP\u{0A}SECOND")
+        x.vdaScrollUp(-99)
+        check(x.allCells.allSatisfy { $0.character == " " },
+              "a reverse scroll longer than the screen blanks it")
+        check(x.scrollbackAvailable == 0, "still without capturing anything")
+
+        var y = term("\(ESC)[5;10r\(ESC)[1;1HFIRST")
+        y.vdaScrollUp(-1)
+        check(y.line(1) == "FIRST",
+              "and it moves the whole grid, as the forward VDA scroll does - the VDA knows no DECSTBM")
+
+        var z = term("TOP")
+        z.vdaScrollUp(0)
+        check(z.line(0) == "TOP", "a zero count moves nothing in either direction")
     }
 
     section("The host's own writes") {

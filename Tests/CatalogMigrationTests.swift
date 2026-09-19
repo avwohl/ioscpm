@@ -240,6 +240,44 @@ func runAllTests() {
     check(CatalogMigration.renames(in: []).isEmpty,
           "and neither has an empty one")
 
+    // The other half of that answer, and the one that loses data when it is
+    // missing. A name `renames(in:)` drops for a destination that already
+    // exists is a name whose FILE is staying where it is, so every store that
+    // remembers it has to stay where it is too - rewriting the slot binds it to
+    // the v0 file, which on this device is a different image (the one the user
+    // downloaded), and saveDownloadedDisks() then writes the running machine
+    // back over that one.
+    let blocked = CatalogMigration.blockedByExistingDestination(in: [legacyCombo, v0Name])
+    check(blocked == [legacyCombo],
+          "the legacy name whose v0 destination is already there is reported, folded")
+    check(CatalogMigration.blockedByExistingDestination(in: [legacyCombo, "hd1k_bp.img"]).isEmpty,
+          "and nothing is reported when every destination is free - this is the answer that "
+            + "keeps names behind, so a false positive freezes a migration that could run")
+    check(CatalogMigration.blockedByExistingDestination(in: [v0Name, "mine.img"]).isEmpty,
+          "a name that does not migrate at all cannot be blocked")
+
+    check(CatalogMigration.migratedSlots([legacyCombo, "hd1k_bp.img"], notMoved: blocked)
+            == [legacyCombo, "hd1k_bp-v0-3.5.1.img"],
+          "the blocked slot keeps the name whose file is still there; the one beside it, "
+            + "whose destination is free, still migrates")
+
+    var blockedLedger = DiskLedger()
+    blockedLedger.setRecord(record, for: legacyCombo)
+    let blockedAfter = CatalogMigration.migrated(blockedLedger, notMoved: blocked)
+    check(blockedAfter.record(for: legacyCombo) == record,
+          "the provenance record stays under the name its file still has")
+    check(blockedAfter.record(for: v0Name) == nil,
+          "and is NOT filed under the v0 name - those bytes came from somewhere this pass "
+            + "never verified, and installedCatalogSha256 is a claim about a download")
+
+    // A case-sensitive volume, where the blocker is the exact-case v0 name the
+    // migration would never create: `migratedName` lowercases, so nothing this
+    // pass writes can collide with `HD1K_COMBO-V0-3.5.1.IMG`, and the file the
+    // slot would be pointed at does not exist under the name it would hold.
+    check(CatalogMigration.blockedByExistingDestination(in: [legacyCombo, v0Name.uppercased()])
+            .contains(legacyCombo),
+          "the destination is matched case-insensitively, like every other filename here")
+
     // MARK: -
 
     section("A file that belongs to another release is not this release's to offer")
@@ -262,6 +300,48 @@ func runAllTests() {
     check(CatalogMigration.belongsToAnotherRelease("HD1K_COMBO-V0-3.5.1.IMG",
                                                    romwbwVersion: "3.6.0"),
           "matched case-insensitively, like every other filename comparison here")
+
+    // MARK: -
+
+    section("A file opened from Files that names another release")
+
+    // The other half of the question above, and deliberately NOT the same
+    // answer. `belongsToAnotherRelease` decides whether the picker may offer a
+    // file, so it hides things and has to be certain; this decides whether to
+    // say a sentence about a file the user has already chosen by hand, which is
+    // mounted whatever the answer is. A warning may fire where a hide must not.
+    check(CatalogMigration.releaseNamedByLocalFile(v0Name, romwbwVersion: "3.6.0") == "3.5.1",
+          "a 3.5.1 image mounted on a 3.6.0 machine names the release it is from, which is "
+            + "what the warning has to say")
+    check(CatalogMigration.releaseNamedByLocalFile(v0Name, romwbwVersion: "3.5.1") == nil,
+          "under 3.5.1 the same file names this machine's release and there is nothing to say")
+    check(CatalogMigration.releaseNamedByLocalFile("my-v0-3.5.1.img", romwbwVersion: "3.6.0")
+            == "3.5.1",
+          "a user's own file that looks versioned DOES warn, where belongsToAnotherRelease "
+            + "leaves it alone: the stem gate is there to keep the picker from hiding it, and "
+            + "hiding is not what happens here")
+    check(!CatalogMigration.belongsToAnotherRelease("my-v0-3.5.1.img", romwbwVersion: "3.6.0"),
+          "- which is that same name, still not another release's as far as the picker is "
+            + "concerned, so the two answers disagree on purpose")
+    check(CatalogMigration.releaseNamedByLocalFile("mine.img", romwbwVersion: "3.6.0") == nil,
+          "an ordinary import names no release, and inventing one for it would warn about "
+            + "every file anybody opens")
+    check(CatalogMigration.releaseNamedByLocalFile(legacyCombo, romwbwVersion: "3.6.0") == nil,
+          "and neither does a pre-v0 name - there is nothing in it to read")
+    check(CatalogMigration.releaseNamedByLocalFile("hd1k_combo-v0-3.5.1.img.incoming",
+                                                   romwbwVersion: "3.6.0") == nil,
+          "a staging file is not an image")
+    check(CatalogMigration.releaseNamedByLocalFile("HD1K_COMBO-V0-3.5.1.IMG",
+                                                   romwbwVersion: "3.6.0") == "3.5.1",
+          "matched case-insensitively, like every other filename comparison here")
+    check(CatalogMigration.releaseNamedByLocalFile("hd1k_combo-v0-3.7.0-dev.14.img",
+                                                   romwbwVersion: "3.7.0-DEV.14") == nil,
+          "folded on BOTH sides, so a development snapshot's own disk does not warn about "
+            + "itself over the case of a letter in the release name")
+    check(CatalogMigration.releaseNamedByLocalFile("hd1k_msx-v0-3.6.0.img",
+                                                   romwbwVersion: "3.5.1") == "3.6.0",
+          "a stem published after this build knows nothing about warns too - no frozen table "
+            + "is consulted, which is the difference that made the picker's version need one")
 
     // MARK: -
 
@@ -374,6 +454,90 @@ func runEquivalenceTests() {
           "exactly one entry: hd1k_combo is the only one of the twenty whose bytes moved")
 }
 
+func runSlotPersistTests() {
+
+    section("What a slot edit writes, and when it must write nothing")
+
+    // A release or index switch empties the four slots and fetches the new
+    // release's catalog. Nothing refills them when that fetch FAILS, so every
+    // case below with `awaitingCatalog: true` is the user touching a slot
+    // between a failed switch and a catalog that never came.
+    let blanked = ["", "", "", ""]
+    let unbound = [false, false, false, false]
+
+    check(CatalogMigration.slotNamesToPersist(selected: blanked,
+                                              remembered: nil,
+                                              localBound: unbound,
+                                              awaitingCatalog: true) == nil,
+          "a slot edit after a switch whose catalog never landed writes NOTHING - not four "
+            + "blanks, which on a release this device has never visited creates the key and "
+            + "makes hasSavedSelections true for ever")
+    check(CatalogMigration.slotNamesToPersist(selected: ["", "", v0Name, ""],
+                                              remembered: nil,
+                                              localBound: unbound,
+                                              awaitingCatalog: true) == nil,
+          "including the edit itself: one name and three teardown blanks is not a machine "
+            + "anybody configured, and writing it loses the three")
+    check(CatalogMigration.slotNamesToPersist(selected: blanked,
+                                              remembered: [v0Name, "", "", ""],
+                                              localBound: unbound,
+                                              awaitingCatalog: true) == nil,
+          "the gate is answered before the merge; restoreDiskSelections lowers the flag "
+            + "before it persists rather than leaning on this")
+
+    // MARK: -
+
+    section("With a catalog in hand, the merge is what it always was")
+
+    check(CatalogMigration.slotNamesToPersist(selected: blanked,
+                                              remembered: nil,
+                                              localBound: unbound,
+                                              awaitingCatalog: false) == blanked,
+          "four blanks ARE written once the flag is down - applyProfile clearing every slot "
+            + "is a selection, and so is a first launch that found no catalog defaults")
+    check(CatalogMigration.slotNamesToPersist(selected: ["", "", "", ""],
+                                              remembered: [v0Name, "", "", ""],
+                                              localBound: unbound,
+                                              awaitingCatalog: false) == [v0Name, "", "", ""],
+          "a name this catalog cannot resolve right now is remembered rather than blanked - "
+            + "the slot is empty in the UI either way and comes back when the catalog names it")
+    check(CatalogMigration.slotNamesToPersist(selected: ["hd1k_bp-v0-3.5.1.img", "", "", ""],
+                                              remembered: [v0Name, "", "", ""],
+                                              localBound: unbound,
+                                              awaitingCatalog: false)
+            == ["hd1k_bp-v0-3.5.1.img", "", "", ""],
+          "the slot the user just set wins over the remembered name; this is a merge into the "
+            + "empties and not a restore")
+    check(CatalogMigration.slotNamesToPersist(selected: blanked,
+                                              remembered: [v0Name, "", "", ""],
+                                              localBound: [true, false, false, false],
+                                              awaitingCatalog: false) == blanked,
+          "a slot bound to a local file stays \"\" - restoreLocalDiskBindings writes that "
+            + "blank on purpose, and putting the catalog name back would fight it every launch")
+
+    // MARK: -
+
+    section("Shapes that must not trap")
+
+    check(CatalogMigration.slotNamesToPersist(selected: blanked,
+                                              remembered: [v0Name],
+                                              localBound: unbound,
+                                              awaitingCatalog: false) == [v0Name, "", "", ""],
+          "a shorter remembered array fills what it covers and leaves the rest alone")
+    check(CatalogMigration.slotNamesToPersist(selected: blanked,
+                                              remembered: [v0Name, "hd1k_bp-v0-3.5.1.img"],
+                                              localBound: [true],
+                                              awaitingCatalog: false) == blanked,
+          "a slot past the end of localBound is left alone rather than read past it: not "
+            + "knowing whether a slot is bound to a local file is a reason to keep hands off, "
+            + "and the view model always passes all four")
+    check(CatalogMigration.slotNamesToPersist(selected: [],
+                                              remembered: [v0Name],
+                                              localBound: [],
+                                              awaitingCatalog: false) == [],
+          "no slots in means no slots out, rather than a padded array")
+}
+
 func runIndexScopeTests() {
     section("Pointing at another catalog, and coming back")
 
@@ -440,6 +604,7 @@ enum CatalogMigrationTestMain {
     static func main() {
         runAllTests()
         runEquivalenceTests()
+        runSlotPersistTests()
         runIndexScopeTests()
         print("\n" + String(repeating: "=", count: 60))
         print("Results: \(checks - failures) passed, \(failures) failed")

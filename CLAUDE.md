@@ -148,7 +148,14 @@ Three rules follow from it, and each has been broken here at least once:
   the index by asking its own core `emu_romwbw_release_supported()`, and a 3.7.0
   entry was fetched and then hidden by every binary built before somebody added
   it there.  That header, those two functions and this app's filter are all
-  gone.  The picker now offers every release the index publishes.
+  gone.  The picker now offers every release the index publishes, with one
+  exception that is a user's choice rather than a compile-time list: an entry
+  the index flags `prerelease` is a RomWBW development snapshot, never the
+  index `default`, and `RomWBWIndex.offered` drops it unless Settings →
+  RomWBW Release → Show Development Snapshots is ticked, which build 73 added
+  and which is off in a fresh install.  `CATALOG_SCHEMA.md` §2.3 requires that
+  opt-in of every client.  It hides nothing a shipped binary could not run, and
+  turning it on needs no app release.
 
   The reason the list went is worth keeping, because re-introducing it is easy.
   It gated the wrong axis.  A release number is the HBIOS-to-CBIOS pairing — a
@@ -227,3 +234,35 @@ reaches installed clients on their next fetch).
 **It is not a gate and must not become one.** No exit 1: 0 even when work is
 unreleased, 2 only when it could not measure.
 
+
+## todo.txt: open work only, one or two lines an item
+
+The rules, given by a human on 2026-09-19 after this file had grown to **320
+lines**:
+
+1. `todo.txt` holds **things to do**, and nothing else.
+2. **Only work in THIS repository.** If another repo needs the change, file it
+   in that repo's `todo.txt`, where the session that can close it will read it.
+3. **One or two lines an item.** If you believe an item needs more, ask a human
+   rather than writing the third line.
+4. **A cleanup must leave the file SHORTER.** Preferably empty.
+
+Rule 4 is the one that had been failing. Every previous "cleanup" re-litigated
+each item in prose and the file grew: a closed item got a paragraph explaining
+that it closed, a status fact got a paragraph explaining that it was not work,
+and an item whose real home was another repository got a paragraph explaining
+which. **A closed item is DELETED.** It is in `CHANGELOG.md` and in the commit
+message that closed it, which is where finished work lives.
+
+Where the displaced things go — none of them is a todo item:
+
+    CHANGELOG.md       finished work, and why
+    MANUAL_CHECKS.md   checks that need a person driving the app
+    KNOWN_PROBLEMS.md  standing facts that will never be "done"
+    WIP.md             the one open question, and longer handoff notes
+
+Tag each item with what a machine needs to take it — `[ANY]`, `[MAC]` (Xcode),
+`[DEVICE]` (real hardware), `[RELEASE]` (an Apple account) — so a session on
+another machine can see at a glance what it can pick up. Cite a symbol or a
+greppable string, never a file:line; every line cite this file has carried into
+`EmulatorViewModel.swift` went stale inside one build.

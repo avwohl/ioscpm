@@ -197,6 +197,59 @@ would also buy less than it looks: a device that has never had a network has no
 disk images either, so the snapshot helps only the narrow upgrade case above,
 and it would pay for it with the thing the interface was built to deliver.
 
+### The cache stamp is a boundary on iOS only
+
+The saved catalog and the saved release list are checked against a size and a
+SHA-256 recorded in `UserDefaults` when the verified fetch wrote them
+(`CachedCatalog` in `CatalogDocument.swift`). That works because the two cache
+files are in `Documents/Disks`, which this app publishes over
+`UIFileSharingEnabled` and `LSSupportsOpeningDocumentsInPlace`, and
+`UserDefaults` is in `Library/Preferences`, which it does not. On iOS those are
+two different levels of access, which is the whole point: a catalog names both
+the `base_url` each disk image comes from and the `sha256` it is checked
+against, so an edited one is verified against its own hash and reported as good.
+
+**On Mac Catalyst they are not.** The preferences plist sits in the same app
+container as the Documents directory and anyone who can edit one can edit the
+other, so on the Mac the stamp is a consistency check — it catches a truncated
+or half-written file — and not a boundary. It is written down here rather than
+implied away in a comment, because "verified" in a log line reads the same on
+both platforms.
+
+Not worth closing with a keychain-backed stamp or a signature. Whoever can edit
+the preferences plist on a Mac can also edit the 49 MB disk images sitting beside
+the catalog, and those are what the catalog's hashes exist to protect — so on
+that platform the gate would be guarding a door in a wall that is already open.
+The iOS case, where Documents is reachable from the Files app and preferences are
+not, is the one that is worth a stamp, and it is the one it defends.
+
+### An upgrade cannot download until the catalog has been re-fetched once
+
+The stamp above did not exist before this build, so every install has a cache
+file and no record of what it should be. That is the `unverifiable` verdict: the
+saved catalog is **used**, so the device still boots offline from the images it
+already has, but it is marked untrusted and no new transfer will start from it.
+The first launch with a connection fetches, verifies, writes the stamp and ends
+it permanently.
+
+**This entry said the opposite until it was measured against a user.** The
+verdict originally declined to adopt an unstamped cache, on the reasoning that
+"declining costs one launch" where deleting could not be undone. Both halves of
+that were wrong. The launch it costs is the launch with no connection — the only
+launch the cache is load-bearing on at all — so a device that had been booting
+offline for weeks would have taken the update and then found `diskCatalog` empty
+and `start()` refusing, with every byte it needed sitting on it. Declining and
+deleting differed in how long the damage lasted, not in what it was.
+
+What an edited catalog actually buys its editor is the pair of fields a transfer
+needs: the `base_url` it goes to and the `sha256` it is judged against. That is
+the capability withheld, by `catalogIsUnverified`, and it is withheld only until
+one fetch succeeds. Booting from images already on the device concedes nothing:
+whoever can rewrite the cache can rewrite the 49 MB images beside it.
+
+Only a stamp that is PRESENT and disagrees declines and deletes the file,
+because that is the one case where the bytes can be proven not to be this app's.
+
 ## Releasing
 
 ### No session can upload, whatever the toolchain here can do

@@ -265,9 +265,34 @@ func runAllTests() {
           "with no preference, the entry flagged default: true - this app carries no ROM "
             + "of its own, so there is no release it can boot more cheaply than any other. "
             + "3.6.0 is offered SECOND, so 'the first entry' would answer 3.5.1 and fail")
-    check(RomWBWIndex.preferred(among: offered, keeping: "")?.romwbwVersion == "3.6.0",
+    // THE BLANK ROW IS DECODED, not hand-built, because that is the shape that
+    // can actually reach `preferred`: `romwbw_version` is a non-optional String
+    // with no emptiness gate, and `offered` drops an entry only for want of a
+    // `catalog_url`. `placeholder(romwbwVersion: "")` could not stand in for it
+    // - the placeholder carries no catalogURL, so `offered` would drop it and
+    // the assertion below would go on passing for the wrong reason, which is
+    // the reason it was rewritten.
+    let blankRowJSON = """
+    {
+      "romwbw_versions": [
+        { "romwbw_version": "", "label": "an index that published a blank version",
+          "catalog_url": "https://example.invalid/blank.json" }
+      ]
+    }
+    """
+    let blankRows = (try? decoder.decode(RomWBWIndex.self,
+                                         from: Data(blankRowJSON.utf8)))?.romwbwVersions ?? []
+    check(blankRows.count == 1 && blankRows.first?.romwbwVersion == "",
+          "an index CAN publish a blank romwbw_version - it decodes rather than throwing, "
+            + "which is what makes the guard below something other than a formality")
+    let withBlank = RomWBWIndex.offered(blankRows + index.romwbwVersions,
+                                        includingPrereleases: false)
+    check(withBlank.first?.romwbwVersion == "",
+          "and `offered` keeps it, because it has a catalog_url and that is the only "
+            + "thing that filter asks - so the blank row really is in front of `preferred`")
+    check(RomWBWIndex.preferred(among: withBlank, keeping: "")?.romwbwVersion == "3.6.0",
           "an empty stored choice is no choice, and falls through to the flagged default "
-            + "rather than matching an entry whose version is somehow empty too")
+            + "rather than matching the entry whose version is empty too")
     check(RomWBWIndex.preferred(among: offered, keeping: "3.3.0")?.romwbwVersion == "3.6.0",
           "a stored choice the index no longer offers does not select nothing; it falls "
             + "through to the flagged default. 3.3.0 and not 9.9.9: 9.9.9 IS offered now, "
@@ -414,11 +439,69 @@ func runAllTests() {
     check(combo.sha256?.hasPrefix("0ca4ec60") == true,
           "and `sha256`, without which the download path refuses the disk outright")
     check(combo.defaultSlot == 0,
-          "defaultSlot is camelCase in the document, and 0 is a slot number, not 'unset'")
+          "defaultSlot is camelCase in the document, and 0 is a slice index, not 'unset' "
+            + "- which is a different question from which drive the image goes in")
     check(catalog.diskEntries[1].defaultSlot == nil,
           "19 of the 20 published disks carry no defaultSlot at all")
     check(catalog.diskEntries[1].description != nil,
-          "a description is present even on the entries with no slot")
+          "a description is present even on the entries with no slice to choose")
+
+    // MARK: -
+
+    section("First-launch drives: chosen by id, never by defaultSlot")
+
+    // What the app puts in the four drives when nobody has chosen yet. The
+    // catalog does not say - disks[] carries no `default` flag the way roms[]
+    // does - so the list is this app's own, and these cases are what keeps it
+    // from drifting back onto `defaultSlot`, which is the slice INSIDE
+    // hd1k_combo and not a drive at all.
+    check(RomWBWCatalogDocument.defaultDiskIDs == ["hd1k_combo", "hd1k_games"],
+          "the two ids, in drive order, the same pair as z80cpmw's DEFAULT_DISK_IDS")
+
+    let published = catalog.diskEntries.map { (id: $0.id, filename: $0.filename) }
+    let fromCatalog = RomWBWCatalogDocument.defaultDiskFilenames(published: published)
+    check(fromCatalog.count == 4,
+          "one answer per drive, so a caller can enumerate it against the four slots")
+    check(fromCatalog[0] == "hd1k_combo-v0-3.5.1.img",
+          "drive 0 is hd1k_combo by id, and what comes back is the versioned filename "
+            + "- the id is stable across releases and the file is not")
+    check(fromCatalog[1] == nil && fromCatalog[2] == nil && fromCatalog[3] == nil,
+          "a drive the list does not name, and an id this cut-down document does not "
+            + "publish, are both left empty rather than filled with some other disk")
+
+    // The regression itself: hd1k_combo publishing a defaultSlot other than 0.
+    // Nothing published does today, which is exactly why reading it as a drive
+    // survived - a release that started saying 3 would have put the combo in
+    // drive 3 and left a first launch with nothing to boot in drive 0.
+    let movedSlotJSON = """
+    {
+      "base_url": "https://example.invalid/tag/",
+      "disks": [
+        { "id": "hd1k_zsdos", "filename": "hd1k_zsdos-v0-9.9.9.img", "name": "ZSDOS" },
+        { "id": "hd1k_combo", "filename": "hd1k_combo-v0-9.9.9.img", "name": "Combo",
+          "format": "hd1k_combo", "slices": 6, "defaultSlot": 3 },
+        { "id": "hd1k_games", "filename": "hd1k_games-v0-9.9.9.img", "name": "Games" }
+      ]
+    }
+    """
+    let movedSlot = try? decoder.decode(RomWBWCatalogDocument.self,
+                                        from: Data(movedSlotJSON.utf8))
+    check(movedSlot?.diskEntries.count == 3,
+          "the three-disk document decodes, or the two checks below prove nothing")
+    let moved = RomWBWCatalogDocument.defaultDiskFilenames(
+        published: (movedSlot?.diskEntries ?? []).map { (id: $0.id, filename: $0.filename) })
+    check(moved[0] == "hd1k_combo-v0-9.9.9.img",
+          "hd1k_combo is drive 0 where it publishes defaultSlot 3, and it is not drive 0 "
+            + "for being disks[0] either - it is the second entry here")
+    check(moved[1] == "hd1k_games-v0-9.9.9.img" && moved[3] == nil,
+          "hd1k_games is drive 1, and nothing lands in drive 3 for want of a slot number "
+            + "to read")
+
+    let neither = RomWBWCatalogDocument.defaultDiskFilenames(
+        published: [(id: "hd1k_cpm3", filename: "hd1k_cpm3-v0-9.9.9.img")])
+    check(neither.count == 4 && neither.allSatisfy { $0 == nil },
+          "a release publishing neither id yields four empty drives rather than trapping "
+            + "- the caller's own fallback decides what drive 0 gets then")
 
     // MARK: -
 
@@ -765,6 +848,185 @@ func runPrereleaseOptInTests() {
           "with snapshots off, the app selects the default release")
     check(RomWBWIndex.preferred(among: on, keeping: nil)?.romwbwVersion == "3.6.0",
           "and with them ON it still selects the default, not the newest")
+
+    // The label above is the live index's, verbatim, and so is the status. The
+    // publisher puts the warning in `label` because that is the field every
+    // client renders everywhere; appending `status` to it as well gave "RomWBW
+    // 3.7.0-dev.14 (development snapshot) (snapshot)".
+    check(all[1].pickerLabel == "RomWBW 3.7.0-dev.14 (development snapshot)",
+          "the picker does not repeat a marker the label already carries")
+
+    // AND IT IS A WORD TEST, not a substring test - which is the whole reason
+    // this second case is here. "rc" is a substring of "Source", so suppressing
+    // on containment would silently drop the marker from a label that never
+    // mentioned the status: exactly the unfamiliar status pickerLabel exists to
+    // surface.
+    let substringJSON = """
+    {
+      "romwbw_versions": [
+        { "romwbw_version": "3.8.0", "label": "RomWBW 3.8.0 Source Build",
+          "status": "rc", "catalog_url": "https://example.invalid/c.json" }
+      ]
+    }
+    """
+    guard let substringIdx = try? JSONDecoder().decode(RomWBWIndex.self,
+                                                       from: Data(substringJSON.utf8)) else {
+        print("FAIL: the substring fixture did not decode")
+        failures += 1
+        return
+    }
+    check(substringIdx.romwbwVersions[0].pickerLabel == "RomWBW 3.8.0 Source Build (rc)",
+          "a status that is only a SUBSTRING of a word in the label still gets its marker")
+    check(all[0].pickerLabel == "RomWBW 3.6.0",
+          "and a stable release with no status at all is still just its label")
+}
+
+/// What `romWBWReleaseSummary` says - the ROM's own two bytes against the
+/// release the machine is set to.
+///
+/// No emulator and no bridge: `RomWBWRelease.summary` takes the two strings and
+/// nothing else, which is why it is in CatalogDocument.swift and testable here.
+/// That the view model actually CALLS it is a separate question, and one no
+/// suite here can ask, because nothing in this repository constructs an
+/// EmulatorViewModel; `ReleaseSummaryDelegation` in Tests/run_tests.sh asks it
+/// by shape instead.
+func runReleaseSummaryTests() {
+    section("What a loaded ROM and the selected release add up to")
+
+    check(RomWBWRelease.summary(loadedByROM: nil, selected: "3.6.0")
+            == "RomWBW 3.6.0 selected - no ROM loaded yet",
+          "with no ROM in bank 0 there is nothing measured to report, only a selection")
+
+    check(RomWBWRelease.summary(loadedByROM: "3.6.0", selected: "3.6.0")
+            == "RomWBW 3.6.0 ROM loaded",
+          "the ordinary case says what the ROM says, and says it alone")
+    check(!RomWBWRelease.summary(loadedByROM: "3.6.0", selected: "3.6.0").contains("snapshot"),
+          "with no disagreement there is no snapshot clause to add")
+
+    // THE CASE THIS EXISTS FOR. The HCB of v3.7.0-dev.14 is byte-for-byte what
+    // a released 3.7.0 will carry, so the ROM cannot spell the suffix and the
+    // summary said "RomWBW 3.7.0 ROM loaded" on a machine set to the snapshot.
+    let snapshot = RomWBWRelease.summary(loadedByROM: "3.7.0", selected: "3.7.0-dev.14")
+    check(snapshot.contains("3.7.0 ROM loaded"),
+          "the measured numbers still lead - reading bank 0 is the point of reading it")
+    check(snapshot.contains("3.7.0-dev.14"),
+          "and the release the machine is set to is named, which is the only place the "
+            + "suffix can come from")
+
+    // THE REFUSAL. `emulator` is built once in init() while the release picker
+    // moves, so a ROM from the release being left is a state a running app
+    // reaches - and it must not acquire a suffix belonging to another release.
+    let stale = RomWBWRelease.summary(loadedByROM: "3.6.0", selected: "3.7.0-dev.14")
+    check(stale.contains("3.6.0") && !stale.contains("3.7.0-dev.14"),
+          "a ROM that does not serve the selection borrows nothing from it")
+
+    // `emu_romwbw_release_str` prints a fourth component when the HCB patch
+    // nibble is non-zero, and "3.7.0.1" is not a release "3.7.0-dev.14" is a
+    // pre-release of. romServes says so; the summary must not paper over it.
+    let fourComponent = RomWBWRelease.summary(loadedByROM: "3.7.0.1", selected: "3.7.0-dev.14")
+    check(fourComponent == "RomWBW 3.7.0.1 ROM loaded",
+          "a four-component ROM version is reported as measured, with no suffix borrowed "
+            + "from a release it is not a pre-release of")
+
+    // The separator rule, carried through from romServes: "3.7.01" is a
+    // different release number and not a pre-release of "3.7.0".
+    check(RomWBWRelease.summary(loadedByROM: "3.7.0", selected: "3.7.01")
+            == "RomWBW 3.7.0 ROM loaded",
+          "and a longer release number earns no clause either")
+}
+
+func runStartBannerTests() {
+    section("What Start says it is starting")
+
+    // The ordinary machine: one release, its ROM, one image in drive 0. This is
+    // the shape z80cpmw and cpmdroid both print, line for line.
+    let ordinary = RomWBWRelease.startBanner(
+        release: "3.6.0",
+        romFilename: "emu_avw-v0-3.6.0.rom",
+        diskFilenames: ["hd1k_combo-v0-3.6.0.img", nil, nil, nil])
+    check(ordinary == ["Starting RomWBW 3.6.0 - emu_avw-v0-3.6.0.rom",
+                       "  Disk 0: hd1k_combo-v0-3.6.0.img"],
+          "the release, the ROM under it and the one mounted image, in that order")
+
+    // THE CASE THE SIBLINGS BOTH CHOSE THIS SOURCE FOR. The release comes from
+    // the catalog selection and never from the ROM's two HCB bytes, which spell
+    // three numbers - so this string is the only place a "-dev.14" can survive
+    // to the screen. A banner built from what the image declares would say
+    // "3.7.0" on a machine running the snapshot.
+    let snapshot = RomWBWRelease.startBanner(
+        release: "3.7.0-dev.14",
+        romFilename: "emu_avw-v0-3.7.0-dev.14.rom",
+        diskFilenames: ["hd1k_combo-v0-3.7.0-dev.14.img", nil, nil, nil])
+    check(snapshot.first == "Starting RomWBW 3.7.0-dev.14 - emu_avw-v0-3.7.0-dev.14.rom",
+          "a development snapshot's full tag reaches the screen verbatim, suffix and all")
+    check(snapshot.first?.count == 58,
+          "and the longest real line is 58 columns, inside the 80 this terminal "
+            + "truncates at rather than folds")
+
+    // THE NUMBER IS THE DRIVE. Skipping the empty slots and then numbering what
+    // is left renumbers the machine: an image in drive 2 would be announced as
+    // "Disk 0", which is the drive the guest boots from and not the one it is
+    // in.
+    let sparse = RomWBWRelease.startBanner(
+        release: "3.6.0",
+        romFilename: "emu_avw-v0-3.6.0.rom",
+        diskFilenames: [nil, nil, "games.img", nil])
+    check(sparse == ["Starting RomWBW 3.6.0 - emu_avw-v0-3.6.0.rom",
+                     "  Disk 2: games.img"],
+          "an image in drive 2 is announced as Disk 2, not as the first surviving entry")
+
+    let full = RomWBWRelease.startBanner(
+        release: "3.6.0", romFilename: "r.rom",
+        diskFilenames: ["a.img", "b.img", "c.img", "d.img"])
+    check(full.count == 5 && full[4] == "  Disk 3: d.img",
+          "four mounted drives are four lines, numbered 0 to 3")
+
+    // Empty drives are skipped rather than listed as "(none)": three of the four
+    // are empty on a default machine, and naming them would spend three lines of
+    // a 24-line screen to say nothing.
+    let bare = RomWBWRelease.startBanner(release: "3.6.0", romFilename: "r.rom",
+                                         diskFilenames: [nil, nil, nil, nil])
+    check(bare == ["Starting RomWBW 3.6.0 - r.rom"],
+          "a machine with no image mounted prints the release line and nothing under it")
+    check(RomWBWRelease.startBanner(release: "3.6.0", romFilename: "r.rom",
+                                    diskFilenames: ["", "b.img"])
+            == ["Starting RomWBW 3.6.0 - r.rom", "  Disk 1: b.img"],
+          "and an empty name is as absent as a nil one, since a slot can hold either")
+
+    // BASENAMES. localDiskURLs can hold a file the user browsed to, and the
+    // container's own path is wider than the screen before the filename starts.
+    // TerminalScreen.write stops at the right margin instead of folding, so an
+    // unreduced path would lose its tail - the filename - in silence.
+    check(RomWBWRelease.startBanner(
+            release: "3.6.0",
+            romFilename: "/var/mobile/Containers/Data/Application/ABC/Documents/Disks/r.rom",
+            diskFilenames: ["/private/var/mobile/Documents/Disks/v0/hd1k.img"])
+            == ["Starting RomWBW 3.6.0 - r.rom", "  Disk 0: hd1k.img"],
+          "a full path is reduced to the file's own name, in the ROM line and the disks")
+    check(RomWBWRelease.startBanner(release: "3.6.0", romFilename: "r.rom",
+                                    diskFilenames: ["///"]) == ["Starting RomWBW 3.6.0 - r.rom"],
+          "and a name that is only separators reduces to nothing, which is skipped - "
+            + "the case NSString.lastPathComponent answers \"/\" to")
+
+    // NOTHING IS INVENTED, which is the rule the whole ROM gate follows. With no
+    // release there is no banner: the alternative is a line that names a release
+    // this app cannot name, three rows above a guest that will name its own.
+    check(RomWBWRelease.startBanner(release: "", romFilename: "r.rom",
+                                    diskFilenames: ["a.img"]).isEmpty,
+          "with no release in hand the banner is omitted rather than filled in")
+
+    // A MISSING ROM NAME IS NOT A MISSING RELEASE, and the two are not the same
+    // refusal. z80cpmw appends the ROM only when it has one and cpmdroid does
+    // the same, so the release line stands alone - the drives under it are still
+    // true, and this port cannot reach the case anyway: loadSelectedResources()
+    // returns false without a resolved ROM and startEmulator() never gets here.
+    check(RomWBWRelease.startBanner(release: "3.6.0", romFilename: nil,
+                                    diskFilenames: ["a.img"])
+            == ["Starting RomWBW 3.6.0", "  Disk 0: a.img"],
+          "an unnamed ROM costs the ROM half of the first line and nothing else")
+    check(RomWBWRelease.startBanner(release: "3.6.0", romFilename: "",
+                                    diskFilenames: []) == ["Starting RomWBW 3.6.0"],
+          "and an empty ROM name is the same as an absent one, with no dangling separator")
 }
 
 func runReleaseMatchTests() {
@@ -808,12 +1070,164 @@ func runReleaseMatchTests() {
           "and neither is one that omits the separator")
 }
 
+// MARK: - Reading back what this app saved
+//
+// The offline path used to decode the cache file and adopt it. Both cache
+// files live in the disk library under `Documents`, which the app publishes
+// over `UIFileSharingEnabled` and `LSSupportsOpeningDocumentsInPlace`, so
+// "it decoded" was the only thing standing between an edited catalog and
+// `downloadDiskFromSettings` - which takes the URL AND the sha256 it checks
+// against out of that same document, so supplying both supplies neither.
+//
+// The stamp closes it, and the only interesting question in this section is
+// which of the two ways of declining a saved copy applies. Deleting is
+// irreversible where declining is not: `start()` returns early on an empty
+// `diskCatalog`, so a device with no connection and a deleted cache has
+// nothing to boot and no way to get one back.
+
+/// A stamp that says "64 hex characters", which is all the gate reads it as.
+let savedHash = "1f5b0c9a7e3d24681f5b0c9a7e3d24681f5b0c9a7e3d24681f5b0c9a7e3d2468"
+let savedSize = 11826
+
+func runCachedCatalogTests() {
+
+    let decoder = JSONDecoder()
+    guard let catalog = try? decoder.decode(RomWBWCatalogDocument.self,
+                                            from: Data(catalogJSON.utf8)) else {
+        print("FAIL: the catalog did not decode at all - nothing below can run")
+        exit(1)
+    }
+
+    /// The whole call with one thing moved, so each check below reads as the
+    /// one difference it is about.
+    func verdict(size: Int = savedSize,
+                 hash: String = savedHash,
+                 stampedSize: Int? = savedSize,
+                 stampedHash: String? = savedHash,
+                 document: RomWBWCatalogDocument? = nil,
+                 release: String = "3.5.1",
+                 interface: String = "v0") -> CachedCatalog.Verdict {
+        CachedCatalog.catalogVerdict(byteCount: size,
+                                     sha256: hash,
+                                     stampedSize: stampedSize,
+                                     stampedSHA256: stampedHash,
+                                     document: document ?? catalog,
+                                     expectedRelease: release,
+                                     expectedInterface: interface)
+    }
+
+    section("A saved catalog is the one this app saved, or it is not adopted")
+
+    check(verdict() == .verified,
+          "the size and the checksum this app recorded when it wrote the file")
+    check(verdict(hash: savedHash.uppercased()) == .verified,
+          "compared case-insensitively, because hex is hex")
+    check(verdict().problem == nil && !verdict().discardsFile,
+          "a verified copy has nothing to report and nothing to clean up")
+
+    check(verdict(size: savedSize - 1).problem != nil,
+          "one byte different is not the file this app wrote - and a truncated catalog "
+            + "parses to a SHORT disk list, which is what makes start() refuse to boot a "
+            + "slot it can no longer resolve")
+    check(verdict(hash: String(repeating: "0", count: 64)).problem != nil,
+          "and neither is the right length with the wrong bytes, which is the shape an "
+            + "edit in the Files app actually takes")
+
+    section("Declining and deleting are different, and only one is reversible")
+
+    check(verdict(stampedHash: nil) == .unverifiable(verdict(stampedHash: nil).problem ?? ""),
+          "no stamp is 'cannot tell', not 'wrong'")
+    check(!verdict(stampedHash: nil).discardsFile,
+          "so the file STAYS. Every install that predates the stamp is unstamped, and "
+            + "start() returns early on an empty catalog: deleting it on the upgrade "
+            + "launch would leave a device with no connection nothing to boot and no "
+            + "way back")
+    check(verdict(stampedHash: nil).adoptsFile,
+          "and it is USED. Declining it strands exactly the same device: the launch a "
+            + "decline costs is the launch with no connection, which is the only launch "
+            + "the cache is load-bearing on at all")
+    check(!verdict(stampedHash: nil).trustworthy,
+          "but not trusted - what an unstamped catalog must not do is name the URL a new "
+            + "transfer goes to and the checksum it is judged against, which is the only "
+            + "thing doctoring the file buys")
+    check(verdict(stampedHash: nil).problem != nil,
+          "and it is still reported rather than passed over in silence")
+    check(verdict(size: savedSize - 1).adoptsFile == false,
+          "a stamp that DISAGREES is refused outright - adopting is for what cannot be "
+            + "checked, never for what has been checked and failed")
+    check(verdict().trustworthy && verdict().adoptsFile,
+          "a matching stamp is both")
+    check(!verdict(stampedSize: nil).discardsFile,
+          "half a stamp is no stamp: both halves are written by one caller, so a missing "
+            + "size means something lost one of them, and a gate that cannot verify must "
+            + "not say yes")
+    check(!verdict(stampedHash: "   ").discardsFile,
+          "and neither is a blank one - trimmed before it is believed")
+
+    check(verdict(size: savedSize - 1).discardsFile,
+          "a stamp that is present and disagrees is a different claim: these bytes are "
+            + "provably not this app's, and keeping them buys nothing because they would "
+            + "be declined on every launch from here on")
+    check(verdict(hash: String(repeating: "0", count: 64)).discardsFile,
+          "same for a checksum that disagrees")
+
+    check(!verdict(stampedHash: nil, release: "3.6.0").discardsFile,
+          "an unstamped cache is never deleted WHATEVER else is wrong with it - the stamp "
+            + "is checked first and nothing below it can promote a decline into a delete")
+
+    section("...and the two checks the fetch path makes on the document itself")
+
+    check(verdict(release: "3.6.0").problem != nil && verdict(release: "3.6.0").discardsFile,
+          "a 3.5.1 catalog saved under the 3.6.0 name is refused, the way documentProblem "
+            + "refuses it on the wire")
+    check(verdict(interface: "v1").problem != nil,
+          "and so is a document from an interface this app does not read")
+
+    // Both fields are OPTIONAL in the document, so both comparisons are no-ops
+    // on a catalog that omits them. That is documentProblem's behaviour too and
+    // it is worth a test rather than a docstring, because it is the reason the
+    // size-and-checksum stamp above is the gate that does the work and these
+    // two are belt and braces.
+    let bare = try? decoder.decode(RomWBWCatalogDocument.self, from: Data("""
+    { "base_url": "https://example.invalid/tag/", "disks": [] }
+    """.utf8))
+    check(bare != nil, "a catalog carrying neither interface nor romwbw_version decodes")
+    if let bare = bare {
+        check(verdict(document: bare, release: "9.9.9", interface: "v9") == .verified,
+              "and passes both document checks by having nothing for them to read, which "
+                + "is why the stamp and not these two is what this gate rests on")
+    }
+
+    section("The release list is stamped the same way, and for its own reason")
+
+    // No document checks on this one: the index carries no release of its own
+    // to compare against. It is stamped because it is where catalog_url,
+    // catalog_sha256 and catalog_size come from, so a saved list that is not
+    // this app's chooses where the second hop goes AND the checksum that hop is
+    // verified against. Checking it against the saved catalog instead would be
+    // circular - the two files are neighbours in the same directory.
+    check(CachedCatalog.stampVerdict(byteCount: savedSize, sha256: savedHash,
+                                     stampedSize: savedSize,
+                                     stampedSHA256: savedHash) == .verified,
+          "the saved release list, unchanged since this app wrote it")
+    check(CachedCatalog.stampVerdict(byteCount: savedSize, sha256: savedHash,
+                                     stampedSize: nil, stampedSHA256: nil).discardsFile == false,
+          "an unstamped release list is declined and kept, exactly as the catalog is")
+    check(CachedCatalog.stampVerdict(byteCount: savedSize + 4, sha256: savedHash,
+                                     stampedSize: savedSize,
+                                     stampedSHA256: savedHash).discardsFile,
+          "and one that disagrees with its stamp is deleted, exactly as the catalog is")
+}
+
 @main
 enum CatalogDocumentTestMain {
     static func main() {
         runAllTests()
         runReleaseMatchTests()
+        runReleaseSummaryTests()
+        runStartBannerTests()
         runPrereleaseOptInTests()
+        runCachedCatalogTests()
         print("\n" + String(repeating: "=", count: 60))
         print("Results: \(checks - failures) passed, \(failures) failed")
         if failures > 0 {

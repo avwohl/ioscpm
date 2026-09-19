@@ -267,16 +267,25 @@ What still holds:
    `docs/DISK_W8FIX_RUNBOOK.md`. `v1.4.12` is what shipped builds pin **and**
    what `releases/latest` resolves to, so writing to it reaches the pinned and
    the floating fleet in one move.
-2. **A binary IS offered every release the index publishes**, and the rule this
-   entry used to state is gone. It read "a binary must not be offered a release
-   its core cannot run", enforced by each v0 client filtering the index through
-   `emu_romwbw_release_supported()` against `ROMWBW_SUPPORTED_RELEASES` in
-   `romwbw_emu/src/romwbw_pin.h`. romwbw_emu v1.44 deleted that header, those
-   functions and the load-time refusal behind them, and this app's filter went
-   with them.
+2. **A binary IS offered every release the index publishes that upstream calls
+   a release**, and the rule this entry used to state is gone. It read "a
+   binary must not be offered a release its core cannot run", enforced by each
+   v0 client filtering the index through `emu_romwbw_release_supported()`
+   against `ROMWBW_SUPPORTED_RELEASES` in `romwbw_emu/src/romwbw_pin.h`.
+   romwbw_emu v1.44 deleted that header, those functions and the load-time
+   refusal behind them, and this app's filter went with them.
 
-   It gated the wrong axis. A release number pairs HBIOS with a disk image's
-   CBIOS, which the guest enforces itself
+   One filter is left, and it is the other kind. Since 2026-09-18 the index may
+   carry a RomWBW development snapshot, flagged `prerelease: true` and never
+   `default`; `CATALOG_SCHEMA.md` §2.3 requires every client to keep such an
+   entry behind an explicit opt-in, and `RomWBWIndex.offered` drops it unless
+   Settings → RomWBW Release → Show Development Snapshots is on. That is a
+   switch in front of the user, not a list compiled into the binary: it hides
+   nothing the core could not run, and admitting a snapshot costs a tick rather
+   than an App Store submission.
+
+   The deleted filter gated the wrong axis. A release number pairs HBIOS with a
+   disk image's CBIOS, which the guest enforces itself
    (`*** WARNING: HBIOS/CBIOS Version Mismatch ***`); what the core depends on
    is two I/O ports and the set of HBIOS functions it services, and that is
    versioned by the catalog's own name — a v0 index publishes only v0, and a

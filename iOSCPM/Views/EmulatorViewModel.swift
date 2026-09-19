@@ -117,7 +117,10 @@ struct DownloadableDisk: Identifiable, Codable {
     let sizeBytes: Int64
     let license: String  // "GPLv3", "Free", "User-provided", etc.
     let sha256: String?  // Optional SHA256 hash for integrity verification
-    let defaultSlot: Int?  // If set, use this disk as default in this slot (0-3) on first launch
+    // No defaultSlot here. It is the slice to boot inside an image - see
+    // CatalogDisk.defaultSlot - and the only thing in this app that ever read
+    // it wanted a DRIVE, which it does not answer. What a first launch mounts
+    // is RomWBWCatalogDocument.defaultDiskIDs, keyed on catalogID above.
 
     var sizeDescription: String {
         if sizeBytes >= 1_000_000 {
@@ -189,6 +192,27 @@ struct CatalogFailure: Equatable {
 class EmulatorViewModel: NSObject, ObservableObject {
     @Published var statusText: String = "Ready"
     @Published var isRunning: Bool = false
+
+    /// A start is in flight: the ROM and the disks are being fetched and
+    /// verified, and the machine is not running yet.
+    ///
+    /// `isRunning` cannot answer this question. It is only set inside
+    /// `startEmulator()`, which is the LAST thing `start()` reaches, so for the
+    /// whole download window - the minutes that matter, on a phone on a slow
+    /// connection - the toolbar button still read Play and a second press ran
+    /// `start()` again from the top. Two starts in flight is not a cosmetic
+    /// race. `downloadTasks` has a single slot per filename, so the second
+    /// transfer orphans the first and both then race the same 49 MB
+    /// destination in `moveItem` - which is exactly the damage the guard in
+    /// `startAllowedRefreshes` was written for. `loadSelectedResources()` calls
+    /// `closeAllDisks()` under disks the first start has already opened. And
+    /// `diskSaveTimer` is reassigned without being invalidated, leaving a
+    /// twenty-second write running against a machine nobody owns.
+    ///
+    /// `private(set)`: the views read it to disable the control, and `start()`
+    /// alone opens it. Everything that closes it goes through `endStart()`.
+    @Published private(set) var isStarting: Bool = false
+
     @Published var terminalShouldFocus: Bool = false
 
     @Published var showingDiskPicker: Bool = false
@@ -341,6 +365,17 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     // Disk selection for slots 0-3 (OS slots) and data drives
     private var isRestoringSelections = false  // Flag to prevent didSet during restore
+
+    /// Are the four slots the teardown's blanks rather than anybody's machine?
+    ///
+    /// Set where a release or index switch empties them, cleared where
+    /// `restoreDiskSelections()` fills them from the new catalog - so it is
+    /// true for exactly the window in which a fetch is outstanding, and it
+    /// STAYS true when that fetch fails, because on that path nothing ever
+    /// refills the slots. `persistSelectedDisks(remembering:)` reads it, and
+    /// `CatalogMigration.slotNamesToPersist` says what it costs to ignore.
+    private var slotsAwaitingCatalog = false
+
     @Published var selectedDisks: [DiskOption?] = Array(repeating: nil, count: 4) {
         didSet {
             // isRestoringSelections is what the flag above was declared for and
@@ -371,32 +406,26 @@ class EmulatorViewModel: NSObject, ObservableObject {
         CatalogMigration.versionedKey("selectedDisks", romwbwVersion: romwbwVersion)
     }
 
-    /// Write the four slots back.
+    /// Write the four slots back, unless there is nothing honest to write.
     ///
-    /// `remembered` is what the key held before `restoreDiskSelections()` ran,
-    /// and it is passed only from there. A slot whose stored name the catalog
-    /// cannot resolve right now is nil in memory - the restore assigns the
-    /// lookup's optional result - and writing that nil straight back is what
-    /// permanently erased a configured disk the first time a catalog stopped
-    /// naming it. A remembered name costs nothing to keep: the slot is still
-    /// empty in the UI and `start()` still skips it, so it cannot brick the
-    /// Play button, and it comes back on its own the moment the catalog names
-    /// it again.
+    /// What to write - and whether to write at all - is
+    /// `CatalogMigration.slotNamesToPersist`, which is where both rules are
+    /// stated and the only place either of them can be tested: this file is
+    /// type-checked and never run by `Tests/run_tests.sh`.
     ///
-    /// A slot bound to a local file is excluded. `restoreLocalDiskBindings()`
-    /// runs inside the same bracket and deliberately writes `filename: ""` over
-    /// whatever catalog name that slot had; putting the name back would fight
-    /// with it every launch.
-    private func persistSelectedDisks(remembering remembered: [String]? = nil) {
-        var filenames = selectedDisks.map { $0?.filename ?? "" }
-        if let remembered = remembered {
-            for i in filenames.indices {
-                guard filenames[i].isEmpty,
-                      i < remembered.count,
-                      i < localDiskURLs.count, localDiskURLs[i] == nil else { continue }
-                filenames[i] = remembered[i]
-            }
-        }
+    /// `evenWhileAwaitingCatalog` is for a caller that is recording a selection
+    /// somebody made rather than one the teardown left behind. `applyProfile`
+    /// is the one such caller: a profile applied between a failed switch and a
+    /// catalog is still the user saying what they want in the slots, and it has
+    /// to survive being said.
+    private func persistSelectedDisks(remembering remembered: [String]? = nil,
+                                      evenWhileAwaitingCatalog: Bool = false) {
+        guard let filenames = CatalogMigration.slotNamesToPersist(
+                selected: selectedDisks.map { $0?.filename ?? "" },
+                remembered: remembered,
+                localBound: localDiskURLs.map { $0 != nil },
+                awaitingCatalog: slotsAwaitingCatalog && !evenWhileAwaitingCatalog)
+        else { return }
         UserDefaults.standard.set(filenames, forKey: selectedDisksKey)
     }
 
@@ -467,6 +496,46 @@ class EmulatorViewModel: NSObject, ObservableObject {
         downloadsDirectory.appendingPathComponent("index-\(CatalogMigration.interface).json")
     }
 
+    /// The size and SHA-256 of the bytes this app last wrote to the two cache
+    /// files above, so that what comes back off the device can be compared with
+    /// what went in. `CachedCatalog` is the gate; these are where it reads from.
+    ///
+    /// **The point of the split is that these are not in `Documents`.** Both
+    /// cache files sit under `disksDirectoryURL`, which is published over
+    /// `UIFileSharingEnabled`; `UserDefaults` is in `Library/Preferences`,
+    /// which is not. That is the only reason the stamp is worth anything, and
+    /// it is why the docstring on `catalogCacheURL(for:)` above - written when
+    /// the drift a stamp can suffer was the whole problem with one - is not an
+    /// argument against this one. That stamp tried to name the release a cache
+    /// was fetched under, which the FILENAME now carries and cannot lose.
+    /// These name the bytes, which a filename cannot carry at all.
+    ///
+    /// Keyed per release for the catalog, like every other per-release value,
+    /// and taking the release explicitly for the reason
+    /// `catalogGenerationKey(for:)` does.
+    private func catalogCacheStampKey(for version: String) -> String {
+        CatalogMigration.versionedKey("catalogCacheSHA256", romwbwVersion: version)
+    }
+
+    private func catalogCacheSizeKey(for version: String) -> String {
+        CatalogMigration.versionedKey("catalogCacheSize", romwbwVersion: version)
+    }
+
+    /// The same two for the release list, which is one document and not one per
+    /// release, so `versionedKey` is the wrong shape for it.
+    ///
+    /// Computed and not a `static let`, because `CatalogMigration.indexScope`
+    /// is read out of `UserDefaults` and "Use This Catalog" changes it while
+    /// the app runs: a stored property would freeze the scope from whenever it
+    /// was first touched, and check one index's cache against another's stamp.
+    private static var indexCacheStampKey: String {
+        "indexCacheSHA256.\(CatalogMigration.interface)\(CatalogMigration.indexScope)"
+    }
+
+    private static var indexCacheSizeKey: String {
+        "indexCacheSize.\(CatalogMigration.interface)\(CatalogMigration.indexScope)"
+    }
+
     /// The catalog generation last seen for THIS RomWBW release.
     ///
     /// It gates nothing any more - build 66 deleted the wipe it used to
@@ -525,6 +594,20 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// Why there is no catalog, and which hop failed. Nil when all is well.
     @Published var catalogFailure: CatalogFailure?
+
+    /// Whether the catalog in play came off the device without a stamp proving
+    /// this app is what saved it.
+    ///
+    /// Set when `loadCachedCatalog` or `continueFromCachedIndex` adopts an
+    /// unstamped copy, which every install predating the stamp has; cleared by
+    /// any fetch that verifies and re-stamps. It is not a reason to refuse to
+    /// BOOT - the images in the drives were hash-checked when they arrived, and
+    /// anyone able to rewrite the cache could rewrite them too. It is a reason
+    /// to refuse to FETCH, because an unverified catalog chooses both the URL a
+    /// new transfer goes to and the checksum that transfer is judged against,
+    /// and that pair is the only thing doctoring the file actually buys.
+    /// `CachedCatalog.Verdict` carries the rest of the argument.
+    @Published private(set) var catalogIsUnverified: Bool = false
 
     /// The whole decoded catalog for the release in play, kept because the disk
     /// list is not all of it: `roms[]` is what says which ROM this release
@@ -1128,7 +1211,18 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // names has actually moved - a slot pointing at a name with no file
         // behind it resolves to nothing, and the restore writes that nothing
         // back over the user's configuration.
+        //
+        // Two sets, because the two reasons a name stays put are not the same
+        // reason. `notMoved` is a rename that THREW, and its usual cause is
+        // transient, so it holds the done flag back and the next launch tries
+        // again. `blocked` is a v0 file already sitting at the destination:
+        // this pass deletes neither copy, so the collision is there for good,
+        // and holding the flag back for it would re-run the whole pass on every
+        // launch for the life of the install while printing a "deferred to the
+        // next launch" that can never come true. Both keep their stored names
+        // behind with their files; only the first is worth another attempt.
         var notMoved: Set<String> = []
+        var blocked: Set<String> = []
         var renamed = 0
 
         // A directory that is not there yet is not a failure - a device that
@@ -1165,6 +1259,26 @@ class EmulatorViewModel: NSObject, ObservableObject {
             }
         }
 
+        // What cannot be renamed at all, read off the same listing before a
+        // single file moves. `CatalogMigration.renames(in:)` silently omits a
+        // name whose v0 destination is already present, and a name omitted
+        // there is a name that must be omitted from the three rewrites below
+        // too: rewriting a slot to `hd1k_combo-v0-3.5.1.img` while this
+        // device's `hd1k_combo.img` is still called that binds the slot to the
+        // OTHER image, and `saveDownloadedDisks()` writes the running machine
+        // back over it.
+        if renameFiles {
+            blocked = CatalogMigration.blockedByExistingDestination(in: contents)
+        }
+
+        // The v0 names THIS pass created, which is what tells the second member
+        // of a case-folding pair apart from a collision that was already on
+        // disk. `hd1k_bp.img` and `HD1K_BP.IMG` fold to one key, so calling the
+        // loser blocked would un-migrate the winner's stored names as well -
+        // and the loser does not need it: the name those stores now hold
+        // resolves to the file the winner just created.
+        var created: Set<String> = []
+
         for rename in renameFiles ? CatalogMigration.renames(in: contents) : [] {
             let source = directory.appendingPathComponent(rename.from)
             let destination = directory.appendingPathComponent(rename.to)
@@ -1173,10 +1287,18 @@ class EmulatorViewModel: NSObject, ObservableObject {
             // the old file is left where it is. Re-checked here rather than
             // trusted from `renames(in:)`, because two names differing only in
             // case map onto one v0 name and the first rename creates the
-            // second's destination.
-            guard !fm.fileExists(atPath: destination.path) else { continue }
+            // second's destination. That pair is the `created` case; anything
+            // else here appeared after the listing was taken and is as blocking
+            // as one that was there all along.
+            guard !fm.fileExists(atPath: destination.path) else {
+                if !created.contains(CatalogMigration.fold(rename.to)) {
+                    blocked.insert(CatalogMigration.fold(rename.from))
+                }
+                continue
+            }
             do {
                 try fm.moveItem(at: source, to: destination)
+                created.insert(CatalogMigration.fold(rename.to))
                 renamed += 1
             } catch {
                 // Leave every reference to this one alone as well, so the file
@@ -1188,6 +1310,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 print("[Migration] Could not rename '\(rename.from)': \(error.localizedDescription)")
             }
         }
+
+        // Every name whose file is still under its pre-v0 name, for whichever
+        // of the two reasons. The three stores below care only about that; the
+        // done flag is the one place the difference matters.
+        let stayPut = notMoved.union(blocked)
 
         // The four slots. Prefer the versioned key once it exists: a pass that
         // could not move a file leaves the done flag clear and runs again next
@@ -1212,7 +1339,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         if let stored = defaults.stringArray(forKey: migratedSlotsKey)
             ?? defaults.stringArray(forKey: "selectedDisks") {
             defaults.set(renameFiles
-                            ? CatalogMigration.migratedSlots(stored, notMoved: notMoved)
+                            ? CatalogMigration.migratedSlots(stored, notMoved: stayPut)
                             : stored,
                          forKey: migratedSlotsKey)
         }
@@ -1229,7 +1356,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // made the two key moves above different.
         if renameFiles, let data = defaults.data(forKey: profileStoreKey) {
             let store = CatalogMigration.migrated(ProfileStore.decoded(from: data),
-                                                  notMoved: notMoved)
+                                                  notMoved: stayPut)
             if let encoded = store.encoded() {
                 defaults.set(encoded, forKey: profileStoreKey)
             }
@@ -1241,7 +1368,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         if renameFiles,
            let stored = defaults.string(forKey: diskLedgerKey),
            let serialized = CatalogMigration.migrated(DiskLedger.deserialized(stored),
-                                                      notMoved: notMoved).serialized() {
+                                                      notMoved: stayPut).serialized() {
             defaults.set(serialized, forKey: diskLedgerKey)
         }
 
@@ -1276,12 +1403,20 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // launch rather than a name frozen half-migrated for ever. The pass is
         // idempotent and costs one directory listing, so re-running it is
         // cheaper than the state it avoids.
+        //
+        // `blocked` deliberately does NOT hold the flag back. A destination
+        // that already exists will still exist next launch - nothing here
+        // deletes either copy - so waiting on it is waiting on something that
+        // cannot happen, and the pass is done: those names have been left alone
+        // everywhere, which is the outcome, not a half-applied state.
         if renameFiles && notMoved.isEmpty {
             defaults.set(true, forKey: v0MigrationDoneKey)
         }
-        if renamed > 0 || !notMoved.isEmpty || !renameFiles {
+        if renamed > 0 || !stayPut.isEmpty || !renameFiles {
             print("[Migration] interface v0: renamed \(renamed) disk image(s), "
-                  + "\(notMoved.count) deferred to the next launch")
+                  + "\(notMoved.count) deferred to the next launch, "
+                  + "\(blocked.count) left under their old names "
+                  + "because a v0 copy was already there")
         }
     }
 
@@ -1411,9 +1546,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
             } else if let disk = resolveProfileDisk(named: filename) {
                 selectedDisks[index] = disk
                 // A catalog disk replaces whatever local file was bound here;
-                // leaving the bookmark would have the slot claim two sources.
+                // leaving the bookmark would have the slot claim two sources,
+                // and leaving the notice would have it warn about a file that
+                // is no longer in the drive.
                 localDiskURLs[index]?.stopAccessingSecurityScopedResource()
                 localDiskURLs[index] = nil
+                localDiskReleaseNotices[index] = nil
             } else if let saved = profile.romwbwVersion, saved != romwbwVersion {
                 // Name the release it was saved under. `hd1k_ws4` exists in
                 // 3.5.1 and not in 3.6.0 - upstream's combo.def calls slice 5
@@ -1426,7 +1564,10 @@ class EmulatorViewModel: NSObject, ObservableObject {
             }
         }
         isRestoringSelections = false
-        persistSelectedDisks()
+        // Written even between a failed switch and a catalog, unlike the
+        // didSet's own persist: these four slots are what the profile says, not
+        // what the teardown left behind. See `slotsAwaitingCatalog`.
+        persistSelectedDisks(evenWhileAwaitingCatalog: true)
         saveLocalDiskBindings()
 
         bootString = profile.bootString
@@ -1503,6 +1644,28 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     // Local disk file URLs (for file-backed disks)
     @Published var localDiskURLs: [URL?] = Array(repeating: nil, count: 4)
+
+    /// What to say about the file bound to each slot when its NAME claims a
+    /// RomWBW release other than the one the machine is set to, and nil where
+    /// there is nothing to say.
+    ///
+    /// A warning and nothing else: the file is mounted either way. The catalog
+    /// picker hides another release's disks, because offering them is how
+    /// somebody pairs a 3.5.1 disk with a 3.6.0 ROM by accident; a file the user
+    /// went to Files and chose by hand is the opposite case, and refusing it
+    /// would take away the only way to boot an image this app did not download.
+    ///
+    /// Per slot rather than one message, because it is drawn in the Settings row
+    /// for the slot it is about. That row is not on screen when a file arrives -
+    /// "Open File..." dismisses Settings before the `.fileImporter` opens - so
+    /// the short form also goes to `statusText`, which is on the screen the user
+    /// is looking at, from the two writes that actually survive to be rendered:
+    /// `handleOpenDiskResult` when the file is picked, and `startEmulator`'s
+    /// "Running RomWBW …" when the machine starts on it. This said
+    /// "`loadSelectedResources`" for the second of those and was wrong: every
+    /// status line that function writes is overwritten later in the same
+    /// synchronous run. `mountedLocalDiskReleaseWarning` is that half now.
+    @Published var localDiskReleaseNotices: [String?] = Array(repeating: nil, count: 4)
 
     // For creating new disk files
     @Published var showingCreateDisk: Bool = false
@@ -1764,11 +1927,27 @@ class EmulatorViewModel: NSObject, ObservableObject {
         isRestoringSelections = true
         defer {
             isRestoringSelections = false
+            // Cleared BEFORE the persist, and the order is the point: a release
+            // the device has never visited has no `selectedDisksKey` at all, so
+            // `savedSelections` is nil and it is the first-launch branch below
+            // that filled the slots. Clearing after would decline to write the
+            // catalog's own defaults on exactly the switch that needs them.
+            slotsAwaitingCatalog = false
             // Once, at the end, with the whole selection settled. The first-run
             // path picks defaults out of the catalog and those do have to be
             // written; it is only the three intermediate states that did not.
             persistSelectedDisks(remembering: savedSelections)
         }
+
+        // Which disk belongs in which drive when nobody has chosen, asked once
+        // and used twice: by the first-launch branch below and by the drive-0
+        // fallback under it. Keyed on the catalog's `id`, which is the same
+        // under every RomWBW release while the filename carries the release -
+        // see RomWBWCatalogDocument.defaultDiskIDs for why this app has to
+        // decide it at all.
+        let firstLaunchFilenames = RomWBWCatalogDocument.defaultDiskFilenames(
+            driveCount: selectedDisks.count,
+            published: diskCatalog.map { (id: $0.catalogID, filename: $0.filename) })
 
         // Check if user has saved selections
         let hasSavedSelections = savedSelections != nil
@@ -1790,13 +1969,19 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 }
             }
         } else {
-            // First launch defaults: use defaultSlot from catalog
+            // First launch defaults: the ids this app mounts, in drive order.
+            //
+            // This used to read each entry's `defaultSlot` as the drive to put
+            // it in, which is not what that field means - it is the slice to
+            // boot INSIDE the image - and it happened to work only because the
+            // one entry publishing it is hd1k_combo with value 0. A release
+            // that published 3 on it would have filled drive 3 and left drive 0
+            // empty on every first launch.
             debugPrint("[RestoreDisks] First launch - setting defaults from catalog")
-            for catalogDisk in diskCatalog {
-                if let slot = catalogDisk.defaultSlot, slot >= 0, slot < 4 {
-                    debugPrint("[RestoreDisks] Catalog default: '\(catalogDisk.filename)' -> slot \(slot)")
-                    selectedDisks[slot] = availableDisks.first { $0.filename == catalogDisk.filename }
-                }
+            for (drive, filename) in firstLaunchFilenames.enumerated() {
+                guard let filename = filename else { continue }
+                debugPrint("[RestoreDisks] Catalog default: '\(filename)' -> drive \(drive)")
+                selectedDisks[drive] = availableDisks.first { $0.filename == filename }
             }
         }
 
@@ -1826,9 +2011,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
             || !(savedSelections?.first.map { !$0.isEmpty } ?? false)
         if slotZeroFallbackIsSafe,
            selectedDisks[0] == nil || selectedDisks[0]?.filename.isEmpty == true {
-            // Try to find a disk with defaultSlot=0, then fall back to first available
-            let defaultDisk = diskCatalog.first { $0.defaultSlot == 0 }
-            selectedDisks[0] = availableDisks.first { $0.filename == defaultDisk?.filename }
+            // Drive 0's own first-launch disk if this release publishes it,
+            // then fall back to whatever the catalog does offer: an empty
+            // drive 0 is the one state from which there is nothing to boot.
+            let driveZeroDefault = firstLaunchFilenames.first ?? nil
+            selectedDisks[0] = driveZeroDefault.flatMap { wanted in
+                    availableDisks.first { $0.filename == wanted }
+                }
                 ?? availableDisks.first { !$0.filename.isEmpty }
                 ?? availableDisks.first
         } else if !slotZeroFallbackIsSafe {
@@ -1945,7 +2134,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
             if let url = localDiskURLs[unit] {
                 if loadLocalDisk(unit: unit, from: url) {
                     debugPrint("[EmulatorVM] Loaded local disk to unit \(unit)")
-                    statusText = "Loaded local file to \(diskLabels[unit])"
+                    statusText = statusLine("Loaded local file to \(diskLabels[unit])",
+                                            notingReleaseOf: url.lastPathComponent)
                     continue
                 }
             }
@@ -2009,6 +2199,96 @@ class EmulatorViewModel: NSObject, ObservableObject {
         showingCreateDisk = true
     }
 
+    /// The release a local file's NAME claims, when it is not this machine's.
+    ///
+    /// The filename is all there is to read. A disk image carries no release
+    /// this app can get at, and nothing published the file, so there is no
+    /// catalog entry to ask either - which is why this warns and never refuses.
+    /// `CatalogMigration.releaseNamedByLocalFile` has the rest of that argument,
+    /// and why it does NOT gate on the stems the catalog has published the way
+    /// `belongsToAnotherRelease` does.
+    private func releaseNamedByLocalDisk(named filename: String) -> String? {
+        CatalogMigration.releaseNamedByLocalFile(filename, romwbwVersion: romwbwVersion)
+    }
+
+    /// The sentence a slot's Settings row shows when the file bound to it names
+    /// another release, and nil when it names this one or names none.
+    ///
+    /// **The remedy is only offered when it exists.** The release comes out of a
+    /// FILENAME and is checked against nothing - deliberately, so that a warning
+    /// fires on a name the catalog has never published - which means "switch to
+    /// RomWBW X in Settings" can name a release the picker does not list. Two
+    /// ways: the text between `-v0-` and `.img` is not a release at all, or it
+    /// is a development snapshot and "Show Development Snapshots" is off, which
+    /// is the default. Telling somebody to pick something that is not there is
+    /// worse than not telling them anything, so each case gets its own ending.
+    private func localDiskReleaseNotice(forFileNamed filename: String) -> String? {
+        guard let release = releaseNamedByLocalDisk(named: filename) else { return nil }
+        // "can print", not "prints". The guest raises it by comparing the HBIOS
+        // and CBIOS versions it finds, and two releases can share those bytes -
+        // the index carries them as `hbios.ver_byte` and `upd_byte` precisely
+        // because the release NUMBER is not what decides it. Promising a
+        // specific console line that may not appear teaches the user to read
+        // its absence as "the pairing is fine".
+        let opening = "\(filename) names RomWBW \(release), and this machine is set to "
+            + "RomWBW \(romwbwVersion). The drive keeps it either way. If it really is "
+            + "that release's image, the boot can print "
+            + "*** WARNING: HBIOS/CBIOS Version Mismatch ***"
+
+        // No index yet - offline before a first fetch, or a fetch that failed.
+        // Say the plain thing rather than claim the release does not exist.
+        guard !publishedIndexEntries.isEmpty else {
+            return opening + "; switching to RomWBW \(release) in Settings pairs them."
+        }
+        guard let entry = publishedIndexEntries.first(where: { $0.romwbwVersion == release })
+        else {
+            // Not a release this index publishes. Nothing to switch to, and the
+            // name may simply not be a release.
+            return opening + ". This app has no RomWBW \(release) to switch to."
+        }
+        if entry.isPrerelease && !showPrereleaseVersions {
+            return opening + "; RomWBW \(release) is a development snapshot, so tick "
+                + "Show Development Snapshots to select it."
+        }
+        return opening + "; switching to RomWBW \(release) in Settings pairs them."
+    }
+
+    /// `text` with the SHORT form of that warning appended, when the file named
+    /// earns one.
+    ///
+    /// Short because the status line is one row of caption text beside the build
+    /// number and the scrollback counter, and a sentence with a remedy in it
+    /// would be truncated to nothing. What is missing from the caller's own
+    /// wording is the pairing, so that is what this adds; the whole sentence is
+    /// in `localDiskReleaseNotices` and is drawn where there is room for it.
+    private func statusLine(_ text: String, notingReleaseOf filename: String) -> String {
+        guard let release = releaseNamedByLocalDisk(named: filename) else { return text }
+        return text + " - names RomWBW \(release), not \(romwbwVersion)"
+    }
+
+    /// The same warning, for whatever local files are mounted RIGHT NOW, to be
+    /// appended to the one status write that survives a start.
+    ///
+    /// `loadSelectedResources` writes a per-drive status line as it goes and
+    /// every one of them is overwritten - by the next drive, and finally by
+    /// `startEmulator`'s "Running RomWBW …" a few statements later, on the same
+    /// synchronous main-thread run, so SwiftUI renders only the last. That is
+    /// fine for "Loaded: X to Drive 0", which is progress; it was not fine for
+    /// the release mismatch, which is the one thing on that path a user needs
+    /// after the start finishes and which reached the screen only from
+    /// `handleOpenDiskResult`. Read off `localDiskURLs` rather than the cached
+    /// notices so it describes the drives as they actually ended up.
+    private func mountedLocalDiskReleaseWarning() -> String? {
+        let named = localDiskURLs.enumerated().compactMap { unit, url -> String? in
+            guard let url = url,
+                  let release = releaseNamedByLocalDisk(named: url.lastPathComponent)
+            else { return nil }
+            return "\(diskLabels[unit]) names RomWBW \(release)"
+        }
+        guard !named.isEmpty else { return nil }
+        return named.joined(separator: ", ") + ", not \(romwbwVersion)"
+    }
+
     func loadLocalDisk(unit: Int, from url: URL) -> Bool {
         guard url.startAccessingSecurityScopedResource() else {
             showError("Cannot access file: \(url.lastPathComponent)")
@@ -2025,6 +2305,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
             if emulator?.loadDisk(Int32(unit), from: data) == true {
                 localDiskURLs[unit] = url
                 selectedDisks[unit] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "")
+                // Beside the binding it is about, so the two cannot drift: a
+                // slot whose notice names a file it no longer holds is worse
+                // than no notice at all. Not mirrored into `statusText` here -
+                // both callers overwrite it on the success path, so anything
+                // written here would be invisible; they append the short form
+                // themselves.
+                localDiskReleaseNotices[unit] = localDiskReleaseNotice(forFileNamed: url.lastPathComponent)
                 saveLocalDiskBindings()
                 return true
             }
@@ -2039,7 +2326,14 @@ class EmulatorViewModel: NSObject, ObservableObject {
         case .success(let urls):
             guard let url = urls.first else { return }
             if loadLocalDisk(unit: diskUnitForFileOp, from: url) {
-                statusText = "Loaded: \(url.lastPathComponent) to \(diskLabels[diskUnitForFileOp])"
+                // The slot's own notice is drawn in Settings, and Settings is
+                // NOT on screen when this runs: "Open File..." dismisses it
+                // before the picker opens. So the status line under the terminal
+                // is the only place the user is actually looking when the file
+                // lands, and a warning nobody is shown is not a warning.
+                statusText = statusLine(
+                    "Loaded: \(url.lastPathComponent) to \(diskLabels[diskUnitForFileOp])",
+                    notingReleaseOf: url.lastPathComponent)
             }
         case .failure(let error):
             showError("Open failed: \(error.localizedDescription)")
@@ -2071,6 +2365,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
             if emulator?.loadDisk(Int32(diskUnitForFileOp), from: data) == true {
                 localDiskURLs[diskUnitForFileOp] = url
                 selectedDisks[diskUnitForFileOp] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "")
+                // This path never goes through `loadLocalDisk`, so the warning
+                // left by whatever file was bound here before would survive onto
+                // an image this app has just written. Cleared and not recomputed:
+                // these bytes are 0xE5 and nothing else, so they belong to no
+                // release whatever the user called the file in the save dialog.
+                localDiskReleaseNotices[diskUnitForFileOp] = nil
                 saveLocalDiskBindings()
                 statusText = "Created: \(url.lastPathComponent)"
             }
@@ -2166,6 +2466,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         for i in localDiskURLs.indices {
             localDiskURLs[i]?.stopAccessingSecurityScopedResource()
             localDiskURLs[i] = nil
+            localDiskReleaseNotices[i] = nil
         }
         guard let savedBookmarks = UserDefaults.standard.array(forKey: localDiskBookmarksKey) as? [Data] else {
             debugPrint("[LocalDisk] No saved bookmarks found")
@@ -2197,6 +2498,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 if FileManager.default.fileExists(atPath: url.path) {
                     localDiskURLs[i] = url
                     selectedDisks[i] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "")
+                    // Recomputed rather than carried, which is the whole reason
+                    // it is not stored with the bookmark: this also runs from
+                    // `applyRomWBWVersionSwitch`, and the same file that named
+                    // this release a moment ago names another one now. The
+                    // warning has to appear and disappear with the switch.
+                    localDiskReleaseNotices[i] = localDiskReleaseNotice(forFileNamed: url.lastPathComponent)
                     debugPrint("[LocalDisk] Restored local disk for slot \(i): \(url.lastPathComponent)")
 
                     // Re-save bookmark if stale
@@ -2219,23 +2526,60 @@ class EmulatorViewModel: NSObject, ObservableObject {
             url.stopAccessingSecurityScopedResource()
         }
         localDiskURLs[unit] = nil
+        localDiskReleaseNotices[unit] = nil
         saveLocalDiskBindings()
         debugPrint("[LocalDisk] Cleared local disk for slot \(unit)")
     }
 
     // MARK: - Emulation Control
 
+    /// A start is over, however it ended.
+    ///
+    /// Every exit from `start()` runs through this or through `failStart`,
+    /// including the ones that succeed. The flag is what keeps a second Play
+    /// out, so a path that forgets to clear it leaves the user with a Play
+    /// button that does nothing; the only way back is the running machine's
+    /// Stop, and a start that never reached `isRunning` has not left one.
+    private func endStart() {
+        isStarting = false
+    }
+
+    /// A start that is over because it failed: say why, say it in the status
+    /// line, and clear the flag.
+    ///
+    /// One call rather than three lines, because the failure that matters here
+    /// is a new early return that clears two of the three and forgets the
+    /// third - and the one it would forget is the flag, which is the only one
+    /// with no visible symptom until the next press of Play.
+    private func failStart(_ message: String, status: String) {
+        showError(message)
+        statusText = status
+        endStart()
+    }
+
     func start() {
+        // One start at a time.
+        //
+        // Everything below is asynchronous: the ROM is fetched and verified,
+        // then the disks, and only then is the machine loaded. `isRunning` is
+        // false for all of it, so the toolbar button reads Play throughout and
+        // a second press re-entered here. `isStarting` says what `isRunning`
+        // cannot, and its declaration says what the second entry does.
+        guard !isStarting else {
+            debugPrint("[Start] a start is already in flight; ignoring this press")
+            return
+        }
+        isStarting = true
         statusText = "Checking disks..."
 
         // Check if catalog is loaded
         if diskCatalog.isEmpty {
             if catalogLoading {
-                showError("Disk catalog is loading. Please wait a moment and try again.")
-                statusText = "Catalog loading..."
+                failStart("Disk catalog is loading. Please wait a moment and try again.",
+                          status: "Catalog loading...")
             } else {
-                showError("Failed to load disk catalog. Please check your internet connection and try again.")
-                statusText = "Error: No disk catalog"
+                failStart("Failed to load disk catalog. Please check your internet connection and try again.",
+                          status: "Error: No disk catalog")
             }
             return
         }
@@ -2243,8 +2587,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // Check if any disk is selected
         let hasSelectedDisk = selectedDisks.contains { $0 != nil && !($0?.filename.isEmpty ?? true) }
         if !hasSelectedDisk {
-            showError("No disk selected. Please select at least one disk in Settings.")
-            statusText = "Error: No disk selected"
+            failStart("No disk selected. Please select at least one disk in Settings.",
+                      status: "Error: No disk selected")
             return
         }
 
@@ -2252,8 +2596,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
         debugPrint("[Start] diskCatalog has \(diskCatalog.count) entries")
         debugPrint("[Start] Downloads directory: \(downloadsDirectory.path)")
 
-        // Collect disks that need downloading
-        var neededDownloads: [DownloadableDisk] = []
+        // Collect disks that need downloading, each with the drive it is for.
+        //
+        // The drive is carried because a failure is only fatal in drive 0 - see
+        // downloadDisksAndStart. It was not carried until a first launch began
+        // selecting two disks rather than one, at which point the 8 MB games
+        // image became a precondition for booting off the 49 MB system one.
+        var neededDownloads: [(drive: Int, disk: DownloadableDisk)] = []
         var missingFromCatalog: [String] = []
         var alreadyDownloaded: [String] = []
 
@@ -2274,8 +2623,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
             // Need to download - look up in catalog
             if let catalogEntry = diskCatalog.first(where: { $0.filename == disk.filename }) {
-                debugPrint("[Start] Need download: '\(disk.filename)'")
-                neededDownloads.append(catalogEntry)
+                debugPrint("[Start] Need download: '\(disk.filename)' for drive \(i)")
+                neededDownloads.append((drive: i, disk: catalogEntry))
             } else {
                 debugPrint("[Start] ERROR: '\(disk.filename)' NOT in catalog!")
                 missingFromCatalog.append(disk.filename)
@@ -2286,8 +2635,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         // Error if any selected disks aren't in catalog
         if !missingFromCatalog.isEmpty {
-            showError("Cannot find disk(s) in catalog: \(missingFromCatalog.joined(separator: ", ")). The catalog may be outdated.")
-            statusText = "Error: Disk not in catalog"
+            failStart("Cannot find disk(s) in catalog: \(missingFromCatalog.joined(separator: ", ")). The catalog may be outdated.",
+                      status: "Error: Disk not in catalog")
             return
         }
 
@@ -2303,7 +2652,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // it. prepareROM has already told the user what is wrong and offered
         // the way out by the time it answers false.
         prepareROM { [weak self] romReady in
-            guard let self = self, romReady else { return }
+            guard let self = self else { return }
+            // Split out of the `guard let self = self, romReady` this used to
+            // be: a refused ROM is a terminus of the start like any other, and
+            // returning from it without clearing the flag left Play dead for
+            // the rest of the session. prepareROM has already raised its own
+            // alert, so there is nothing to say here beyond ending the start.
+            guard romReady else {
+                self.endStart()
+                return
+            }
 
             // Download if needed, otherwise start
             if !neededDownloads.isEmpty {
@@ -2311,8 +2669,8 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 self.downloadDisksAndStart(neededDownloads)
             } else if alreadyDownloaded.isEmpty {
                 // Nothing selected or all slots empty
-                self.showError("No disks available to load. Please download disks in Settings first.")
-                self.statusText = "Error: No disks"
+                self.failStart("No disks available to load. Please download disks in Settings first.",
+                               status: "Error: No disks")
             } else {
                 // All disks ready
                 self.debugPrint("[Start] All disks ready, starting emulator")
@@ -2322,35 +2680,97 @@ class EmulatorViewModel: NSObject, ObservableObject {
     }
 
     /// Download multiple disks sequentially, then start emulator
-    private func downloadDisksAndStart(_ disks: [DownloadableDisk]) {
-        guard !disks.isEmpty else {
+    /// Fetch what the selected drives need, then start.
+    ///
+    /// A failure is fatal ONLY in drive 0. Every other drive is left empty and
+    /// the start continues, which is the rule `start()` has always documented
+    /// ("A disk that will not download leaves an empty drive") and the rule
+    /// `loadSelectedResources()` already applies to a disk that is selected but
+    /// absent: it reports it and carries on. The download path alone was
+    /// all-or-nothing, and that only stopped mattering to a fresh install when
+    /// `defaultDiskIDs` began filling two drives instead of one - at which point
+    /// a flaky connection on the optional 8 MB games image refused a boot that
+    /// the verified 49 MB system image in drive 0 could perfectly well have done.
+    ///
+    /// Drive 0 keeps the old behaviour because there is nothing to boot without
+    /// it, and `loadSelectedResources()` would only reach the same dead end one
+    /// step later with a less useful message.
+    private func downloadDisksAndStart(_ pending: [(drive: Int, disk: DownloadableDisk)],
+                                       unfilled: [String] = []) {
+        guard !pending.isEmpty else {
             isDownloading = false
             downloadingDiskName = ""
+            // Named here rather than left to loadSelectedResources' "Failed to
+            // load disks" alert, which would say the file is missing without
+            // saying that this start is what gave up fetching it.
+            if !unfilled.isEmpty {
+                showError("Could not download \(unfilled.joined(separator: ", ")). "
+                          + "Those drives are empty; the machine is starting without them. "
+                          + "Retry from Settings.")
+            }
             startEmulator()
             return
         }
 
-        var remaining = disks
+        var remaining = pending
         let current = remaining.removeFirst()
         isDownloading = true
-        downloadingDiskName = current.name
+        downloadingDiskName = current.disk.name
         downloadingProgress = 0
-        statusText = "Downloading \(current.name)..."
+        statusText = "Downloading \(current.disk.name)..."
 
-        downloadDiskWithCompletion(current) { [weak self] success in
+        downloadDiskWithCompletion(current.disk) { [weak self] success in
             guard let self = self else { return }
             if success {
                 // Continue with remaining downloads
-                self.downloadDisksAndStart(remaining)
+                self.downloadDisksAndStart(remaining, unfilled: unfilled)
+                return
+            }
+
+            // `waitForDownloadCompletion` answers false for a CANCELLED
+            // transfer too, which is how Settings' cancel button reaches here -
+            // and for the three other paths that land on `.notDownloaded`
+            // without a user asking for anything: the `URLError.cancelled` arm,
+            // the deferral on a constrained or expensive network, and the
+            // abandonment when the file changes under the transfer. None of
+            // those is worth telling apart HERE, because the answer is the same
+            // for all four: a drive that is not drive 0 ends up empty and the
+            // machine still starts. Cancelling the games disk is a reason to
+            // skip the games disk, not a reason to refuse the boot.
+            guard current.drive == 0 else {
+                // Not fatal: leave the drive empty and keep going. The status
+                // line is about to be rewritten by the next transfer or by
+                // startEmulator, so the report is collected and shown once at
+                // the end rather than flashing past here.
+                // Recomputed rather than cleared, for cancelDownload's reason:
+                // a refresh-in-place that gave up often leaves a perfectly good
+                // installed image behind, and asserting .notDownloaded over one
+                // hides its hash badge and invites a re-fetch of a file the
+                // device already has.
+                let installed = self.isDiskDownloaded(current.disk.filename)
+                self.downloadStates[current.disk.filename] =
+                    installed ? .downloaded : .notDownloaded
+                // A refresh that gave up over a good installed copy leaves the
+                // drive filled, so it is not reported as empty.
+                self.downloadDisksAndStart(remaining,
+                                           unfilled: installed ? unfilled
+                                                               : unfilled + [current.disk.name])
+                return
+            }
+
+            self.isDownloading = false
+            self.downloadingDiskName = ""
+            // A download that will not finish ends the start. Both arms go
+            // through failStart, which also puts the status line right:
+            // this used to leave it reading "Downloading <name>..." under a
+            // dismissed error alert, describing a transfer that had already
+            // given up.
+            if case .error(let errorMsg) = self.downloadStates[current.disk.filename] {
+                self.failStart("Download failed: \(errorMsg)",
+                               status: "Error: download failed")
             } else {
-                self.isDownloading = false
-                self.downloadingDiskName = ""
-                // Get actual error from download state
-                if case .error(let errorMsg) = self.downloadStates[current.filename] {
-                    self.showError("Download failed: \(errorMsg)")
-                } else {
-                    self.showError("Failed to download \(current.name)")
-                }
+                self.failStart("Failed to download \(current.disk.name)",
+                               status: "Error: download failed")
             }
         }
     }
@@ -2410,6 +2830,32 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// Actually start the emulator after all disks are ready
     private func startEmulator() {
+        // NOT ON A MACHINE THAT IS ALREADY RUNNING, and this is the only place
+        // that can say so. Everything below is destructive: it clears the
+        // screen, empties the scrollback, closes every disk and reloads the ROM
+        // and the images from file, and `HBIOSEmulator::start()` then
+        // re-initialises HBIOS and zeroes the registers. On a live machine that
+        // is a cold restart the user did not ask for, with the session's output
+        // gone and no way to scroll back to it.
+        //
+        // `isStarting` at the top of `start()` does not cover this. It refuses a
+        // second PRESS while a start is in flight; this refuses a flight that
+        // arrives after another one has already brought the machine up. The
+        // sequence that does it: press Play with a disk still to download, press
+        // Reset while it downloads - Reset is a separate toolbar button, carries
+        // no `.disabled`, and calls `endStart()` - and press Play again. Two
+        // flights are then in the air, both reach here, and the second one
+        // restarts what the first started.
+        //
+        // z80cpmw's df7accf is the same guard, filed there as "Start on a
+        // running machine wiped the screen and started nothing". It is worse
+        // here than it was there: its `start()` did nothing on a running
+        // machine, and this one re-initialises the guest.
+        guard !isRunning else {
+            debugPrint("🔴 [START] the machine is already running; not restarting it")
+            endStart()
+            return
+        }
         debugPrint("🟢 [START] startEmulator called")
         // Before the disks are read. An unattended refresh decided its verdict
         // when nothing was running; this is the moment that stops being true.
@@ -2434,22 +2880,73 @@ class EmulatorViewModel: NSObject, ObservableObject {
             // bank 0 happens to hold.
             debugPrint("🔴 [START] resource load failed, not starting")
             isRunning = false
+            endStart()
             return
         }
+        // SAY WHAT IS STARTING, in the one line of this method where the screen
+        // is still ours. `clearTerminal()` above is what wipes it - this
+        // application's clear, not the ROM's - and `emulator?.start()` on the
+        // next line hands the terminal to the guest for good. Nothing branches
+        // or returns in between, and nothing else prints into the gap.
+        //
+        // AFTER `loadSelectedResources()` on purpose: that is what decides which
+        // drives actually took an image, so this names what is MOUNTED rather
+        // than what is selected. A slot naming a file that would not load is not
+        // in the machine and must not be listed as though it were.
+        //
+        // The wording and every rule about it are in `RomWBWRelease.startBanner`,
+        // where CatalogDocumentTests can drive them: nothing in this repository
+        // constructs an EmulatorViewModel, so a string built here would be
+        // type-checked and never run.
+        for line in RomWBWRelease.startBanner(release: romwbwVersion,
+                                              romFilename: selectedROM?.filename,
+                                              diskFilenames: mountedDiskNames()) {
+            writeToTerminal(line + "\n")
+        }
+
         debugPrint("🟢 [START] calling emulator.start()")
         emulator?.start()
         isRunning = emulator?.isRunning ?? false
-        statusText = "Running"
+        // And in the status line as well, because the terminal stops being ours
+        // on the line above and nothing here can promise what the guest does to
+        // it. The status line is outside the terminal stream altogether, which is
+        // the separation romwbw_emu's CLI gets for free by printing its own
+        // "RomWBW v%s (from %s)" to stderr. Empty release, no claim: "Running"
+        // alone, the same refusal to invent one that startBanner makes.
+        let running = romwbwVersion.isEmpty ? "Running" : "Running RomWBW \(romwbwVersion)"
+        // A mounted local file naming another release is said HERE, because
+        // this is the write that survives: see mountedLocalDiskReleaseWarning.
+        statusText = mountedLocalDiskReleaseWarning().map { "\(running) - \($0)" } ?? running
         terminalShouldFocus = true  // Auto-focus terminal
         debugPrint("🟢 [START] emulator started, isRunning=\(isRunning)")
 
-        // Start periodic disk auto-save timer (every 20 seconds)
+        // Start periodic disk auto-save timer (every 20 seconds).
+        //
+        // Invalidated first, not just reassigned. `stop()` and `reset()` both
+        // end the timer, so on their path there is nothing here to replace -
+        // but a start that reaches this line with one already scheduled leaves
+        // the old timer on the run loop with nothing referring to it, writing
+        // the emulator's in-memory image to disk every twenty seconds for the
+        // rest of the session. `isStarting` above is what makes that rare; this
+        // is what makes it harmless.
+        diskSaveTimer?.invalidate()
         diskSaveTimer = Timer.scheduledTimer(withTimeInterval: 20.0, repeats: true) { [weak self] _ in
             self?.saveDownloadedDisks()
         }
+
+        // The machine is up: the start is over and Play is a Stop now.
+        endStart()
     }
 
     func stop() {
+        // Whatever the machine's state, no start is in flight once this
+        // returns. This is the recovery route the toolbar's `.disabled` leaves
+        // open: the button is only taken away while `isStarting` is set AND
+        // nothing is running, so a start that reached `isRunning` and somehow
+        // did not clear the flag still leaves a Stop on screen, and pressing it
+        // gets the user back to a working Play.
+        endStart()
+
         // Stop auto-save timer
         diskSaveTimer?.invalidate()
         diskSaveTimer = nil
@@ -2609,6 +3106,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // write to this file", which is exactly what the disk refresh does.
         diskSaveTimer?.invalidate()
         diskSaveTimer = nil
+        // For the same reason as in stop(): Reset is reachable while a start is
+        // in flight - it is a separate toolbar button and carries no
+        // `.disabled` - and it leaves the machine not running, so it has to
+        // hand back a usable Play rather than one the guard refuses.
+        endStart()
         statusText = "Reset - disk changes saved"
     }
 
@@ -2669,6 +3171,26 @@ class EmulatorViewModel: NSObject, ObservableObject {
             buildDate = formatter.string(from: modDate)
         }
         writeToTerminal("Z80CPM v\(version).\(build) \(buildDate)\n")
+    }
+
+    /// The name of the image in each drive, and nil for a drive that has none.
+    ///
+    /// Asks the CORE which drives took an image, the way `isMounted` does and
+    /// for the same reason: `selectedDisks` is what the user picked and
+    /// `loadSelectedResources()` is what decides whether the file behind a pick
+    /// exists and loads. A drive whose image was missing or corrupt is empty,
+    /// and the start banner has to say so by leaving it out rather than naming a
+    /// file that is not in the machine.
+    ///
+    /// The core holds the bytes and not the name, so the name still comes from
+    /// this side: the browsed-to file first, because `loadSelectedResources`
+    /// tries `localDiskURLs[unit]` before the catalog pick and a slot can hold
+    /// both.
+    private func mountedDiskNames() -> [String?] {
+        (0..<selectedDisks.count).map { unit in
+            guard emulator?.isDiskLoaded(Int32(unit)) == true else { return nil }
+            return localDiskURLs[unit]?.lastPathComponent ?? selectedDisks[unit]?.filename
+        }
     }
 
     // MARK: - Disk Management
@@ -3005,6 +3527,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// nil while nothing has been measured yet, which is the honest answer: the
     /// row shows the catalog's expected hash in grey rather than a colour it
     /// has not earned.
+    ///
+    /// Whether the hash is green is `DiskLedger.measurementMatchesCatalog` and
+    /// not a comparison written out here, because this row also carries
+    /// `freshness(of:)`'s verdict. Comparing the two hashes by itself painted the
+    /// migrated `hd1k_combo-v0-3.5.1.img` red beside a row that correctly called
+    /// it current and offered nothing to do about it.
     func installedChecksumStatus(for disk: DownloadableDisk) -> (shown: String, matches: Bool)? {
         guard let facts = fileFacts(for: disk.filename),
               let record = diskLedger.record(for: disk.filename),
@@ -3017,7 +3545,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
             // installed before that check existed.
             return (shown, false)
         }
-        return (shown, measured == catalog)
+        return (shown, DiskLedger.measurementMatchesCatalog(record, catalogSha256: catalog))
     }
 
     /// Whether replacing this image would discard bytes the app did not download.
@@ -3106,6 +3634,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// `selectedDisks`'s didSet is already writing to the NEW release's key,
     /// and blanking that would destroy the slots the user set the last time
     /// they were on it.
+    ///
+    /// That bracket only covers the blanking itself, which is why
+    /// `slotsAwaitingCatalog` is set with it. The blanks sit in memory until
+    /// the new release's catalog lands, and a fetch that FAILS leaves them
+    /// there: the next slot the user touches would then persist those blanks,
+    /// one edit late, which is the write this bracket was meant to prevent.
     private func applyRomWBWVersionSwitch(from previous: String,
                                          refetch: Bool,
                                          chosenByUser: Bool) {
@@ -3126,6 +3660,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         isRestoringSelections = true
         selectedDisks = Array(repeating: nil, count: 4)
+        slotsAwaitingCatalog = true
         isRestoringSelections = false
 
         // The catalog and the picker's disk list belong to the release that is
@@ -3277,6 +3812,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // find either what was left there last time or nothing at all.
         isRestoringSelections = true
         selectedDisks = Array(repeating: nil, count: 4)
+        slotsAwaitingCatalog = true
         isRestoringSelections = false
 
         catalogDocument = nil
@@ -3436,8 +3972,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
             // what the ROM actually is licensed under is in
             // docs/ROM_ATTESTATION.md.
             license: "Unknown",
-            sha256: entry.sha256,
-            defaultSlot: nil)
+            sha256: entry.sha256)
     }
 
     /// Re-resolve the ROM choice against the release in play.
@@ -3690,11 +4225,26 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// reports and the release the disks have to agree with. Before that there
     /// is nothing loaded to ask about, and the honest answer names the release
     /// SELECTED rather than pretending it is running.
+    ///
+    /// A third answer sits between those two, and it is why the wording is
+    /// `RomWBWRelease.summary`'s rather than written out here. The two HCB
+    /// bytes cannot spell a pre-release suffix, so a machine running the
+    /// 3.7.0-dev.14 ROM measures "3.7.0" and this line reported the release
+    /// that snapshot PRECEDES. The measured numbers still lead - asking bank 0
+    /// is the whole point of reading it - and the catalog's tag is appended
+    /// only where `RomWBWRelease.romServes` says the selection is a
+    /// pre-release of exactly what the ROM declares, so a ROM left over from
+    /// the release being left borrows nothing from a picker that has moved.
+    /// `emulator` is built once in `init()` and the picker is not, so that is
+    /// a state a running app reaches.
+    ///
+    /// The rule lives in CatalogDocument.swift so that a suite can run it:
+    /// nothing in this repository constructs an EmulatorViewModel, so a rule
+    /// written here is type-checked and never executed. `ReleaseSummaryDelegation`
+    /// in Tests/run_tests.sh is what checks that this asks.
     var romWBWReleaseSummary: String {
-        if let loaded = emulator?.loadedRomWBWRelease() {
-            return "RomWBW \(loaded) ROM loaded"
-        }
-        return "RomWBW \(romwbwVersion) selected - no ROM loaded yet"
+        RomWBWRelease.summary(loadedByROM: emulator?.loadedRomWBWRelease(),
+                              selected: romwbwVersion)
     }
 
     // MARK: - Disk catalog: the two-hop fetch
@@ -3746,7 +4296,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
         catalogLoading = true
         catalogFailure = nil
 
-        guard let url = URL(string: Self.indexURL) else {
+        // Which index this hop is for, read ONCE. `Self.indexURL` is computed
+        // from the override in UserDefaults, so "Use This Catalog" changes what
+        // it answers the instant it is pressed - it is not the compiled-in
+        // constant it reads as.
+        let indexURL = Self.indexURL
+
+        guard let url = URL(string: indexURL) else {
             // A compiled-in constant that is not a URL is a build mistake, not
             // a condition - but it must not take the app down with it.
             debugPrint("[Catalog] Invalid index URL")
@@ -3754,11 +4310,33 @@ class EmulatorViewModel: NSObject, ObservableObject {
             return
         }
 
-        debugPrint("[Catalog] Fetching index: \(Self.indexURL)")
+        debugPrint("[Catalog] Fetching index: \(indexURL)")
 
         URLSession.shared.dataTask(with: Self.uncachedRequest(url)) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self = self else { return }
+
+                // A response for a catalog that is no longer in play is DROPPED,
+                // for the reason fetchCatalog below drops a superseded release's
+                // response, and it is the same window: the request is already out
+                // and answers minutes later on a slow connection.
+                //
+                // What it would otherwise write is not only a stale release list.
+                // `indexCacheURL` sits under `disksDirectoryURL`, whose name
+                // carries `CatalogMigration.indexScope`, so adopting the leaving
+                // catalog's index here saves ITS bytes as the arriving catalog's
+                // saved release list - a cache that a later offline launch reads
+                // back as though the switch had never happened. Two catalogs
+                // publish different bytes under the same filenames, which is why
+                // the scope exists.
+                //
+                // Not cleared, same as there: applyCatalogIndexURL() ends in
+                // fetchDiskCatalog(), and that fetch owns `catalogLoading` now.
+                guard Self.indexURL == indexURL else {
+                    self.debugPrint("[Catalog] Dropping the \(indexURL) index response;"
+                                    + " \(Self.indexURL) is in play now")
+                    return
+                }
 
                 if let problem = CatalogTransfer.problem(
                         errorDescription: error?.localizedDescription,
@@ -3792,15 +4370,52 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// play. `indexProblem` is carried all the way through so that a run which
     /// ends up showing a perfectly good catalog can still say the list behind
     /// it is the saved one.
+    ///
+    /// It is stamped and checked exactly as the catalog is, and for a reason
+    /// the catalog's own check cannot cover: the release list is where
+    /// `catalog_url`, `catalog_sha256` and `catalog_size` come from, so a saved
+    /// list that is not this app's sends the second hop somewhere of its own
+    /// choosing and supplies the checksum that hop is verified against.
+    /// Verifying one cache against the other would be circular - they are
+    /// neighbours in the same user-writable directory.
     private func continueFromCachedIndex(indexProblem: String) {
+        var problem = indexProblem
         if let data = try? Data(contentsOf: indexCacheURL),
            let index = try? JSONDecoder().decode(RomWBWIndex.self, from: data) {
-            debugPrint("[Catalog] Using the cached release list")
-            adoptIndex(index, indexProblem: indexProblem)
-            return
+            let verdict = CachedCatalog.stampVerdict(
+                byteCount: data.count,
+                sha256: Self.sha256Hex(data),
+                stampedSize: UserDefaults.standard
+                    .object(forKey: Self.indexCacheSizeKey) as? Int,
+                stampedSHA256: UserDefaults.standard.string(forKey: Self.indexCacheStampKey))
+            if verdict.adoptsFile {
+                if let why = verdict.problem {
+                    // Adopted, but this app cannot show it saved these bytes.
+                    // See CachedCatalog.Verdict: refusing here is what would
+                    // strand an offline device, and the release list's real
+                    // power - naming the catalog URL and the checksum the
+                    // second hop is verified against - is taken away instead,
+                    // by catalogIsUnverified.
+                    debugPrint("[Catalog] Using the cached release list, UNVERIFIED: \(why)")
+                    catalogIsUnverified = true
+                } else {
+                    debugPrint("[Catalog] Using the cached release list")
+                }
+                adoptIndex(index, indexProblem: indexProblem)
+                return
+            }
+            debugPrint("[Catalog] The saved release list was not adopted:"
+                       + " \(verdict.problem ?? "")")
+            // Only a disagreeing stamp deletes, as above.
+            if verdict.discardsFile {
+                try? FileManager.default.removeItem(at: indexCacheURL)
+            }
+            problem = CatalogTransfer.sentence(indexProblem)
+                + " The saved release list could not be used either: "
+                + CatalogTransfer.sentence(verdict.problem ?? "")
         }
         catalogFailure = CatalogFailure(stage: .index,
-                                        detail: indexProblem,
+                                        detail: problem,
                                         servedFromCache: false)
         loadCachedCatalog()
     }
@@ -3921,6 +4536,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 // images 3.5.1 can hand back, for a change neither release
                 // made. Saying nothing is right too: the fetch the switch
                 // started owns the status line now.
+                //
+                // `catalogLoading` is deliberately NOT cleared here, and that is
+                // the one exit from this hop that does not clear it. Every path
+                // that supersedes a fetch - romwbwVersion's didSet,
+                // reapplyOfferedReleases(), stop()'s pendingRomWBWVersion
+                // adoption - ends in fetchDiskCatalog(), which sets the flag
+                // again, so the successor owns it. Clearing it here would report
+                // a fetch finished that is still in the air, and the three
+                // Pickers in Settings that are greyed while it is set would come
+                // back offering the list this response was dropped for.
                 guard self.romwbwVersion == version else {
                     self.debugPrint("[Catalog] Dropping the RomWBW \(version) response;"
                                     + " \(self.romwbwVersion) is in play now")
@@ -3989,6 +4614,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
                               version: String,
                               indexProblem: String?) {
         catalogLoading = false
+        // This document came off the network and through payloadProblem and
+        // documentProblem, and saveCatalogToCache is about to stamp it. Whatever
+        // an earlier offline launch adopted unverified is superseded here, which
+        // is the one way catalogIsUnverified is ever cleared.
+        catalogIsUnverified = false
 
         let disks = Self.downloadableDisks(from: document)
         let generationText = document.generation.map { String($0) } ?? "unstated"
@@ -4079,8 +4709,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
                              url: document.assetURL(for: entry.filename),
                              sizeBytes: entry.size ?? 0,
                              license: entry.license ?? "Unknown",
-                             sha256: entry.sha256,
-                             defaultSlot: entry.defaultSlot)
+                             sha256: entry.sha256)
         }
     }
 
@@ -4177,6 +4806,15 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// The generation is deliberately NOT consulted here. Deleting a
     /// downloaded image is a decision to take from a freshly fetched, verified
     /// document - never from a copy of one this app already acted on.
+    ///
+    /// **Self-consistent is not the same as this app's.** The paragraph above
+    /// is about a cache whose hashes and URLs cannot be paired wrongly, and it
+    /// is still true; it says nothing about whose document it is. This file
+    /// lives in the disk library, which is published over `UIFileSharingEnabled`,
+    /// so a catalog edited in the Files app is self-consistent too - and it
+    /// names both where each image is fetched from and the sha256 it is checked
+    /// against. `CachedCatalog` is what closes that, and the comments there say
+    /// what it does and does not defend against.
     private func loadCachedCatalog() {
         catalogLoading = false
 
@@ -4193,6 +4831,66 @@ class EmulatorViewModel: NSObject, ObservableObject {
                     stage: .catalog(romwbwVersion: romwbwVersion),
                     detail: "No saved copy on this device. Connect to the internet to download it.",
                     servedFromCache: false)
+            }
+            showError(catalogFailure?.displayText
+                      ?? "No disk catalog available. Connect to internet to download.")
+            return
+        }
+
+        // The saved copy answers to the same gates the fetched one did.
+        let verdict = CachedCatalog.catalogVerdict(
+            byteCount: data.count,
+            sha256: Self.sha256Hex(data),
+            stampedSize: UserDefaults.standard
+                .object(forKey: catalogCacheSizeKey(for: romwbwVersion)) as? Int,
+            stampedSHA256: UserDefaults.standard
+                .string(forKey: catalogCacheStampKey(for: romwbwVersion)),
+            document: document,
+            expectedRelease: romwbwVersion,
+            expectedInterface: CatalogMigration.interface)
+        if verdict.adoptsFile, let why = verdict.problem {
+            // Adopted unverified: the device keeps its offline boot, and
+            // catalogIsUnverified stops this document naming a URL to fetch
+            // from or a checksum to fetch against. See CachedCatalog.Verdict.
+            debugPrint("[Catalog] Using the saved RomWBW \(romwbwVersion) catalog,"
+                       + " UNVERIFIED: \(why)")
+            catalogIsUnverified = true
+            let account = "The saved copy on this device is in use, but this app"
+                + " cannot confirm it saved it: " + CatalogTransfer.sentence(why)
+                + " Downloads are off until a fetch succeeds."
+            catalogFailure = CatalogFailure(
+                stage: .catalog(romwbwVersion: romwbwVersion),
+                detail: catalogFailure.map { CatalogTransfer.sentence($0.detail) + " " + account }
+                    ?? account,
+                servedFromCache: true)
+        } else if let problem = verdict.problem {
+            debugPrint("[Catalog] The saved RomWBW \(romwbwVersion) catalog was not adopted:"
+                       + " \(problem)")
+            if verdict.discardsFile {
+                // Only a stamp that is present and DISAGREES gets here; an
+                // absent one leaves the file where it is. See CachedCatalog.Verdict.
+                //
+                // The stamp itself stays: it is what proves the next file
+                // written under this name is not this app's either, and the
+                // fetch that legitimately replaces the cache overwrites both.
+                try? FileManager.default.removeItem(at: cacheURL)
+            }
+            // Said out loud rather than folded into whichever hop failed. The
+            // caller's failure is "the network is down", which on this path is
+            // usually true AND not the reason nothing loaded - and a user whose
+            // catalog file was edited would otherwise be sent looking at their
+            // connection. `failCatalogHop` joins its two sentences the same way.
+            let account = "The saved copy on this device could not be used: "
+                + CatalogTransfer.sentence(problem)
+            if let existing = catalogFailure {
+                catalogFailure = CatalogFailure(
+                    stage: existing.stage,
+                    detail: CatalogTransfer.sentence(existing.detail) + " " + account,
+                    servedFromCache: false)
+            } else {
+                catalogFailure = CatalogFailure(stage: .catalog(romwbwVersion: romwbwVersion),
+                                                detail: account,
+                                                servedFromCache: false)
             }
             showError(catalogFailure?.displayText
                       ?? "No disk catalog available. Connect to internet to download.")
@@ -4260,6 +4958,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// The bytes are written exactly as they arrived, after verification and
     /// never before. Re-encoding the decoded document would drop every field
     /// this app does not know about, and the next release will add some.
+    /// Called from `adoptCatalog` and nowhere else, which is what makes the
+    /// stamp below mean anything: everything upstream of that - the transfer
+    /// check, `payloadProblem`, the decode, `documentProblem` and the empty-list
+    /// refusal - has already passed, so the stamp certifies a document this app
+    /// verified rather than merely one it managed to read.
     private func saveCatalogToCache(_ data: Data, for version: String) {
         do {
             // .atomic: a kill or a full disk partway through a plain write
@@ -4267,7 +4970,16 @@ class EmulatorViewModel: NSObject, ObservableObject {
             // a short disk list. Temp-file-and-rename makes the file wholly old
             // or wholly new.
             try data.write(to: catalogCacheURL(for: version), options: .atomic)
+            stampCache(data,
+                       sha256Key: catalogCacheStampKey(for: version),
+                       sizeKey: catalogCacheSizeKey(for: version))
         } catch {
+            // The stamp is deliberately LEFT ALONE here. `.atomic` means a
+            // failed write leaves the previous file wholly intact, so the stamp
+            // beside it still describes the file that is on the device.
+            // Clearing it would turn a cache this app verified into one it can
+            // no longer vouch for - and a device with no connection would then
+            // have a perfectly good catalog it refuses to read.
             debugPrint("[Catalog] Failed to cache catalog: \(error.localizedDescription)")
         }
     }
@@ -4276,9 +4988,26 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private func saveIndexToCache(_ data: Data) {
         do {
             try data.write(to: indexCacheURL, options: .atomic)
+            stampCache(data,
+                       sha256Key: Self.indexCacheStampKey,
+                       sizeKey: Self.indexCacheSizeKey)
         } catch {
             debugPrint("[Catalog] Failed to cache the release list: \(error.localizedDescription)")
         }
+    }
+
+    /// Note what was just written, AFTER it is written.
+    ///
+    /// The order matters only in one direction and neither order closes the
+    /// window entirely: a `UserDefaults` write is flushed on its own schedule,
+    /// so a process killed between the file and the flush leaves the two
+    /// disagreeing whichever way round they are done. `CachedCatalog` reads
+    /// that as a rejection, and the recovery is the next fetch, which rewrites
+    /// both. Stamping after the write at least means a stamp never describes a
+    /// file that was never written.
+    private func stampCache(_ data: Data, sha256Key: String, sizeKey: String) {
+        UserDefaults.standard.set(Self.sha256Hex(data), forKey: sha256Key)
+        UserDefaults.standard.set(data.count, forKey: sizeKey)
     }
 
     // MARK: - Disk Download Management
@@ -4397,12 +5126,48 @@ class EmulatorViewModel: NSObject, ObservableObject {
         let attempt = 4 - attemptsRemaining
         debugPrint("[Settings Download] '\(disk.filename)' attempt \(attempt)/3")
 
+        // Both halves of this transfer - where it goes and what it is checked
+        // against - come out of the catalog document, so an unstamped one does
+        // not get to start it. See catalogIsUnverified: an offline device still
+        // boots from what it has, and this is the capability that is withheld
+        // instead. One successful fetch clears it.
+        guard !catalogIsUnverified else {
+            downloadStates[disk.filename] =
+                .error("the saved catalog could not be verified; connect to the internet "
+                       + "so it can be refreshed, then try again")
+            return
+        }
+
         guard let url = URL(string: disk.url) else {
             downloadStates[disk.filename] = .error("Invalid URL")
             return
         }
 
         downloadStates[disk.filename] = .downloading(progress: 0)
+
+        // Where this install lands is decided HERE, and the completion handler
+        // below closes over the answer rather than asking again.
+        //
+        // `disksDirectoryURL` reads the chosen index out of UserDefaults through
+        // `CatalogMigration.indexScope`, and `applyCatalogIndexURL` cancels no
+        // transfer already in flight - its only guard is `!isRunning`. So an
+        // index switched 40 MB into a 49 MB fetch would evaluate that property
+        // to the NEW catalog's directory and install the OLD catalog's bytes
+        // there, which is exactly the collision the scoped directory exists to
+        // prevent: hd1k_combo-v0-3.6.0.img names different bytes in romwbw_disks
+        // and in a fork. Captured on the way in, catalog A's download finishes
+        // in catalog A's library, where the hash `diskLedger.recordInstall`
+        // writes for it is also true.
+        //
+        // The completion handler built Documents/Disks by hand, and kept doing
+        // so when `disksDirectoryURL` grew its scope: under a custom index every
+        // download landed in the DEFAULT library while every reader -
+        // `isDiskDownloaded`, `refreshAvailableDisks`, `fileFacts(for:)`,
+        // `deleteDownloadedDisk` - looked in the scoped one and saw nothing.
+        // The simulator check that signed that change off measured an EMPTY
+        // scoped directory and read it as a pass, so it has to be a check that
+        // runs without one: Tests/run_tests.sh's DiskDownloadScope stage.
+        let disksDir = Self.disksDirectoryURL
 
         let task = session.downloadTask(with: url) { [weak self] tempURL, response, error in
             guard let self = self else { return }
@@ -4508,8 +5273,6 @@ class EmulatorViewModel: NSObject, ObservableObject {
             // IMPORTANT: Move file BEFORE returning from completion handler!
             // URLSession deletes the temp file when the completion handler returns.
             let fm = FileManager.default
-            let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
-            let disksDir = docs.appendingPathComponent("Disks", isDirectory: true)
             try? fm.createDirectory(at: disksDir, withIntermediateDirectories: true)
 
             // The catalog is downloaded content, so its <filename> is untrusted

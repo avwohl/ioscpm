@@ -62,10 +62,31 @@ publishes for each, are:
   `01d1ca6d142e9b757d4fd98c2229f2e506dd8c3253839391c8f5d4f6263c6557`
 - `emu_rcz80-v0-3.6.0.rom`, RomWBW 3.6.0, banks 1-15 from `RCZ80_std`
   `9b204cd71d1064d7f4a46d4403f106250e0e53f2239931a6f81aa7bc7dba5fc5`
+- `emu_avw-v0-3.7.0-dev.14.rom`, RomWBW 3.7.0-dev.14, banks 1-15 from
+  `SBC_simh_std`
+  `abdc615a8e30dcba9cca4a472007e0d800cf80f439e5fd2c907ee0a59dfc7ddf`
+- `emu_rcz80-v0-3.7.0-dev.14.rom`, RomWBW 3.7.0-dev.14, banks 1-15 from
+  `RCZ80_std`
+  `19d946cf36c66643137f60addfd8dbe4c6a9e54eac12d90b6575da5344210c08`
 
-Those four hashes and sizes were fetched from the live catalog on 2026-09-08
-and re-verified against it on 2026-09-15 — all four still present, all four
-matching, each 524288 bytes. They are what it serves today.
+The last two are a RomWBW **development snapshot**, which is not something
+upstream calls a release. The catalog flags that entry `prerelease: true` and
+never flags it `default`, and this application does not offer it unless the
+user ticks Settings → RomWBW Release → Show Development Snapshots, which is off
+in a fresh install. A reviewer reaches those two ROMs only deliberately. Their
+rights position is the one described below, unchanged: the same two components,
+the same two copyright holders, the same licence.
+
+The first four hashes and sizes were fetched from the live catalog on
+2026-09-08 and re-verified against it on 2026-09-15 — all four still present,
+all four matching, each 524288 bytes. The two 3.7.0-dev.14 values were read on
+2026-09-19 out of the published catalog document for that release,
+`catalog-v0-3.7.0-dev.14.json`, whose 13262 bytes hash to
+`127e60953c8bdf4339d048a23744dfef0eee1b372c672824ec36303685461365` — the
+`catalog_size` and `catalog_sha256` the index publishes for it — rather than by
+fetching the two ROM files themselves and hashing those. **Whoever files this
+document re-verifies all six against the live catalog on the day they file**,
+and sets the Date line at the end to that day.
 
 Further RomWBW releases may be published to that same catalog later. They are
 built by the same scripts, from the same two sources, under the same licence;
@@ -100,7 +121,7 @@ every ROM listed above; only the RomWBW release it declares differs.
 ### Component 2: RomWBW System Software (Banks 1-15, 480 KB)
 
 **Source:** [RomWBW Project](https://github.com/wwarthen/RomWBW)
-**Versions:** 3.5.1 and 3.6.0
+**Versions:** 3.5.1, 3.6.0 and 3.7.0-dev.14
 **Copyright:** Wayne Warthen and contributors
 **License:** GNU General Public License v3.0
 **SPDX Identifier:** GPL-3.0-or-later
@@ -113,8 +134,12 @@ The GPLv3 license explicitly grants the right to:
 
 Source code is publicly available at: https://github.com/wwarthen/RomWBW
 
-These banks are taken verbatim from the official RomWBW release packages, which
-are downloaded and verified by SHA-256 during the build.
+These banks are taken verbatim from the official RomWBW packages, which are
+downloaded and verified by SHA-256 during the build. For 3.5.1 and 3.6.0 that
+package is an upstream release; for 3.7.0-dev.14 it is an upstream
+*prerelease*, tagged `v3.7.0-dev.14`, pinned by SHA-256 in the same manifests
+and published by the same project under the same licence. Nothing about the
+licence or the copyright depends on which of the two it is.
 
 ## License Compliance
 
@@ -145,7 +170,7 @@ PASS: byte-identical to the published emu_avw for RomWBW 3.5.1
       repository.  That is what docs/ROM_ATTESTATION.md asserts.
 ```
 
-That is the first of the four files above — the one the application downloads
+That is the first of the six files above — the one the application downloads
 when the user selects RomWBW 3.5.1 — rebuilt from source and matching the
 published bytes. It is a statement about what users fetch, which is now the only
 kind of ROM this application has. The run covers that one ROM because that copy
@@ -156,7 +181,7 @@ romwbw_disks builds bank 0 for any release, and romwbw_disks'
 ## Authorization for Apple
 
 I hereby grant Apple Inc. permission to use any ROM this application downloads
-from https://github.com/avwohl/romwbw_disks/releases/ — the four files listed
+from https://github.com/avwohl/romwbw_disks/releases/ — the six files listed
 above, and any later RomWBW release published to that same catalog — for the
 purpose of testing and reviewing this application for the App Store. The
 application ships no ROM file of its own, so there is nothing further to
@@ -168,7 +193,9 @@ Developer: Aaron Wohl
 Repositories:
   https://github.com/avwohl/romwbw_disks (ROM and disk images, and their source)
   https://github.com/avwohl/romwbw_emu (emulator)
-Date: 2026-09-08
+Date: 2026-09-19 (the date this text was last revised; **the filer replaces it
+with the day they file**, having re-verified the six ROMs above against the
+live catalog)
 
 ---
 

@@ -27,6 +27,64 @@ a CHANGELOG entry describing the Xcode 26.6 build of build 67. `CLAUDE.md` has
 the one command that settles it and the trap that makes the obvious reading
 wrong. Measure it; do not read it from here.
 
+## THERE IS A LARGE UNCOMMITTED CHANGE SET IN THE TREE — 2026-09-19
+
+**Read `git status` before anything else.** Twenty-one files are modified and
+nothing is committed. A reboot does not lose it, but `git stash`, a branch
+switch or a "let me start clean" will, and it is roughly 3,500 added lines.
+`CHANGELOG.md`'s `## Unreleased` section describes every change and is the index
+to it; the commit that carries it has not been written.
+
+What it is, in two halves:
+
+- **Fifteen findings closed.** Every code item that was in `todo.txt`, plus the
+  three things the sibling repositories had moved ahead on — `BF_VDASCR`'s
+  signed line count reaching `TerminalScreen.vdaScrollUp` and being discarded, a
+  Start that neither refused a live machine nor said what it was starting, and
+  three documents still claiming the picker offers every release the index
+  publishes. `iOSCPM/Core/` is symlinked into `romwbw_emu` and `cpmemu`, so the
+  RTC `long long` fix and the 44-divergence HBIOS audit arrive by rebuild and
+  needed nothing here; that was checked rather than assumed.
+
+- **Five defects found by reviewing that change set**, none of which the suite
+  or the build could see. Two are worth naming because they were regressions
+  introduced by the work itself: first-launch drives moving to `defaultDiskIDs`
+  filled two drives where `defaultSlot` had filled one, and
+  `downloadDisksAndStart` was all-or-nothing, so the optional games image became
+  a precondition for a fresh install's first boot; and the new cache stamp
+  declined every unstamped cache, which is every install that predates it, so an
+  offline launch after the update had an empty `diskCatalog` and `start()`
+  refused. Both are fixed — a failed download is now fatal only in drive 0, and
+  an unstamped cache is adopted but marked `catalogIsUnverified`, which withholds
+  transfers rather than boots.
+
+**What was measured, on this tree, after the last edit:** `sh Tests/run_tests.sh`
+exits 0 with no FAIL lines and no SKIPs; `xcodebuild` Release succeeds for both
+`platform=iOS Simulator,name=iPhone 17` and `platform=macOS,variant=Mac Catalyst`
+with 0 errors; `sh tools/check-store-version.sh` and `python3
+tools/check-help-assets.py` both exit 0.
+
+**What was NOT measured, and is the first thing to do next:** none of it has
+been driven in the running app. Every new user-visible path — the start banner,
+the three pickers going inactive during a catalog fetch, the local-disk release
+warning in its Settings row and on the status line, the message when a transfer
+is refused because the catalog could not be verified, and the first-launch drive
+choice — has been type-checked and compiled and never once seen on a screen.
+`MANUAL_CHECKS.md` is where the results go.
+
+One smaller honesty note: the review ran three independent verifiers against
+each finding, except one — that the local-disk notice promised an HBIOS/CBIOS
+warning the guest does not always print — where the verifiers could not run. It
+was checked once, by hand, and the wording softened to "can print". It has had
+one pair of eyes on it and not three.
+
+Nothing under `iOSCPM/Core/` was touched (those are symlinks into sibling
+repositories, and editing one edits a sibling), and neither `MARKETING_VERSION`
+nor `CURRENT_PROJECT_VERSION` moved.
+
+`todo.txt` went from 320 lines to 24 in the same pass, and the rules that keep it
+that way are now in `CLAUDE.md` rather than nowhere.
+
 ## THE ONE OPEN QUESTION — disk sizes larger than 8 MB
 
 Unchanged in substance since 2026-09-03. `DiskSize.swift` has been edited once
@@ -75,19 +133,28 @@ needs a hand-written 512-byte MBR.
 show two drive letters. If it does not, the question is answered the other way
 and `DiskSize.swift` needs the hd1k shape with a hand-written MBR.
 
-## One measurement that is not a check
+## The deployment floor is a check now, not a measurement
 
-The whole network API surface type-checks at the real deployment floor.
-`xcrun --sdk macosx swiftc -target arm64-apple-ios15.0-macabi` accepts
+The whole network API surface type-checks at the real deployment floor:
 `allowsExpensiveNetworkAccess`, `allowsConstrainedNetworkAccess`,
 `NWPathMonitor`, `path.isConstrained` and `URLError.networkUnavailableReason`
-with no availability guard, and `IPHONEOS_DEPLOYMENT_TARGET` is 15.0 where every
-one of those is iOS 13.
+are used with no availability guard, and `IPHONEOS_DEPLOYMENT_TARGET` is 15.0
+where every one of those is iOS 13.
 
-**It is not a suite.** `grep -c macabi Tests/run_tests.sh` answers 0, and so
-does a grep for any of those symbols, so this is a measurement somebody made
-once rather than a check that would notice a regression. Wiring it in is a small
-job nobody has done; `todo.txt` carries it as an `[ANY]` item.
+**This used to be a measurement somebody had run once.** It is the
+`=== DeploymentFloorTypechecks ===` stage in `Tests/run_tests.sh`, which
+compiles the same files as `EmulatorViewModelTypechecks` at
+`arm64-apple-ios$FLOOR-macabi`, with `$FLOOR` read out of the pbxproj so raising
+the floor moves the check. The stage before it compiles for the host macOS,
+where nothing in the SDK is too new, so an iOS 16 API added to
+`EmulatorViewModel.swift` passes there and fails here - measured with a probe
+using `Duration`, which does exactly that.
+
+Two arms report SKIP rather than FAIL, both deliberate: a tree with no pbxproj
+has no floor to check against, and Mac Catalyst's own floor rises, so the day it
+passes `IPHONEOS_DEPLOYMENT_TARGET` the toolchain rejects the target string
+outright (`ios13.0-macabi` is refused today; 14.0 is the lowest it accepts) and
+that is not the app using a too-new API.
 
 ## Five files have exactly one compiler
 
