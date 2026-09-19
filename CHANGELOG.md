@@ -17,14 +17,25 @@ it, and the slots list only images already downloaded.
 Order is now: **RomWBW Release → ROM Image → Disk Images → Boot Options →
 Catalog → …**
 
-**Not verified by any automated check, and that is worth stating.**
+**Verified by a real build, after this entry first said it could not be.**
 `Tests/run_tests.sh` type-checks thirteen view-model files and deliberately skips
-the five that import UIKit — `ContentView.swift` among them — because they need
-an iOS SDK. So a moved SwiftUI block is exactly the change this suite cannot see,
-and no Xcode build has run against it either. What was verified instead:
-delimiter counts are byte-identical before and after the move, and a line-multiset
-diff shows the only removal is a redundant comment header and the only additions
-are the new comment. The move neither lost nor duplicated a line.
+the five that import UIKit — `ContentView.swift` among them — so a moved SwiftUI
+block is exactly the change that suite cannot see. It was checked structurally at
+first (delimiter counts byte-identical before and after; a line-multiset diff
+showing one removed comment header and twelve added comment lines, so nothing
+lost or duplicated), and that stood in for a compile only until one was possible.
+
+The Xcode licence was accepted on 2026-09-18 and both variants now build clean:
+iOS Simulator and Mac Catalyst, Release, **0 errors and 0 warnings in
+`ContentView.swift`, `CatalogDocument.swift` and `EmulatorViewModel.swift`** —
+1 pre-existing warning elsewhere in the project. The built product reports 1.6.2
+(73), and `strings` finds the new Settings text in the binary: the toggle, its
+caption, "Retry Fetching Releases" and " - release list not loaded".
+
+One thing the build settles beyond this section: the compile-time release gate is
+**gone** from the binary — no `ROMWBW_SUPPORTED_RELEASES` comment strings survive
+— so the release list is now whatever the index publishes, and a build can no
+longer hide a release by having been compiled before it existed.
 
 ### Development snapshots are offered only if you ask, and off by default
 
