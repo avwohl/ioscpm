@@ -1,16 +1,28 @@
 # Changelog
 
-## Version 1.6.2 (Build 73)
+## Version 1.6.2 (Build 74)
 
 The first build under 1.6.2. The Store serves 1.6.1, released 2026-09-12, and
 a released version cannot take another submission, so this one needed the
 version string and not only the build number; `CLAUDE.md` records the move.
 **Nothing below has been submitted or released** - `sh tools/check-store-version.sh`
-is the only thing that says what users have.
+is the only thing that says what users have, and a TestFlight build is not one
+of the things it can see.
+
+**The number moved 73 -> 74 for the TestFlight upload, and no code moved with
+it.** `CURRENT_PROJECT_VERSION` went from 73 to 74 on its own, in both
+configurations, so that an artifact exists to upload. Everything in this
+section was written, built and measured while the project said 73 — which is
+why the banner quoted below reads `v1.6.2.73`, why the build-clean note further
+down says the product reported `1.6.2 (73)`, and why `CLAUDE.md`,
+`KNOWN_PROBLEMS.md` and every commit message before this one say "build 73".
+They all mean this build. Those are measurements and are left as they were
+taken; rewriting a number somebody read off a screen is how a record stops
+being one.
 
 ### Built, and then actually driven
 
-Everything else in build 73 had been type-checked, compiled and tested, and
+Everything else in this build had been type-checked, compiled and tested, and
 none of it had been on a screen; `WIP.md` said so in as many words and called
 it the first thing to do next. On 2026-09-21, on Xcode 27.0, the
 Release configuration built for `platform=iOS Simulator` and for
@@ -64,8 +76,8 @@ belong rather than here:
 the status-line claim below, which was wrong, and
 `KNOWN_PROBLEMS.md`'s new entry on **"Open File..." and "Create New..."
 presenting nothing under Mac Catalyst** - which is build 36's behaviour, not
-this build's, but which is the only route to build 73's own local-disk release
-warning, so that warning has never been seen on a Mac.
+this build's, but which is the only route to this build's own local-disk
+release warning, so that warning has never been seen on a Mac.
 
 ### tools/simdrive.py: Xcode 27 ships no Simulator.app
 
@@ -103,8 +115,8 @@ way to drive this app on such a machine - it takes ordinary clicks and
 
 `iOSCPM/Core/` is symlinks into `romwbw_emu/src` and `cpmemu/src`, so a sibling
 commit reaches this app by rebuild, with no diff and no version number here to
-notice. Two landed between build 72 and this one, and build 73 is the first
-ioscpm build to carry either. Both released siblings wrote their share up —
+notice. Two landed between build 72 and this one, which is the first ioscpm
+build to carry either. Both released siblings wrote their share up —
 z80cpmw's 1.0.45 and cpmdroid's 1.32 — and this section had 38 headings and
 none about any of it.
 
@@ -387,18 +399,20 @@ floor Mac Catalyst's own rising minimum will not accept (it already refuses
 ### The attestation covers six ROMs, and three documents stop overpromising
 
 `docs/ROM_ATTESTATION.md` enumerated four downloadable ROMs; the catalog has
-published six since 2026-09-18, and build 73's "Show Development Snapshots"
+published six since 2026-09-18, and this build's "Show Development Snapshots"
 toggle makes the 3.7.0-dev.14 pair reachable — so an App Review reader could
 have fetched two ROMs the attestation neither covered nor authorized. It now
 lists all six with sizes and SHA-256s, says which two are a development snapshot
 behind a deliberate opt-in, records where each hash came from, and widens the
-Apple grant from four files to six. Its `Date:` line now reads 2026-09-19, the
-day it was revised, rather than contradicting the provenance note eleven lines
-above it. Filing it is still a person's job and stays in `todo.txt`.
+Apple grant from four files to six. Its `Date:` line moved to the day it was
+revised rather than contradicting the provenance note eleven lines above it —
+2026-09-19 when this entry was written, and 2026-09-21 once all six ROMs had
+been fetched and hashed rather than read out of the catalog. Filing it is still
+a person's job and stays in `todo.txt`.
 
 `CLAUDE.md`, `docs/DISK_CATALOG_PINNING.md` and `docs/DISK_DISTRIBUTION.md` all
 still claimed the picker offers every release the index publishes with no second
-filter, which the snapshot opt-in falsified in build 73; all three now describe
+filter, which the snapshot opt-in falsified in 1.6.2; all three now describe
 the opt-in and distinguish it from the compile-time release list romwbw_emu v1.44
 deleted.
 
@@ -681,8 +695,8 @@ it had only `swiftc -parse`, which is syntax and not types, plus
 `viewModel.romWBWReleaseSummary`. The paragraph went on to say which toolchain
 the machine had, which `CLAUDE.md` says not to write down here and which was
 overtaken inside this same section. Both variants have since built Release at 0
-errors (see "Both variants build clean" and, for build 73, "Built, and then
-actually driven"). The About screen's two states are still in
+errors (see "Both variants build clean" and, in this same section, "Built, and
+then actually driven"). The About screen's two states are still in
 `MANUAL_CHECKS.md` for a person with a device.
 
 ### Four more user guides with the same wrong boot key

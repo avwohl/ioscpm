@@ -90,7 +90,8 @@ load-bearing there; it is the one place in this family the tool is named.
 
 ### Neither "Open File..." nor "Create New..." presents anything under Mac Catalyst
 
-Measured 2026-09-21 on a Release Mac Catalyst build of build 73, on Xcode 27
+Measured 2026-09-21 on a Release Mac Catalyst build of this tree - numbered 73
+when it was driven, 74 as it ships - on Xcode 27
 and macOS 26, with the click placed by finding the control's own pixels rather
 than by guessing: pressing **Open File...** in Settings dismisses Settings and
 **no picker, panel or sheet ever appears** - `every window of process "iOSCPM"`
@@ -98,7 +99,7 @@ stays `Z80CPM` for ten seconds and `every sheet of window 1` is empty.
 **Create New...** does the same. Settings reopens normally afterwards, so
 nothing is wedged; the file dialog simply never arrives.
 
-**This is not new in build 73 and not a reason to hold a release.** The
+**This is not new in 1.6.2 and not a reason to hold a release.** The
 `presentationMode.wrappedValue.dismiss()` that sits beside
 `viewModel.openLocalDisk(unit:)` arrived in `b5dac37` (2026-03-16, build 36),
 in a commit whose message is "Fix macOS disk dialog freeze" - so the dismissal
@@ -116,7 +117,7 @@ is presumably still there behind it, and nothing here has reproduced it.
 to drive an iOS simulator since Xcode 27 removed `Simulator.app` - see
 `WIP.md` - so this is a Catalyst measurement and nothing more. It matters
 beyond the two buttons because **"Open File..." is the only route to the
-local-disk release warning** added in build 73, which therefore has never been
+local-disk release warning** added in 1.6.2, which therefore has never been
 seen on a Mac.
 
 ## User Data Persistence
@@ -230,7 +231,7 @@ and it would pay for it with the thing the interface was built to deliver.
 
 ### The stamp guards the second hop's BYTES, not the first hop's INSTRUCTIONS
 
-Build 73 stamps both cache files and, where a stamp is absent, adopts the file
+1.6.2 stamps both cache files and, where a stamp is absent, adopts the file
 and sets `catalogIsUnverified` rather than refusing it. What that flag then
 does is narrower than the code comment beside it claims. The comment on
 `continueFromCachedIndex` says the release list's "real power - naming the

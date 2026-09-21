@@ -27,7 +27,7 @@ a CHANGELOG entry describing the Xcode 26.6 build of build 67. `CLAUDE.md` has
 the one command that settles it and the trap that makes the obvious reading
 wrong. Measure it; do not read it from here.
 
-## Build 73 has been driven, and what that found — 2026-09-21
+## Build 74 has been driven, and what that found — 2026-09-21
 
 **The change set this section used to warn about is committed.** It said
 "twenty-one files are modified and nothing is committed" and told the reader to
@@ -65,7 +65,7 @@ and the Catalyst build was driven by hand. What that settled:
   that entry; the short version is that `emu_status()` in the shared core writes
   to the same line and fires after `startEmulator()` returns.
 - **"Open File..." and "Create New..." present nothing on Mac Catalyst.** See
-  `KNOWN_PROBLEMS.md`. This is not new in build 73 and is not a reason to hold
+  `KNOWN_PROBLEMS.md`. This is not new in 1.6.2 and is not a reason to hold
   it, but it is the route the new local-disk release warning is reached by, so
   that feature is unverified on this platform.
 

@@ -15,9 +15,11 @@ It has moved twice, and the two moves are not the same kind of thing:
   the app: no ROM and no disk image ships in the bundle any more, and the user
   chooses which RomWBW release to run.  A build-number bump could not carry
   that.
-- **1.6.1 → 1.6.2 on 2026-09-18, build 73, at `1a5603c`.**  Its commit message
-  records the reasoning but does NOT record a human asking in those words, so
-  do not read it as a precedent for bumping at will.  What made it necessary is
+- **1.6.1 → 1.6.2 on 2026-09-18, at `1a5603c`**, where the build number was 73;
+  it ships as 74, because the build number moved again for the TestFlight
+  upload and the version did not.  That commit's message records the reasoning
+  but does NOT record a human asking in those words, so do not read it as a
+  precedent for bumping at will.  What made it necessary is
   a fact anyone can re-measure: `tools/check-store-version.sh` says the Store
   RELEASED 1.6.1 on 2026-09-12, six days earlier, and **App Store Connect will
   not take another submission under a version it has already released.**  At
@@ -38,7 +40,7 @@ only thing that moves between submissions of the same version, and it is what
 every CHANGELOG entry here is keyed to:
 
 ```
-CURRENT_PROJECT_VERSION = 73;      <- bump this, once, for a new build
+CURRENT_PROJECT_VERSION = 74;      <- bump this, once, for a new build
 MARKETING_VERSION = 1.6.2;         <- leave alone
 ```
 
@@ -166,7 +168,7 @@ Three rules follow from it, and each has been broken here at least once:
   exception that is a user's choice rather than a compile-time list: an entry
   the index flags `prerelease` is a RomWBW development snapshot, never the
   index `default`, and `RomWBWIndex.offered` drops it unless Settings →
-  RomWBW Release → Show Development Snapshots is ticked, which build 73 added
+  RomWBW Release → Show Development Snapshots is ticked, which 1.6.2 added
   and which is off in a fresh install.  `CATALOG_SCHEMA.md` §2.3 requires that
   opt-in of every client.  It hides nothing a shipped binary could not run, and
   turning it on needs no app release.

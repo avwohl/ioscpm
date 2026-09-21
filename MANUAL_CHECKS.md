@@ -35,7 +35,7 @@ window correctly (it no longer assumes the screen is centred), so `calibrate`,
 `shot` and `where` answer and `tap`, `press` and `swipe` do nothing visible.
 **Drive the Mac Catalyst build instead**: it is an ordinary Mac app, it takes
 synthetic clicks and `System Events` keystrokes, and it runs the same views -
-that is how build 73 was driven.  Run `simdrive.py calibrate` before trusting
+that is how build 74 was driven.  Run `simdrive.py calibrate` before trusting
 any of this; it is the machine you are on that decides.
 
 Most of this needs a Mac, not a device.  **Whether the machine you are on is
@@ -55,12 +55,14 @@ really does need hardware: check 3 needs an iPad with a hardware keyboard, check
 4 a real device, and check 8 a phone or a keyboard-less iPad - the point of that
 one is the case where there is no hardware keyboard to fall back on.
 
-**Build 73 has been run, on Mac Catalyst.**  On 2026-09-21, on Xcode 27.0, the
+**Build 74 has been run, on Mac Catalyst.**  It said 73 while it was being
+driven - the number moved for the TestFlight upload and nothing else did, so
+the screenshots and quoted lines below say 73.  On 2026-09-21, on Xcode 27.0, the
 Release configuration was built for the iOS Simulator and for Mac Catalyst and
 the Catalyst build was driven: a first launch on a wiped container, both
 first-launch drives, the start banner, the boot into CP/M, the Settings
 ordering, and the development-snapshot opt-in on, selected and off again.
-`CHANGELOG.md`'s build 73 entry has what it found, including the one claim that
+`CHANGELOG.md`'s build 74 entry has what it found, including the one claim that
 turned out to be false.  **It was not run on an iOS simulator** - see the
 gesture note above - so every box below that says iPhone or iPad is still open
 even where its Catalyst twin is answered.
@@ -70,7 +72,7 @@ worked through and 8 of its 11 boxes are ticked with what was measured.
 
 `sh tools/check-store-version.sh` is the only thing that says what USERS have.
 Measured 2026-09-21: the App Store serves 1.6.1, released 2026-09-12, against a
-tree at 1.6.2 build 73 - which the script brackets as "at most build 70", since
+tree at 1.6.2 build 74 - which the script brackets as "at most build 70", since
 1.6.1 heads builds 67-72 and the lookup does not say which. Run it rather than
 reading this line; built is not shipped.  **Observations
 below carrying a date or a build number older than 67 were made on an EARLIER
