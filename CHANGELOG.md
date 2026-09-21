@@ -1,6 +1,165 @@
 # Changelog
 
-## Unreleased
+## Version 1.6.2 (Build 73)
+
+The first build under 1.6.2. The Store serves 1.6.1, released 2026-09-12, and
+a released version cannot take another submission, so this one needed the
+version string and not only the build number; `CLAUDE.md` records the move.
+**Nothing below has been submitted or released** - `sh tools/check-store-version.sh`
+is the only thing that says what users have.
+
+### Built, and then actually driven
+
+Everything else in build 73 had been type-checked, compiled and tested, and
+none of it had been on a screen; `WIP.md` said so in as many words and called
+it the first thing to do next. On 2026-09-21, on Xcode 27.0, the
+Release configuration built for `platform=iOS Simulator` and for
+`platform=macOS,variant=Mac Catalyst` with 0 errors and no warning of this
+code's own, and the Catalyst build was driven by hand.
+
+A **first launch on a wiped container** fetched the index and the catalog,
+filled two drives from `defaultDiskIDs`, downloaded a 49 MB and an 8 MB image,
+and booted. The banner read
+
+    Z80CPM v1.6.2.73 2026-09-21 13:46
+    Starting RomWBW 3.6.0 - emu_avw-v0-3.6.0.rom
+      Disk 0: hd1k_combo-v0-3.6.0.img
+      Disk 1: hd1k_games-v0-3.6.0.img
+
+with `RetroBrew SBC [SBC_simh_std] Boot Loader` printed UNDER it rather than
+over it - the thing cpmdroid predicted from a Galaxy Tab and this repository
+could not check for itself. `C<ret>` reached `CP/M-80 v2.2, 54.0K TPA` with ten
+drive letters, `C:`-`F:` off HDSK0 and `G:`-`J:` off HDSK1, and CBIOS printed
+`v3.6.0 [WBW]` against HBIOS 3.6.0. Play was greyed for the whole download
+window, under a `Downloading 19% / Combo (Recommended)` overlay.
+
+Settings showed RomWBW Release above ROM and the slots, with **Show Development
+Snapshots off in a fresh install**; ticking it added
+`RomWBW 3.7.0-dev.14 (development snapshot)` to a list otherwise holding 3.6.0
+and 3.5.1, selecting it moved the ROM row to
+`emu_avw-v0-3.7.0-dev.14.rom - 512 KB to download`, and unticking it moved the
+selection and the ROM row back to 3.6.0.
+
+**The iOS side got one measurement, and it is the upgrade rather than the
+install.** The same build was installed on an iPhone 17 Pro simulator running
+iOS 26.5, onto a container left by an older build — `disks_catalog.xml` from
+before interface v0, `hd1k_combo-v0-3.5.1.img` and `hd1k_games-v0-3.5.1.img` in
+`Documents/Disks`, a legacy `catalogCacheTag` of `v1.4.12`, and NVRAM under
+both `.v0.3.5.1` and `.v0.3.6.0`. It launched, drew its toolbar and terminal,
+fetched `index-v0.json` and `catalog-v0-3.6.0.json`, wrote
+`indexCacheSHA256.v0` = `a9f09000…`/6358 and `catalogCacheSHA256.v0.3.6.0` =
+`4b4de296…`/15062 — both equal to what the live catalog publishes today, which
+is the stamping working end to end — filled `catalogDiskStems.v0` with 25
+stems, and left the two 3.5.1 images where they were. **Nothing on it was
+tapped**: no session can drive an iOS simulator on an Xcode 27 machine, so
+every iOS box in `MANUAL_CHECKS.md` is still open.
+
+A review of the whole build ran alongside the driving, over six dimensions with
+three independent verifiers per finding. What it found that is code rather than
+prose is filed as eight items in `todo.txt` — none of them a regression this
+build introduced, and one, the scope of the cache stamp, written up in
+`KNOWN_PROBLEMS.md` because its obvious repair is one step from a mistake this
+feature already made once. Two more the driving found are recorded where they
+belong rather than here:
+the status-line claim below, which was wrong, and
+`KNOWN_PROBLEMS.md`'s new entry on **"Open File..." and "Create New..."
+presenting nothing under Mac Catalyst** - which is build 36's behaviour, not
+this build's, but which is the only route to build 73's own local-disk release
+warning, so that warning has never been seen on a Mac.
+
+### tools/simdrive.py: Xcode 27 ships no Simulator.app
+
+`simdrive.py` looked for a window owned by `Simulator` and, finding none, said
+`no Simulator window on screen. Run: open -a Simulator`. There is nothing to
+open: **Xcode 27 does not ship `Simulator.app` at all** and draws the device
+inside `DeviceHub`. Two things had to change, and only the first is a rename:
+
+- The window is matched on an owner spelled with the spaces removed and the
+  case folded, because the same app answers to two spellings -
+  `kCGWindowOwnerName` is `Device Hub` and the process is `DeviceHub` - and it
+  is raised by PID through System Events, since
+  `tell application "Device Hub"` does not resolve.
+- **The screen is no longer assumed to be centred in the window.** It was, and
+  that was right when the window WAS the device; DeviceHub puts a list of
+  devices down the left, so `width = W - 2 * left` measures the sidebar. The
+  old bezel reading is kept as one seed - it costs nothing and it is the one
+  that was measured to work - and a second seed searches a 320-pixel copy of
+  the window for the rect that best reproduces the device's own screenshot.
+  Both are hill-climbed at full judging size and the better one wins, so the
+  self-check that made this file worth trusting still decides the answer. It
+  calibrates at ~98% agreement and follows the rect when the sidebar is
+  collapsed.
+
+**It still cannot drive a simulator, and that is not something this file can
+fix.** DeviceHub's mirror ignores synthetic mouse events: measured against
+`kCGHIDEventTap`, `kCGSessionEventTap` and `kCGAnnotatedSessionEventTap`, with
+`CGEventSource`s for all three source states, while a click on DeviceHub's own
+toolbar in the same run worked. So `calibrate`, `shot` and `where` answer;
+`tap`, `press` and `swipe` post events nothing receives. Mac Catalyst is the
+way to drive this app on such a machine - it takes ordinary clicks and
+`System Events` keystrokes - and that is how everything above was run.
+
+### The shared core moved under this build, and no commit here records it
+
+`iOSCPM/Core/` is symlinks into `romwbw_emu/src` and `cpmemu/src`, so a sibling
+commit reaches this app by rebuild, with no diff and no version number here to
+notice. Two landed between build 72 and this one, and build 73 is the first
+ioscpm build to carry either. Both released siblings wrote their share up —
+z80cpmw's 1.0.45 and cpmdroid's 1.32 — and this section had 38 headings and
+none about any of it.
+
+- **`b30cb3c`, romwbw_emu v1.47: 44 divergences from RomWBW v3.6.0's HBIOS,
+  written down and fixed.** A dozen guest-visible behaviours changed. Two
+  surface as a NEW symptom rather than a fixed one, and are the ones to read
+  `romwbw_emu/DOWNSTREAM.md` about: `BF_DIOSEEK` now honours CHS addressing
+  (bit 7 of `D` clear), so a guest that seeked by CHS and appeared to work by
+  accident may behave differently; and `BF_SYSGET`/`BF_SYSSET` now return
+  `ERR_NOFUNC` for subfunctions they do not implement where they used to return
+  success, with `BF_SYSINT` returning `ERR_NOTIMPL`. Also in it:
+  `BF_DIOGEOM`'s registers, `SYSBNKCPY` advancing HL/DE, `setResult` writing
+  S/C/N/H/P-V instead of only A and Z, and `BF_SNDPLAY` becoming four real
+  voices. The one piece this app already had an entry for is the signed
+  `BF_VDASCR` line count — see "HBIOS reverse scroll did nothing".
+- **`e41f686`: the RTC offset overflowed on every 32-bit `long`.** It arrives
+  here — `iOSCPM/Core/hbios_dispatch.h` declares `long long rtc_offset_seconds`
+  and `hbios_dispatch.cc` has `days_from_civil` returning `long long` — but
+  **it was never a bug in THIS port**, and the entry says so rather than
+  claiming a fix nobody here needed. Every Apple ABI this app builds is LP64,
+  so `long` was already 64 bits; the ports it broke were Windows (LLP64, which
+  z80cpmw's 1.0.45 opens with) and cpmdroid's two 32-bit ABIs.
+
+### Why the release list is short, said where the list is
+
+A user report: "stuck on 3.5.1, with no way to change it". The only notice that
+the index fetch had failed, and the only Retry, lived in the "Download Disk
+Images" Section about 165 lines below the release picker — so the picker showed
+one row, said nothing, and offered nothing to press. The RomWBW Release Section
+now draws `catalogFailure.summary` with a warning triangle and its own
+`Button("Retry Fetching Releases")` whenever the failure's stage is `.index`,
+which is the stage that decides how long the list is.
+
+And the single row it was stuck on is now marked as what it is.
+`RomWBWIndexEntry.isPlaceholder` is set only by `placeholder(romwbwVersion:)`
+and never decoded from JSON, and `pickerLabel` gives it
+`RomWBW 3.5.1 - release list not loaded` instead of a row indistinguishable
+from the published 3.5.1. That reverses a rule this repository had tested the
+other way — "an entry with no status claims nothing about itself" — and the
+reversal is deliberate: a seeded placeholder is not an entry with no status, it
+is an entry the app invented because it could not read the index, and saying so
+is the whole point. Commit `b31d1b6`.
+
+### README.md stopped being a second catalog
+
+`CLAUDE.md`'s rule is that a second source of truth about what RomWBW release is
+in play is the bug, and `README.md` was one: it carried its own list of disk
+images beside the catalog's. `e05e49e` rewrote it to say what the app is and
+deleted the duplicate catalog; `2671d38` fixed a no-boot console message it
+quoted, which belonged to a different release than the one it was describing.
+Two smaller ones in the same range and for the same reason: `cc749cf` and
+`c589818` took five stale measurements out of `MANUAL_CHECKS.md`'s preamble and
+fixed one box that asked for a state the UI prevents, and `faf6d79` corrected
+`CLAUDE.md`'s worked example, which showed a build number five behind the
+project in the very section about not letting that happen.
 
 ### The saved catalog is checked, and an unstamped one is used but not trusted
 
@@ -53,11 +212,25 @@ closed every disk and cold-restarted the guest — reachable by pressing Reset
 during a disk download, which hands Play back, and then Play again.
 `startEmulator()` now guards on `isRunning`. And where Start used to print only
 `Z80CPM v<ver>.<build>`, it prints `Starting RomWBW <release> - <rom>` and one
-`Disk N: <file>` line per drive that took an image, with the status line reading
-`Running RomWBW <release>` where the guest cannot overwrite it. The wording is
+`Disk N: <file>` line per drive that took an image. The wording is
 `RomWBWRelease.startBanner`, so the tests can drive it, and it names the
 SELECTED release rather than the ROM's two HCB bytes, which cannot spell a
 `-dev.14` suffix. Matches z80cpmw's 542325c/1725bf7 and cpmdroid's efe9554.
+
+**The banner survives the boot. The status line does not, and this entry used
+to say it would.** It claimed `startEmulator()` also writes
+`Running RomWBW <release>` to the status line "where the guest cannot overwrite
+it". Driven on a Mac Catalyst Release build of this tree on 2026-09-21, twice —
+once on an upgraded container and once on a wiped one — the terminal banner is
+still there under `RetroBrew SBC [SBC_simh_std] Boot Loader`, which is the half
+that matters and the half cpmdroid predicted; and the status line reads
+`[HBIOS] Loaded disk 0: 51380224 bytes (in-memory)`. The shared core's
+`emu_status()` in `hbios_dispatch.cc` writes to that same line, and it fires
+when the guest first touches a drive, which is after `startEmulator()` has
+returned. The status write is still made and is still the right thing to write;
+it is simply not out of the guest's reach, so the CLAIM is withdrawn rather than
+the code changed at this end of a release. `todo.txt` carries what to do about
+it.
 
 ### Pressing Play twice during a download started a second machine over the first
 
@@ -252,7 +425,7 @@ Order is now: **RomWBW Release → ROM Image → Disk Images → Boot Options �
 Catalog → …**
 
 **Verified by a real build, after this entry first said it could not be.**
-`Tests/run_tests.sh` type-checks thirteen view-model files and deliberately skips
+`Tests/run_tests.sh` type-checks fifteen view-model files and deliberately skips
 the five that import UIKit — `ContentView.swift` among them — so a moved SwiftUI
 block is exactly the change that suite cannot see. It was checked structurally at
 first (delimiter counts byte-identical before and after; a line-multiset diff
@@ -358,10 +531,12 @@ is load-bearing - without it `3.7.01` would match a `3.7.0` ROM. Nine assertions
 in `CatalogDocumentTests`, and reverting the helper to the old `==` fails
 exactly one of them.
 
-**Still open:** the index may carry `prerelease: true` entries and nothing here
-hides them behind an opt-in yet, so a snapshot is listed beside the releases. It
-is never the default - the publisher enforces that - and it now boots. `todo.txt`
-carries the opt-in.
+**Closed later in this same build** by "Development snapshots are offered only
+if you ask": `RomWBWIndex.offered(_:includingPrereleases:)` drops a
+`prerelease: true` entry unless Settings -> RomWBW Release -> Show Development
+Snapshots is ticked, which is off in a fresh install. This paragraph read
+"Still open: ... nothing here hides them behind an opt-in yet" and was true for
+the few hours between the two commits.
 
 
 ### The release filter is gone: every published RomWBW release is offered
@@ -398,7 +573,9 @@ What changed here:
   wholesale would have made an entry with nothing to fetch selectable — it would
   fall through to a catalog-hop failure instead of never being offered — so the
   `catalog_url` guard survives and `CatalogDocumentTests` still pins it on the
-  3.4.0 fixture. The signature is now `offered(_:)` with no `supported:` closure.
+  3.4.0 fixture. The signature became `offered(_:)` with no `supported:`
+  closure, and later in this same build gained `includingPrereleases:` for the
+  development-snapshot opt-in.
 - **Both bridge methods went**: `+romWBWReleases` and
   `+supportsRomWBWVer:upd:` (`supportsRomWBW(ver:upd:)` to Swift), from
   `RomWBWEmulator.h` and `RomWBWEmulator.mm` together.
@@ -496,15 +673,17 @@ carries, by design — describing the build the Store serves, which still has th
 filter in it. Rewriting it would make an August post describe an unshipped
 change. The next post is a new file.
 
-**Not done, and deliberately.** `Tests/run_tests.sh` passes in full on this
-machine (21 suites, no skips), but it cannot compile the five files that import
-UIKit — `ContentView.swift` among them, which is the one that changed. This
-machine has Command Line Tools and no Xcode, so `xcodebuild` does not run and
-neither does the app. `ContentView.swift` was checked with `swiftc -parse`,
-which is syntax and not types; `AboutView(viewModel:)` and
-`viewModel.romWBWReleaseSummary` are covered by `check_view_bindings.sh`'s
-name check and by nothing that type-checks them. The About screen's two states
-are in `MANUAL_CHECKS.md` for a person with a device.
+**Not done when this was written, and done since.** `Tests/run_tests.sh`
+passed in full but cannot compile the five files that import UIKit —
+`ContentView.swift` among them, which is the one that changed — so at the time
+it had only `swiftc -parse`, which is syntax and not types, plus
+`check_view_bindings.sh`'s name check over `AboutView(viewModel:)` and
+`viewModel.romWBWReleaseSummary`. The paragraph went on to say which toolchain
+the machine had, which `CLAUDE.md` says not to write down here and which was
+overtaken inside this same section. Both variants have since built Release at 0
+errors (see "Both variants build clean" and, for build 73, "Built, and then
+actually driven"). The About screen's two states are still in
+`MANUAL_CHECKS.md` for a person with a device.
 
 ### Four more user guides with the same wrong boot key
 

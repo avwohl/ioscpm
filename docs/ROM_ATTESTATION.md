@@ -28,7 +28,7 @@ build 66 (`7b9feb3`, 2026-09-07).
 
 That sentence used to end "the version the App Store serves today still
 contains it". It no longer does: `sh tools/check-store-version.sh` on
-2026-09-15 reports 1.6.1, released 2026-09-12, at most build 70, and 1.6.1
+2026-09-21 reports 1.6.1, released 2026-09-12, at most build 70, and 1.6.1
 heads builds 67-72 — so the shipping binary is at least 67 and past the
 removal. Every copy Apple can currently download fetches its ROM from the
 catalog below.
@@ -77,16 +77,24 @@ in a fresh install. A reviewer reaches those two ROMs only deliberately. Their
 rights position is the one described below, unchanged: the same two components,
 the same two copyright holders, the same licence.
 
-The first four hashes and sizes were fetched from the live catalog on
-2026-09-08 and re-verified against it on 2026-09-15 — all four still present,
-all four matching, each 524288 bytes. The two 3.7.0-dev.14 values were read on
-2026-09-19 out of the published catalog document for that release,
-`catalog-v0-3.7.0-dev.14.json`, whose 13262 bytes hash to
-`127e60953c8bdf4339d048a23744dfef0eee1b372c672824ec36303685461365` — the
-`catalog_size` and `catalog_sha256` the index publishes for it — rather than by
-fetching the two ROM files themselves and hashing those. **Whoever files this
-document re-verifies all six against the live catalog on the day they file**,
-and sets the Date line at the end to that day.
+**All six were re-verified on 2026-09-21, and for the first time by fetching
+the ROM files themselves.** Earlier revisions verified the first four against
+the catalog's published values and read the two 3.7.0-dev.14 values out of
+`catalog-v0-3.7.0-dev.14.json` without fetching those two ROMs at all. On
+2026-09-21 the index at
+`https://github.com/avwohl/romwbw_disks/releases/latest/download/index-v0.json`
+was fetched; each of the three catalogs it names was fetched and its own bytes
+checked against the `catalog_size` and `catalog_sha256` the index publishes
+(11826/`942803d1…`, 15062/`4b4de296…`, 13262/`127e6095…` — all three agreed);
+and then every one of the six ROM files above was downloaded from the URL its
+catalog gives and hashed. All six are present, all six are exactly 524288
+bytes, and all six SHA-256 values match the ones printed above and the ones the
+catalogs publish.
+
+**Whoever files this document re-verifies all six against the live catalog on
+the day they file**, and sets the Date line at the end to that day. The
+verification above is not a filing: no session has App Store Connect
+credentials, so this document has still never been filed.
 
 Further RomWBW releases may be published to that same catalog later. They are
 built by the same scripts, from the same two sources, under the same licence;
@@ -193,9 +201,9 @@ Developer: Aaron Wohl
 Repositories:
   https://github.com/avwohl/romwbw_disks (ROM and disk images, and their source)
   https://github.com/avwohl/romwbw_emu (emulator)
-Date: 2026-09-19 (the date this text was last revised; **the filer replaces it
-with the day they file**, having re-verified the six ROMs above against the
-live catalog)
+Date: 2026-09-21 (the date this text was last revised and the six ROMs above
+were last fetched and hashed; **the filer replaces it with the day they file**,
+having re-verified them again)
 
 ---
 

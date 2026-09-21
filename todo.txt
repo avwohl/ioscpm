@@ -11,9 +11,40 @@ Tag each item with what a machine must have to take it.  Cite a symbol or a
 greppable string, never a file:line.
 
 
-- [RELEASE] docs/ROM_ATTESTATION.md is written and current for build 73 but has
-  never been filed.  Attach it to the next review; re-date it and re-verify its
-  six ROM hashes against the live catalog first.
+- [RELEASE] docs/ROM_ATTESTATION.md has still never been filed.  All six ROMs
+  were fetched and hashed on 2026-09-21; attach it to the next review and set
+  its Date line to that day.
+
+- [ANY] catalogIsUnverified is read in ONE place, downloadDiskFromSettings.
+  fetchCatalog runs off an unverified index and adoptCatalog then clears it.
+
+- [ANY] the unverified-cache account ("Downloads are off until a fetch
+  succeeds") is composed into CatalogFailure.detail and no view renders it.
+
+- [ANY] romwbwVersionChosenKey is a bare boolean; applyRomWBWVersionSwitch
+  writes romwbwVersionKey on AUTOMATIC switches too, pinning the device.
+
+- [ANY] slotZeroFallbackIsSafe only covers the unlistable-directory case, so an
+  unresolvable slot-0 name is overwritten and persisted away.
+
+- [ANY] neededDownloads in start() does not de-duplicate by filename: the same
+  image in two drives is fetched twice on a first Play.
+
+- [ANY] clearLocalDisk(unit:) has no caller, so a slot bound from Files cannot
+  be un-bound, and the Picker under it reads "None" while that file boots.
+
+- [ANY] eleven W8 host-file members (showingHostFileImporter and its nine
+  neighbours, two handlers) are published and reached by no view.
+
+- [MAC] five INFOPLIST_KEY_* settings in the pbxproj do nothing next to
+  GENERATE_INFOPLIST_FILE = NO; delete them so Info.plist is visibly the source.
+
+- [MAC] "Open File..." and "Create New..." present no picker under Catalyst -
+  present AFTER the fullScreenCover dismissal, not beside it (KNOWN_PROBLEMS).
+
+- [MAC] "Running RomWBW <release>" on the status line is overwritten by the
+  core's emu_status() when the guest first touches a drive.  Give it a region
+  the guest cannot reach, or stop claiming one.
 
 - [DEVICE] nothing here has ever run on physical iOS hardware.  MANUAL_CHECKS.md's
   [DEVICE] boxes - section 17's press-and-drag above all - are what only a real

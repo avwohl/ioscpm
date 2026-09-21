@@ -9,14 +9,15 @@ a one-line pointer at this one.
 `CHANGELOG.md`; what it left open goes in `todo.txt`.  A check that has been run
 and left in place turns this file into the accumulating record `todo.txt` was.
 
-**Some of these need a gesture, not a person, and a gesture can be synthesised.**
-`tools/simdrive.py` drives the booted Simulator with real touch events - taps,
+**Some of these need a gesture, not a person, and whether a gesture can be
+synthesised depends on your Xcode - measure it, do not read it here.**
+`tools/simdrive.py` drives a booted simulator with real touch events - taps,
 presses, press-and-drag, flicks - addressed in the pixel coordinates of a
 `simctl` screenshot, so you point at what you can see.  Build 61's text
 selection was verified with it end to end.  Two limits keep it honest: it
-calibrates the device screen inside the Simulator window and **fails rather than
+calibrates the device screen inside the window and **fails rather than
 guessing** when its own measurement disagrees with the device's screenshot, and
-synthetic **key** events still do not reach the app at all (check 3), so type by
+synthetic **key** events do not reach the app at all (check 3), so type by
 tapping the on-screen keyboard.  What it cannot be is a finger - see the note in
 section 17 - so it retires a check only where the check is about behaviour and
 not about touch itself.
@@ -24,6 +25,18 @@ not about touch itself.
     tools/simdrive.py calibrate            # and it will tell you if it is lost
     tools/simdrive.py shot /tmp/s.png      # read your coordinates off this
     tools/simdrive.py press 238 1000 346 1000
+
+**On Xcode 27 the events go nowhere, and `calibrate` will still say yes.**
+Xcode 27 ships no `Simulator.app`; the device is drawn inside `DeviceHub`, whose
+mirror ignores synthetic mouse events - measured 2026-09-21 against all three
+event taps and all three `CGEventSource` states, while a click on DeviceHub's
+own toolbar in the same run worked.  `simdrive.py` finds and calibrates that
+window correctly (it no longer assumes the screen is centred), so `calibrate`,
+`shot` and `where` answer and `tap`, `press` and `swipe` do nothing visible.
+**Drive the Mac Catalyst build instead**: it is an ordinary Mac app, it takes
+synthetic clicks and `System Events` keystrokes, and it runs the same views -
+that is how build 73 was driven.  Run `simdrive.py calibrate` before trusting
+any of this; it is the machine you are on that decides.
 
 Most of this needs a Mac, not a device.  **Whether the machine you are on is
 one is a question to measure, not to read here** — this paragraph and the one
@@ -42,32 +55,39 @@ really does need hardware: check 3 needs an iPad with a hardware keyboard, check
 4 a real device, and check 8 a phone or a keyboard-less iPad - the point of that
 one is the case where there is no hardware keyboard to fall back on.
 
-**Build 67 has been run.**  On 2026-09-07, on a Mac with Xcode 26.6, this tree
-was built for the iOS Simulator, for an arm64 device and for Mac Catalyst,
-installed on an iPhone 17 simulator, and driven.  Section 18 was worked
-through - 8 of its 11 boxes are ticked with what was measured.  Sections 19 and
-20 were not: counted 2026-09-15, §19 is 4 ticked and 16 open, and §20 is 0
-ticked and 10 open, recording its happy path in prose instead.  Builds 62 through 66 never reached a simulator,
-which is why so much of this file was written as unrunnable.
+**Build 73 has been run, on Mac Catalyst.**  On 2026-09-21, on Xcode 27.0, the
+Release configuration was built for the iOS Simulator and for Mac Catalyst and
+the Catalyst build was driven: a first launch on a wiped container, both
+first-launch drives, the start banner, the boot into CP/M, the Settings
+ordering, and the development-snapshot opt-in on, selected and off again.
+`CHANGELOG.md`'s build 73 entry has what it found, including the one claim that
+turned out to be false.  **It was not run on an iOS simulator** - see the
+gesture note above - so every box below that says iPhone or iPad is still open
+even where its Catalyst twin is answered.
+
+Build 67 was the last one driven on a simulator, on 2026-09-07: section 18 was
+worked through and 8 of its 11 boxes are ticked with what was measured.
 
 `sh tools/check-store-version.sh` is the only thing that says what USERS have.
-Measured 2026-09-15: the App Store serves 1.6.1, released 2026-09-12, against a
-tree at 1.6.1 build 72 - which the script brackets as "at most build 70", since
+Measured 2026-09-21: the App Store serves 1.6.1, released 2026-09-12, against a
+tree at 1.6.2 build 73 - which the script brackets as "at most build 70", since
 1.6.1 heads builds 67-72 and the lookup does not say which. Run it rather than
 reading this line; built is not shipped.  **Observations
 below carrying a date or a build number older than 67 were made on an EARLIER
 tree** - build 55, 56 or 61 - and have not been repeated since.
 
-What runs on any machine, Xcode or not, is `sh Tests/run_tests.sh`: 21 suites,
-about 1,250 assertions, exit 0 - measured 2026-09-15, and it moves every
-build, so run it rather than trusting this number.  One of
+What runs on any machine, Xcode or not, is `sh Tests/run_tests.sh`: exit 0 at
+**31 named stages and 1,372 assertions**, no FAIL and no SKIP - measured
+2026-09-21, and it moves every build, so run it rather than trusting this
+number.  One of
 them now type-checks `EmulatorViewModel.swift` against the macosx SDK with the
 real bridging header, which is what caught `emulator?.loadROM(fromData:)` - the
 Objective-C `loadROMFromData:` imports into Swift as `loadROM(from:)`, so the
 app target did not build at all.  **A type-check is not a run**, and it does not
 reach the five files that import UIKit - `ContentView`, `TerminalView`,
-`CatalystWindow`, `HelpView` and `iOSCPMApp` - which need an iOS SDK and have
-never been through a compiler in the state they are in now.
+`CatalystWindow`, `HelpView` and `iOSCPMApp` - which need an iOS SDK and are
+reached only by `xcodebuild`.  In the state they are in now they HAVE been
+compiled: both variants built Release at 0 errors on 2026-09-21.
 `Tests/check_view_bindings.sh` checks every `viewModel.<member>`
 `ContentView.swift` asks for against the model's declarations, and it is the
 only thing standing between a renamed member and a build that fails on the
@@ -818,20 +838,25 @@ rename is not the interesting case for most of what follows.
       404s the catalog URL, or a cached index naming a URL that does not exist)
       and confirm the message says the release list loaded and the catalog did
       not.  With both broken it must name the index, not the catalog.
-- [ ] **The picker offers EVERY release the index lists, and marks neither of
-      today's two.**  3.5.1 and 3.6.0 are what the live index publishes, so two
-      rows.  The right check is not "two" but "as many rows as
-      `romwbw_versions` has entries with a `catalog_url`": this build filters on
-      nothing else, and a third release appearing upstream must appear here with
-      no app update.  Nothing is greyed out and no row says "(needs a newer
-      build)" - there is no such state since romwbw_emu v1.44 deleted the
-      compile-time release list, and a row that looked unavailable would be a
-      regression rather than a correct refusal.  Both releases publish
-      `"status": "stable"`, checked against the live index 2026-09-08, so
-      neither row may carry a parenthesised suffix: `RomWBW 3.6.0 (preview)` was
-      right when this was written and is wrong now.  Any status other than
-      "stable" is shown verbatim, so a suffix coming back means upstream moved
-      the field rather than that the row is broken.
+- [ ] **The picker offers every release the index lists EXCEPT a development
+      snapshot, which is behind the opt-in.**  This box used to say "EVERY
+      release the index lists ... this build filters on nothing else", and build
+      73 made that wrong: `RomWBWIndex.offered(_:includingPrereleases:)` also
+      drops an entry flagged `prerelease`, so a tester counting rows against
+      `romwbw_versions` would record a failure on a correct build.  The rule is
+      "as many rows as `romwbw_versions` has entries with a `catalog_url` and
+      no `prerelease` flag" - against the live index on 2026-09-21 that is two,
+      3.5.1 and 3.6.0, with 3.7.0-dev.14 held back.  Nothing is greyed out and
+      no row says "(needs a newer build)": there is no such state since
+      romwbw_emu v1.44 deleted the compile-time release list, and a row that
+      looked unavailable would be a regression rather than a correct refusal.
+      Both stable releases publish `"status": "stable"`, so neither may carry a
+      parenthesised suffix; any other status is shown verbatim, so a suffix
+      coming back means upstream moved the field rather than that the row is
+      broken.  (Ticking Show Development Snapshots and seeing 3.7.0-dev.14
+      appear, and unticking it and being moved back off, was driven on Mac
+      Catalyst on 2026-09-21 - see CHANGELOG - so what is left open here is the
+      iPhone and iPad.)
 - [ ] **The About screen names the release IN PLAY, not a list.**  It read
       `RomWBW 3.5.1, 3.6.0 core` until the release list went; there is no list
       to name now.  Open About before starting the machine and it must read
@@ -1086,9 +1111,12 @@ this.
 ## 21. Help comes from the catalog, on a device
 
 Build 70 pointed `HelpViewModel` at `CatalogMigration.indexURL` and deleted the
-last ioscpm URL in the app.  None of it has been compiled - there was no Xcode
-on the machine that wrote it - so this is a first sighting rather than a
-regression check, and the first thing to establish is that Help opens at all.
+last ioscpm URL in the app.  That sentence used to end "none of it has been
+compiled"; it has been since - `HelpView.swift` is one of the five that only
+`xcodebuild` reaches, and both variants built clean on 2026-09-21 - but no
+session has opened Help on a screen, so this is still a first sighting rather
+than a regression check, and the first thing to establish is that Help opens at
+all.
 
 - [ ] **The list is the published one.**  Open Help with a network.  Seven
       topics, and the descriptions are romwbw_disks' wording - "Getting started
@@ -1167,22 +1195,23 @@ Two things no check in this repository can see.  `RomWBWRelease.startBanner` is
 tested by behaviour in `CatalogDocumentTests`, and the
 `StartRefusesALiveMachineAndSaysWhatItStarts` stage checks that
 `startEmulator()` asks it and refuses a live machine — but both are shape and
-string, and neither has ever been on a screen.  Nothing here constructs an
-`EmulatorViewModel`, and `TerminalScreen.write` truncates at the right margin
-rather than folding, so an over-long line loses its tail in silence.
+string.  Nothing here constructs an `EmulatorViewModel`, and
+`TerminalScreen.write` truncates at the right margin rather than folding, so an
+over-long line loses its tail in silence.
 
-cpmdroid settled the question these checks leave open on a Galaxy Tab A8
-(efe9554): the RomWBW boot loader prints `RetroBrew SBC [SBC_simh_std] Boot
-Loader` **below** the banner rather than clearing it.  That is a different guest
-on a different terminal; it is the reason to expect these lines to survive and
-not evidence that they do here.
+**The plain case was driven on Mac Catalyst on 2026-09-21** and cpmdroid was
+right: the banner's three lines are whole, and the RomWBW boot loader prints
+`RetroBrew SBC [SBC_simh_std] Boot Loader` **below** them rather than clearing
+them.  What is left below is the cases that need a state the plain start does
+not produce, and every one of them is still open on an iPhone or iPad.
 
 - [ ] Press Play on a machine set to a **development snapshot**.  The first line
       must read `Starting RomWBW 3.7.0-dev.14 - emu_avw-v0-3.7.0-dev.14.rom`,
       whole, with the `-dev.14` on both halves and nothing cut off at column 80.
       That is the longest real case: 58 columns, measured.
-- [ ] One `  Disk N: <file>` line per drive that actually has an image, and the
-      N is the **drive**.  Put an image in drive 2 and nothing in 0 or 1: it must
+- [ ] The N is the **drive**, not the position in the list.  A fresh launch
+      filling drives 0 and 1 printed `Disk 0` and `Disk 1`, which cannot tell
+      the two apart.  Put an image in drive 2 and nothing in 0 or 1: it must
       say `Disk 2`.
 - [ ] A slot whose image is missing or corrupt must be **absent** from the list,
       not named.  Delete a downloaded `.img` out of `Documents/Disks` with the
@@ -1190,9 +1219,6 @@ not evidence that they do here.
       the error alert and NOT in the banner.
 - [ ] A slot bound to a file you browsed to shows the file's own name and not
       the container path it came from.
-- [ ] The status line reads `Running RomWBW <release>` and **keeps** reading it
-      after the guest has painted over the terminal.  That is the half the guest
-      cannot reach, and the reason it is said twice.
 - [ ] **The guard.**  Press Play with a disk still to download, press Reset while
       it downloads, press Play again, and let both flights land.  The machine
       must come up **once**: the screen must not be cleared a second time, the

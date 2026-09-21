@@ -19,9 +19,10 @@ target.
 - **No ROM and no disk image is bundled.** Both are downloaded on demand from
   the [romwbw_disks](https://github.com/avwohl/romwbw_disks) catalog and checked
   against the SHA-256 it publishes
-- **Pick your RomWBW release** - the app offers whichever published releases its
-  own core can boot, and a corrected or newly published ROM or disk reaches you
-  without an app update
+- **Pick your RomWBW release** - the app offers every release the published
+  index lists, except a development snapshot, which is behind a Settings
+  opt-in; a corrected or newly published ROM or disk reaches you without an app
+  update
 - **Host file transfer** - `R8` and `W8` move files between CP/M and the app's
   Imports and Exports folders; "Import File… (for R8)" stages host files there
 - **Local file support** - open, create and save disk images
@@ -44,8 +45,9 @@ target.
 2. **Pick a RomWBW release** - optional; the app preselects the one the
    published index marks as default
 3. **Download disk images** - scroll to "Download Disk Images"
-4. **Select a disk** - the Combo image is the catalog's recommended starter and
-   is what a first launch assigns; it is also the only image carrying `R8`/`W8`
+4. **Select a disk** - a first launch assigns two: the Combo image to drive 0
+   and the games image to drive 1. Combo is the catalog's recommended starter
+   and the only image carrying `R8`/`W8`
 5. **Press Play** - the release's ROM is fetched first if it is not on the
    device already
 6. At the boot menu, type `2` and Enter to boot the first hard disk
@@ -96,7 +98,11 @@ back to another release's ROM, which is what leaves RomWBW printing a version
 mismatch part-way through a boot.
 
 **A new RomWBW release does NOT need a new build**, and neither do new disks or
-ROMs within one. The picker offers every release the published index lists.
+ROMs within one. The picker offers every release the published index lists -
+with one exception that is a choice and not a compile-time list: an entry the
+index flags `prerelease` is a RomWBW development snapshot, and the picker drops
+it unless Settings -> RomWBW Release -> Show Development Snapshots is ticked,
+which is off in a fresh install.
 
 That is a change: until romwbw_emu v1.44 this app filtered the index against a
 compile-time list of releases its core had been checked against, so 3.7.0 would
@@ -173,8 +179,9 @@ per slice.
 ## Building
 
 **Requirements:** iOS 15+ / macOS 12+ (Mac Catalyst). The project records
-`LastUpgradeCheck = 2620` and recent builds were made with Xcode 26; no older
-Xcode has been tried, so the real floor is unmeasured.
+`LastUpgradeCheck = 2620`; no older Xcode has been tried, so the real floor is
+unmeasured. Which Xcode any given build was made with is a fact about a machine
+and belongs in `CHANGELOG.md` against that build, not here.
 
 1. Check out `cpmemu` and `romwbw_emu` next to this repo, so all three share a
    parent directory - `iOSCPM/Core/` symlinks into both and the build cannot

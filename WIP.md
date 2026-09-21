@@ -27,63 +27,72 @@ a CHANGELOG entry describing the Xcode 26.6 build of build 67. `CLAUDE.md` has
 the one command that settles it and the trap that makes the obvious reading
 wrong. Measure it; do not read it from here.
 
-## THERE IS A LARGE UNCOMMITTED CHANGE SET IN THE TREE — 2026-09-19
+## Build 73 has been driven, and what that found — 2026-09-21
 
-**Read `git status` before anything else.** Twenty-one files are modified and
-nothing is committed. A reboot does not lose it, but `git stash`, a branch
-switch or a "let me start clean" will, and it is roughly 3,500 added lines.
-`CHANGELOG.md`'s `## Unreleased` section describes every change and is the index
-to it; the commit that carries it has not been written.
+**The change set this section used to warn about is committed.** It said
+"twenty-one files are modified and nothing is committed" and told the reader to
+run `git status` before anything else; that work is `795d286`, the tree is
+clean, and the warning outlived its subject by two days. What follows replaces
+it.
 
-What it is, in two halves:
+`CHANGELOG.md`'s heading for this build is the index to what it contains.
 
-- **Fifteen findings closed.** Every code item that was in `todo.txt`, plus the
-  three things the sibling repositories had moved ahead on — `BF_VDASCR`'s
-  signed line count reaching `TerminalScreen.vdaScrollUp` and being discarded, a
-  Start that neither refused a live machine nor said what it was starting, and
-  three documents still claiming the picker offers every release the index
-  publishes. `iOSCPM/Core/` is symlinked into `romwbw_emu` and `cpmemu`, so the
-  RTC `long long` fix and the 44-divergence HBIOS audit arrive by rebuild and
-  needed nothing here; that was checked rather than assumed.
+**It has now been run, which it never had been.** On 2026-09-21, on a Mac with
+Xcode 27.0, the Release configuration was built for the iOS Simulator and for
+Mac Catalyst — 0 errors, and no warning either build raises about this code —
+and the Catalyst build was driven by hand. What that settled:
 
-- **Five defects found by reviewing that change set**, none of which the suite
-  or the build could see. Two are worth naming because they were regressions
-  introduced by the work itself: first-launch drives moving to `defaultDiskIDs`
-  filled two drives where `defaultSlot` had filled one, and
-  `downloadDisksAndStart` was all-or-nothing, so the optional games image became
-  a precondition for a fresh install's first boot; and the new cache stamp
-  declined every unstamped cache, which is every install that predates it, so an
-  offline launch after the update had an empty `diskCatalog` and `start()`
-  refused. Both are fixed — a failed download is now fatal only in drive 0, and
-  an unstamped cache is adopted but marked `catalogIsUnverified`, which withholds
-  transfers rather than boots.
+- A **first launch on a wiped container** fetches the index and the catalog,
+  fills TWO drives from `defaultDiskIDs`, downloads both images, and boots. The
+  banner reads `Starting RomWBW 3.6.0 - emu_avw-v0-3.6.0.rom` with
+  `  Disk 0: hd1k_combo-v0-3.6.0.img` and `  Disk 1: hd1k_games-v0-3.6.0.img`
+  under it; `C<ret>` reaches `CP/M-80 v2.2, 54.0K TPA` with ten drive letters,
+  `C:`-`F:` off HDSK0 and `G:`-`J:` off HDSK1. CBIOS prints `v3.6.0 [WBW]`
+  against HBIOS 3.6.0, so no mismatch warning — which is the pairing working,
+  not the notice being broken.
+- The **boot loader prints BELOW the banner** rather than clearing it, which is
+  what cpmdroid predicted from a Galaxy Tab and what this repository could not
+  check for itself.
+- **Play is disabled for the whole download window.** The overlay reads
+  `Downloading 19% / Combo (Recommended)` with the toolbar button greyed.
+- Settings puts **RomWBW Release first**, above ROM and the slots.
+  **Show Development Snapshots is off** in a fresh install; ticking it adds
+  `RomWBW 3.7.0-dev.14 (development snapshot)` to a list that otherwise holds
+  3.6.0 and 3.5.1; selecting it moves the ROM row to
+  `emu_avw-v0-3.7.0-dev.14.rom - 512 KB to download`; **unticking it moves the
+  selection back to 3.6.0** and the ROM row with it.
+- **The status line claim was wrong** and the CHANGELOG entry now says so. See
+  that entry; the short version is that `emu_status()` in the shared core writes
+  to the same line and fires after `startEmulator()` returns.
+- **"Open File..." and "Create New..." present nothing on Mac Catalyst.** See
+  `KNOWN_PROBLEMS.md`. This is not new in build 73 and is not a reason to hold
+  it, but it is the route the new local-disk release warning is reached by, so
+  that feature is unverified on this platform.
 
-**What was measured, on this tree, after the last edit:** `sh Tests/run_tests.sh`
-exits 0 with no FAIL lines and no SKIPs; `xcodebuild` Release succeeds for both
-`platform=iOS Simulator,name=iPhone 17` and `platform=macOS,variant=Mac Catalyst`
-with 0 errors; `sh tools/check-store-version.sh` and `python3
-tools/check-help-assets.py` both exit 0.
+- **On iOS, one measurement and no taps.** The same build was installed on an
+  iPhone 17 Pro simulator (iOS 26.5) onto an UPGRADED container — pre-v0
+  `disks_catalog.xml`, 3.5.1 images, a legacy `catalogCacheTag` — and it
+  launched, fetched the index and the 3.6.0 catalog, and wrote stamps equal to
+  what the live catalog publishes. Nothing was tapped; see the gesture note
+  below.
 
-**What was NOT measured, and is the first thing to do next:** none of it has
-been driven in the running app. Every new user-visible path — the start banner,
-the three pickers going inactive during a catalog fetch, the local-disk release
-warning in its Settings row and on the status line, the message when a transfer
-is refused because the catalog could not be verified, and the first-launch drive
-choice — has been type-checked and compiled and never once seen on a screen.
-`MANUAL_CHECKS.md` is where the results go.
+**What is still not driven:** anything needing a slow transfer (the picker
+gating during a catalog fetch, and pressing Play twice inside the download
+window) and everything in the cache-stamp path. `MANUAL_CHECKS.md` keeps those.
 
-One smaller honesty note: the review ran three independent verifiers against
-each finding, except one — that the local-disk notice promised an HBIOS/CBIOS
-warning the guest does not always print — where the verifiers could not run. It
-was checked once, by hand, and the wording softened to "can print". It has had
-one pair of eyes on it and not three.
-
-Nothing under `iOSCPM/Core/` was touched (those are symlinks into sibling
-repositories, and editing one edits a sibling), and neither `MARKETING_VERSION`
-nor `CURRENT_PROJECT_VERSION` moved.
-
-`todo.txt` went from 320 lines to 24 in the same pass, and the rules that keep it
-that way are now in `CLAUDE.md` rather than nowhere.
+**Driving a SIMULATOR is no longer possible on an Xcode 27 machine, and that is
+a toolchain fact rather than a bug here.** Xcode 27 ships no `Simulator.app`;
+the device screen is drawn inside `DeviceHub`, whose mirror accepts no synthetic
+mouse event — measured against `kCGHIDEventTap`, `kCGSessionEventTap` and
+`kCGAnnotatedSessionEventTap`, and with `CGEventSource`s for all three source
+states, while a click on DeviceHub's OWN toolbar in the same run worked.
+`tools/simdrive.py` has been taught to find that window and to calibrate inside
+it — it no longer assumes the screen is centred, because DeviceHub's is not —
+and its calibration verifies at ~98% and tracks the rect when the window's
+layout changes. So `calibrate`, `shot` and `where` work; `tap`, `press` and
+`swipe` post events nothing receives. **Mac Catalyst is the way to drive this
+app now**: it is an ordinary Mac app, it takes synthetic clicks and
+`System Events` keystrokes, and it runs the same views.
 
 ## THE ONE OPEN QUESTION — disk sizes larger than 8 MB
 

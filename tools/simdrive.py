@@ -59,6 +59,18 @@ TWO TRAPS THAT COST AN HOUR EACH, now handled here:
     shifts.  This boots nothing and refuses to guess: it fails unless exactly
     one device is booted, or --udid names one.
 
+AND ONE THIS FILE CANNOT HANDLE.  **Xcode 27 ships no Simulator.app.**  The
+device is drawn inside DeviceHub, which this file now finds and calibrates
+inside correctly - but DeviceHub's mirror IGNORES synthetic mouse events.
+Measured 2026-09-21 against kCGHIDEventTap, kCGSessionEventTap and
+kCGAnnotatedSessionEventTap, and with CGEventSources for all three source
+states, while a click on DeviceHub's OWN toolbar in the same run worked.  So on
+such a machine `calibrate`, `shot` and `where` answer and `tap`, `press` and
+`swipe` post events nothing receives - with no error, because there is nothing
+to detect.  Drive the Mac Catalyst build instead: it is an ordinary Mac app,
+it takes these same events and System Events keystrokes, and it runs the same
+views.  See MANUAL_CHECKS.md.
+
 Synthetic KEY events are a separate matter and still do not reach the app - see
 MANUAL_CHECKS.md check 3.  Type by tapping the on-screen keyboard instead, which
 is what this drives.
@@ -98,7 +110,7 @@ except ImportError:
     die(EXIT_CANNOT, "no Quartz module. pyobjc is needed:\n"
                      "  python3 -m pip install --user --break-system-packages pyobjc-framework-Quartz")
 try:
-    from PIL import Image
+    from PIL import Image, ImageChops
 except ImportError:
     die(EXIT_CANNOT, "no PIL module. Pillow is needed:\n"
                      "  python3 -m pip install --user --break-system-packages Pillow")
@@ -150,32 +162,61 @@ def device_screenshot(path, udid="booted"):
 
 # --- the window -------------------------------------------------------------
 
-def simulator_window():
-    """The Simulator's device window, in global screen points."""
+# WHICH APP DRAWS THE DEVICE IS NOT A CONSTANT.  Simulator.app was the answer
+# through Xcode 26; Xcode 27 does not ship it at all and draws the screen inside
+# DeviceHub instead.  The two are not interchangeable geometry: Simulator.app's
+# window IS the device, DeviceHub's has a sidebar of devices down the left, so
+# the screen sits off to one side of it.  Everything below therefore NAMES the
+# owner rather than assuming it, and calibrate() no longer derives the width
+# from the screen being centred - see _seed_centred and _seed_searched.
+#
+# Matched with the spaces taken out and the case folded, because the two
+# spellings of the same app do not agree with each other: the bundle and the
+# System Events process are "DeviceHub", and kCGWindowOwnerName is "Device Hub".
+WINDOW_OWNERS = ("simulator", "devicehub")
+
+
+def device_window():
+    """The window showing the device: (pid, x, y, w, h), bounds in points."""
     listing = Quartz.CGWindowListCopyWindowInfo(
         Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
         Quartz.kCGNullWindowID)
     windows = [w for w in listing
-               if "Simulator" in (w.get("kCGWindowOwnerName") or "")
-               and (w.get("kCGWindowName") or "")]
+               if (w.get("kCGWindowOwnerName") or "").replace(" ", "").lower()
+                  in WINDOW_OWNERS
+               and (w.get("kCGWindowName") or "")
+               and dict(w.get("kCGWindowBounds") or {}).get("Height", 0) > 200]
     if not windows:
-        die(EXIT_CANNOT, "no Simulator window on screen. Run: open -a Simulator")
+        die(EXIT_CANNOT,
+            "no device window on screen. Open whichever one your Xcode ships and\n"
+            "select the booted device in it:\n"
+            "  open -a /Applications/Xcode.app/Contents/Applications/DeviceHub.app\n"
+            "  open -a Simulator          # Xcode 26 and earlier only")
     if len(windows) > 1:
         names = ", ".join(str(w.get("kCGWindowName")) for w in windows)
-        die(EXIT_CANNOT, f"more than one Simulator window: {names}. Close the others.")
+        die(EXIT_CANNOT, f"more than one device window: {names}. Close the others.")
     bounds = dict(windows[0]["kCGWindowBounds"])
-    return (bounds["X"], bounds["Y"], bounds["Width"], bounds["Height"])
+    return (int(windows[0].get("kCGWindowOwnerPID") or 0),
+            bounds["X"], bounds["Y"], bounds["Width"], bounds["Height"])
 
 
 def activate():
-    """Raise the Simulator, or the first event is spent doing it."""
-    subprocess.run(["osascript", "-e", 'tell application "Simulator" to activate'],
+    """Raise the app that owns the window, or the first event raises it.
+
+    By PID, not by name: `tell application "Device Hub"` does not resolve, and
+    the one thing the window listing gives that cannot be spelled two ways is
+    the process it belongs to.
+    """
+    pid = device_window()[0]
+    subprocess.run(["osascript", "-e",
+                    'tell application "System Events" to set frontmost of '
+                    f'(first process whose unix id is {pid}) to true'],
                    capture_output=True)
     time.sleep(1.0)
 
 
 def capture_window(path):
-    x, y, w, h = simulator_window()
+    _pid, x, y, w, h = device_window()
     subprocess.run(["screencapture", "-x", "-R", f"{x},{y},{w},{h}", path], check=True)
     image = Image.open(path).convert("RGB")
     extrema = image.convert("L").getextrema()
@@ -200,16 +241,36 @@ def _first_black_run(row, threshold=45, minimum=8):
     return None
 
 
-def calibrate(verbose=True):
-    """The device screen's rect in global screen points, measured and checked."""
-    shot_path, window_path = "/tmp/_simdrive_dev.png", "/tmp/_simdrive_win.png"
-    device = device_screenshot(shot_path)
-    window, (wx, wy, ww, wh) = capture_window(window_path)
+# The comparison used everywhere below: mean absolute difference between a
+# rectangle of the window capture and the device's own screenshot, 0 = identical
+# and 1 = black against white.  It goes through a histogram rather than a Python
+# loop because calibrate() now calls it tens of thousands of times.
+_FINE = (48, 104)       # the size the answer is judged at
+_COARSE = (24, 52)      # the size the coarse search is run at
 
+
+def _mad(window_grey, target, left, top, width, height, size):
+    box = (int(round(left)), int(round(top)),
+           int(round(left + width)), int(round(top + height)))
+    box = (max(0, box[0]), max(0, box[1]),
+           min(window_grey.width, box[2]), min(window_grey.height, box[3]))
+    if box[2] - box[0] < 8 or box[3] - box[1] < 8:
+        return 1.0
+    crop = window_grey.crop(box).resize(size)
+    hist = ImageChops.difference(crop, target).histogram()
+    return sum(i * n for i, n in enumerate(hist)) / (size[0] * size[1] * 255.0)
+
+
+def _seed_centred(window, device):
+    """Simulator.app's reading: the screen is centred, so one bezel is enough.
+
+    Kept because it is the reading that was measured to work, and because it
+    costs nothing.  It returns None rather than a guess when the window is not
+    that shape, which is what DeviceHub's - with a sidebar down the left - is.
+    """
     grey = window.convert("L")
     W, H = grey.size
     pixels = grey.load()
-    per_point = W / ww
 
     # The LEFT bezel is the one edge that is never ambiguous: the app paints
     # something against it. The RIGHT one is not - a black terminal runs into
@@ -217,11 +278,11 @@ def calibrate(verbose=True):
     # centred in the window rather than from finding the far edge.
     run = _first_black_run([pixels[x, int(H * 0.5)] for x in range(W)])
     if run is None:
-        die(EXIT_CANNOT, "no device bezel found down the middle of the window.")
+        return None
     left = run[1] + 1
     width = W - 2 * left
-    if width <= 0:
-        die(EXIT_CANNOT, "the measured screen is not inside the window; giving up.")
+    if width <= 8:
+        return None
     height = width * device.height / device.width
 
     # The bottom bezel gives the vertical position. The top cannot: the window
@@ -245,31 +306,97 @@ def calibrate(verbose=True):
         dark_runs.append((start, len(column) - 1))
     trailing = [r for r in dark_runs if r[0] > H * 0.80]
     if not trailing:
-        die(EXIT_CANNOT, "no bottom bezel found; cannot place the screen vertically.")
+        return None
     bottom = min(trailing, key=lambda r: r[0])[0] - 1
-    top = bottom - height + 1
+    return left, bottom - height + 1, width
 
-    # REFINE, don't just report. The bezel reading above is a good estimate and
-    # was wrong by 14 points the first time it was written, so the estimate is
-    # treated as a starting point and the real rect is the one that best matches
+
+def _seed_searched(window, device):
+    """Assume nothing about where the screen is; find the rect that matches it.
+
+    DeviceHub places the phone beside a list of devices, so no edge of the
+    window places the screen and no bezel reading survives being wrong about
+    which side the chrome is on.  What DOES place it is the screen itself: the
+    device screenshot is the answer, and the rect is whichever one reproduces
+    it.  Run coarse and small - a 320-pixel copy and a 24x52 comparison - since
+    this only has to land close enough for _refine() to finish the job.
+    """
+    scale = 320.0 / window.width
+    small = window.convert("L").resize(
+        (320, max(1, int(round(window.height * scale)))))
+    target = device.convert("L").resize(_COARSE)
+    ratio = device.height / device.width
+    W, H = small.size
+
+    best = None
+    widest = min(W, int(H / ratio))
+    if widest < 24:
+        return None
+    for width in range(max(24, int(W * 0.10)), widest + 1, 3):
+        height = width * ratio
+        for left in range(0, W - width + 1, 3):
+            for top in range(0, int(H - height) + 1, 3):
+                error = _mad(small, target, left, top, width, height, _COARSE)
+                if best is None or error < best[0]:
+                    best = (error, left, top, width)
+    if best is None:
+        return None
+    _error, left, top, width = best
+    return left / scale, top / scale, width / scale
+
+
+def _refine(window_grey, target, left, top, width, ratio):
+    """Hill-climb the rect at full judging size. Width is free, not centred."""
+    best = (_mad(window_grey, target, left, top, width, width * ratio, _FINE),
+            left, top, width)
+    for span, step in ((16, 4), (4, 1)):
+        for _round in range(6):
+            _error, bl, bt, bw = best
+            for dleft in range(-span, span + 1, step):
+                for dtop in range(-span, span + 1, step):
+                    for dwidth in range(-span, span + 1, step):
+                        width2 = bw + dwidth
+                        if width2 < 16:
+                            continue
+                        left2, top2 = bl + dleft, bt + dtop
+                        error = _mad(window_grey, target, left2, top2,
+                                     width2, width2 * ratio, _FINE)
+                        if error < best[0] - 1e-9:
+                            best = (error, left2, top2, width2)
+            if best[1:] == (bl, bt, bw):
+                break
+    return best
+
+
+def calibrate(verbose=True):
+    """The device screen's rect in global screen points, measured and checked."""
+    shot_path, window_path = "/tmp/_simdrive_dev.png", "/tmp/_simdrive_win.png"
+    device = device_screenshot(shot_path)
+    window, (wx, wy, ww, wh) = capture_window(window_path)
+
+    window_grey = window.convert("L")
+    target = device.convert("L").resize(_FINE)
+    ratio = device.height / device.width
+    per_point = window.width / ww
+
+    # REFINE, don't just report. Both readings above are estimates, and the
+    # bezel one was wrong by 14 points the first time it was written, so each is
+    # treated as a starting point and the answer is the rect that best matches
     # the device's own screenshot. This is what makes the agreement number
     # meaningful: a calibration that is merely plausible loses to one that is
     # right, instead of being accepted because it scored well enough.
-    best = (_disagreement(window, device, left, top, width, height), left, top)
-    for dleft in range(-6, 7, 2):
-        trial_left = left + dleft
-        trial_width = W - 2 * trial_left
-        if trial_width <= 8:
-            continue
-        trial_height = trial_width * device.height / device.width
-        for dtop in range(-30, 31, 3):
-            error = _disagreement(window, device, trial_left, top + dtop,
-                                  trial_width, trial_height)
-            if error < best[0]:
-                best = (error, trial_left, top + dtop)
-    error, left, top = best
-    width = W - 2 * left
-    height = width * device.height / device.width
+    seeds = [s for s in (_seed_centred(window, device),
+                         _seed_searched(window, device)) if s is not None]
+    if not seeds:
+        die(EXIT_CANNOT, "could not find the device screen anywhere in the window.")
+
+    best = None
+    for left, top, width in seeds:
+        candidate = _refine(window_grey, target, left, top, width, ratio)
+        if best is None or candidate[0] < best[0]:
+            best = candidate
+    error, left, top, width = best
+    height = width * ratio
 
     rect = (wx + left / per_point, wy + top / per_point,
             width / per_point, height / per_point)
@@ -289,21 +416,6 @@ def calibrate(verbose=True):
             "logo, a blank terminal - and there is nothing to match against. Bring up a\n"
             "screen with light content and retry; do NOT use the numbers above.")
     return rect, device.size
-
-
-def _disagreement(window, device, left, top, width, height):
-    """Mean absolute difference between the computed crop and the real screen."""
-    box = (int(left), int(round(top)), int(left + width), int(round(top + height)))
-    box = (max(0, box[0]), max(0, box[1]),
-           min(window.width, box[2]), min(window.height, box[3]))
-    if box[2] - box[0] < 8 or box[3] - box[1] < 8:
-        return 1.0
-    size = (48, 104)
-    a = window.crop(box).convert("L").resize(size)
-    b = device.convert("L").resize(size)
-    pa, pb = a.load(), b.load()
-    total = sum(abs(pa[x, y] - pb[x, y]) for x in range(size[0]) for y in range(size[1]))
-    return total / (size[0] * size[1] * 255)
 
 
 # --- events -----------------------------------------------------------------

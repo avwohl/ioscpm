@@ -16,7 +16,7 @@ FEATURES
 • VT100 Terminal - ANSI escape sequence support for text adventures and productivity apps
 • Multiple Disk Support - Mount up to 4 disk images simultaneously
 • Download Disk Images - Fetch ready-to-run CP/M disk images from inside the app
-• Choose Your RomWBW Release - Run RomWBW 3.6.0 or 3.5.1, each with its own disks
+• Choose Your RomWBW Release - Pick any release the published catalog offers, each with its own disks; a new release needs no app update
 • Works Offline After Setup - Downloaded disk images are stored locally
 • Native Mac Support - Runs natively on macOS via Mac Catalyst
 
@@ -33,7 +33,8 @@ Run the software that defined personal computing:
 GETTING STARTED
 
 1. Launch the app. The first launch needs an internet connection: it fetches the
-   system ROM and the Combo disk image and assigns the disk to Unit 0 for you.
+   system ROM and two disk images - the Combo system disk and the games disk -
+   and assigns them to Units 0 and 1 for you.
 2. At the boot prompt, type 2 and press Enter. Units 0 and 1 are the RAM and ROM
    memory disks, so the first hard disk is Unit 2.
 3. You'll see the A> prompt when CP/M is ready.

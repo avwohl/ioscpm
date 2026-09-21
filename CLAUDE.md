@@ -3,17 +3,31 @@
 ## NEVER change MARKETING_VERSION
 
 `MARKETING_VERSION` in `iOSCPM.xcodeproj/project.pbxproj` is the App Store
-version string (**1.6.1** at time of writing). **Do not change it unless a human
-explicitly asks you to change it**, and do not change it as a side effect of
+version string (**1.6.2** at time of writing). **Do not change it unless a human
+explicitly asks you to change it, or the Store has already RELEASED the version
+the project names** - see the second move below - and never as a side effect of
 "bumping the version" for a fix.
 
-It has moved exactly once under this rule: **1.5.1 → 1.6.1 on 2026-09-07, build
-67, asked for in those words by a human.**  Recorded here because a reader who
-finds this file saying 1.5.1 and the project saying otherwise should be able to
-tell an authorised bump from the accident this section exists to prevent.  The
-occasion was that 1.5.1's description had stopped being true of the app: no ROM
-and no disk image ships in the bundle any more, and the user chooses which
-RomWBW release to run.  A build-number bump could not carry that.
+It has moved twice, and the two moves are not the same kind of thing:
+
+- **1.5.1 → 1.6.1 on 2026-09-07, build 67, asked for in those words by a
+  human.**  The occasion was that 1.5.1's description had stopped being true of
+  the app: no ROM and no disk image ships in the bundle any more, and the user
+  chooses which RomWBW release to run.  A build-number bump could not carry
+  that.
+- **1.6.1 → 1.6.2 on 2026-09-18, build 73, at `1a5603c`.**  Its commit message
+  records the reasoning but does NOT record a human asking in those words, so
+  do not read it as a precedent for bumping at will.  What made it necessary is
+  a fact anyone can re-measure: `tools/check-store-version.sh` says the Store
+  RELEASED 1.6.1 on 2026-09-12, six days earlier, and **App Store Connect will
+  not take another submission under a version it has already released.**  At
+  that point the build number alone cannot carry the change and the version
+  string has to move; that is the one circumstance in which this section's rule
+  does not apply.
+
+Recorded here because a reader who finds this file and the project disagreeing
+should be able to tell an authorised bump from the accident this section exists
+to prevent.
 
 Once a release candidate exists in App Store Connect for a given version, that
 version is frozen — it cannot be edited there. Changing it locally makes the
@@ -24,8 +38,8 @@ only thing that moves between submissions of the same version, and it is what
 every CHANGELOG entry here is keyed to:
 
 ```
-CURRENT_PROJECT_VERSION = 72;      <- bump this, once, for a new build
-MARKETING_VERSION = 1.6.1;         <- leave alone
+CURRENT_PROJECT_VERSION = 73;      <- bump this, once, for a new build
+MARKETING_VERSION = 1.6.2;         <- leave alone
 ```
 
 Both appear twice in the pbxproj (Debug and Release); change both occurrences of

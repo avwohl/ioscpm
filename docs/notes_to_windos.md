@@ -27,8 +27,9 @@ Always verify the current set with:
 
     git ls-files -s iOSCPM/Core/ | grep ^120000
 
-Checked 2026-09-15: 21 symlinks, all resolving — 11 into `cpmemu/src` and 10
-into `romwbw_emu/src`, matching the counts above.
+Checked 2026-09-21: 20 symlinks, all resolving — 11 into `cpmemu/src` and 9
+into `romwbw_emu/src`. It was 21 until `ed660d5`, when `romwbw_pin.h` went with
+romwbw_emu's compile-time release gate; do not go looking for it.
 
 **`emu_io_common.cc` is one of the ten, and that is worth knowing**, because the
 Windows port is the opposite: `z80cpmw.vcxproj` references that file nowhere and
@@ -100,7 +101,7 @@ On 2026-08-26 `romwbw_emu` committed `322ca8e`, which declared
 `emu_host_file_get_read_name()` in `src/emu_io.h` and called it unconditionally
 from `src/hbios_dispatch.cc` for `HBF_HOST_GETRNAME`. That is a *required*
 backend function: every port has to define one or it stops linking.
-`hbios_dispatch.cc` is one of the 21 symlinks under `iOSCPM/Core/`, so the new
+`hbios_dispatch.cc` is one of the symlinks under `iOSCPM/Core/`, so the new
 call arrived in this port the moment that sibling checkout moved. No commit
 here, no diff here, no version number anywhere that changed - the build simply
 stopped linking, and the failure was the first anyone knew of it. It was the
@@ -127,7 +128,7 @@ second one.
 
 Which commit is behind a link, though, nothing here can see. `run_tests.sh`
 checks the *shape* of the arrangement - its `=== CoreSymlinks ===` section
-asserts that all 21 entries under `iOSCPM/Core/` are still mode 120000 in the
+asserts that every entry under `iOSCPM/Core/` is still mode 120000 in the
 index and that none of them dangle, and the compile step that follows names its
 sources through `iOSCPM/Core/` rather than reaching past it. That catches a
 flattening and a missing file. It cannot catch which commit the tree behind a

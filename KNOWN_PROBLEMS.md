@@ -88,6 +88,37 @@ romwbw_disks still uses cpmtools in `tools/build_disks.sh` to build the
 published images. That is that repository's business and its `tools/diskdefs` is
 load-bearing there; it is the one place in this family the tool is named.
 
+### Neither "Open File..." nor "Create New..." presents anything under Mac Catalyst
+
+Measured 2026-09-21 on a Release Mac Catalyst build of build 73, on Xcode 27
+and macOS 26, with the click placed by finding the control's own pixels rather
+than by guessing: pressing **Open File...** in Settings dismisses Settings and
+**no picker, panel or sheet ever appears** - `every window of process "iOSCPM"`
+stays `Z80CPM` for ten seconds and `every sheet of window 1` is empty.
+**Create New...** does the same. Settings reopens normally afterwards, so
+nothing is wedged; the file dialog simply never arrives.
+
+**This is not new in build 73 and not a reason to hold a release.** The
+`presentationMode.wrappedValue.dismiss()` that sits beside
+`viewModel.openLocalDisk(unit:)` arrived in `b5dac37` (2026-03-16, build 36),
+in a commit whose message is "Fix macOS disk dialog freeze" - so the dismissal
+was put there deliberately, to cure a freeze, and what it bought was a dialog
+that does not open at all. Every build users have had since carries it.
+
+The shape is the ordinary UIKit one: `showingOpenDisk` flips true while the
+`.fullScreenCover` holding Settings is mid-dismissal, and the `.fileImporter`
+bound to it lives on the root `ContentView`, which cannot present while a
+dismissal is in flight. A fix presents AFTER the dismissal completes rather
+than beside it. Do not just delete the `dismiss()`: the freeze it was added for
+is presumably still there behind it, and nothing here has reproduced it.
+
+**iOS is untested, and must not be assumed to match.** No session has been able
+to drive an iOS simulator since Xcode 27 removed `Simulator.app` - see
+`WIP.md` - so this is a Catalyst measurement and nothing more. It matters
+beyond the two buttons because **"Open File..." is the only route to the
+local-disk release warning** added in build 73, which therefore has never been
+seen on a Mac.
+
 ## User Data Persistence
 
 ### Data Loss Risk with GitHub Disks
@@ -196,6 +227,41 @@ the two to believe. Removing exactly that is what the v0 interface is for. It
 would also buy less than it looks: a device that has never had a network has no
 disk images either, so the snapshot helps only the narrow upgrade case above,
 and it would pay for it with the thing the interface was built to deliver.
+
+### The stamp guards the second hop's BYTES, not the first hop's INSTRUCTIONS
+
+Build 73 stamps both cache files and, where a stamp is absent, adopts the file
+and sets `catalogIsUnverified` rather than refusing it. What that flag then
+does is narrower than the code comment beside it claims. The comment on
+`continueFromCachedIndex` says the release list's "real power - naming the
+catalog URL and the checksum the second hop is verified against - is taken away
+instead, by catalogIsUnverified". It is not: `catalogIsUnverified` is read in
+exactly one place, the guard at the top of `downloadDiskFromSettings`.
+`fetchCatalog` and `adoptIndex` never consult it, so an unverified index still
+names the URL and the SHA-256 the catalog hop is checked against — and on
+success `adoptCatalog` clears the flag and `saveCatalogToCache` stamps those
+bytes as this app's own.
+
+The reachable shape: `Documents/Disks/index-v0.json` is user-writable over
+`UIFileSharingEnabled`. Edit its `catalog_url` and `catalog_sha256`, then get
+the index hop to fail while the catalog host stays reachable — a 5xx on that one
+asset, a partial outage, a captive portal that lets the CDN through — and the
+app adopts the substituted catalog, marks it verified and installs images
+checked against that document's own hashes.
+
+**What keeps this out of proportion is who can do it.** Anyone who can rewrite
+`index-v0.json` can also drop a `.img` straight into `Documents/Disks`, which
+is the argument the CHANGELOG already makes for booting from images already on
+the device. So this is a gap between the defence and its own description, not a
+new way in.
+
+**Do not "fix" it without the controlled-network check.** The obvious repair —
+`guard !catalogIsUnverified` at the top of `fetchCatalog` — is one step from the
+mistake this feature already made once and recorded: the first version refused
+an unstamped cache outright, and that cost the launch with no connection, which
+is the only launch the cache is load-bearing on. A guard on the second hop can
+leave a user whose index asset is merely flaky with a picker and no catalog.
+`MANUAL_CHECKS.md` has the checks that would settle it; `todo.txt` has the item.
 
 ### The cache stamp is a boundary on iOS only
 

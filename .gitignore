@@ -19,3 +19,7 @@ Pods/
 
 # WIP scratch from an in-progress session - not part of the project
 .wip/
+
+# Python bytecode from running tools/*.py
+__pycache__/
+*.pyc
