@@ -51,7 +51,23 @@ set -u
 # on visionOS, which nothing in this repository has ever been run on, tested
 # against, or written for.
 BUNDLE_ID="com.awohl.cpm"
-LOOKUP="https://itunes.apple.com/lookup?bundleId=$BUNDLE_ID&country=us"
+# THE URL MUST BE UNIQUE PER RUN OR THIS SCRIPT LIES BY UP TO A DAY.  Apple
+# serves the lookup with `cache-control: max-age=86400`, and the edge keys on
+# the whole URL - so a fixed URL keeps returning the body it first cached, and
+# this script reports the version that was current whenever somebody last ran
+# it.  It fails silently and in the one direction that matters: it goes on
+# saying the OLD version is what users have, which is exactly the claim
+# everything here defers to it for.
+#
+# Caught 2026-09-21, on the day it mattered.  The App Store had flipped to 1.6.2
+# at 23:44Z and five storefronts and the storefront page all said so; this
+# script said 1.6.1, three runs in a row, while the same URL with a unique
+# parameter said 1.6.2, three runs in a row.  The stale response carried
+# `max-age=64224` - an object already six hours into its day.
+#
+# `_cb` is not read by the API (it echoes it back in x-apple-translated-wo-url
+# and ignores it); its whole job is to miss the cache.
+LOOKUP="https://itunes.apple.com/lookup?bundleId=$BUNDLE_ID&country=us&_cb=$(date +%s)$$"
 
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here" && git rev-parse --show-toplevel 2>/dev/null) || root=$(dirname "$here")
