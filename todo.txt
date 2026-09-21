@@ -11,6 +11,9 @@ Tag each item with what a machine must have to take it.  Cite a symbol or a
 greppable string, never a file:line.
 
 
+- [RELEASE] the Store lists this app for Apple Vision (visionOS 1.0+), which
+  nothing here builds for or has tested.  One checkbox; decide it.  KNOWN_PROBLEMS.
+
 - [RELEASE] docs/ROM_ATTESTATION.md has still never been filed.  All six ROMs
   were fetched and hashed on 2026-09-21; attach it to the next review and set
   its Date line to that day.

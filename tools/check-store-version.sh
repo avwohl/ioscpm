@@ -37,6 +37,19 @@
 
 set -u
 
+# ONE LOOKUP COVERS THE MAC TOO, and that is measured rather than assumed - it
+# is the obvious thing for somebody to "fix" by adding an entity=macSoftware
+# query beside this one.  There is no separate Mac App Store record.  Measured
+# 2026-09-21: bundleId and trackId lookups both return trackId 6756590871 with
+# kind "software" whatever `entity` is passed, its `supportedDevices` includes
+# Mac, and the storefront page for that id lists iPhone, iPad, iPod touch,
+# Mac (macOS 12.0+) and Apple Vision (visionOS 1.0+) under one version.  So
+# "the Store serves X" below is a statement about every platform this app ships
+# on, not just iOS.
+#
+# The corollary is worth keeping in view: a build released here is installable
+# on visionOS, which nothing in this repository has ever been run on, tested
+# against, or written for.
 BUNDLE_ID="com.awohl.cpm"
 LOOKUP="https://itunes.apple.com/lookup?bundleId=$BUNDLE_ID&country=us"
 
@@ -114,6 +127,7 @@ if [ -z "$live" ]; then
 fi
 
 echo "App Store, $BUNDLE_ID (${name:-unknown})"
+echo "  one record       iPhone, iPad, Mac and Apple Vision - see the note by LOOKUP"
 echo "  serves           $live"
 age=$(days_since "$when") || age=
 if [ -n "$age" ]; then

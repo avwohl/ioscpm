@@ -319,6 +319,31 @@ because that is the one case where the bytes can be proven not to be this app's.
 
 ## Releasing
 
+### The Store offers this app on visionOS, and nothing here has ever met one
+
+Measured 2026-09-21 off the storefront page for trackId `6756590871`, which is
+the single record this app has: under Compatibility it lists **iPhone**, **iPad**,
+**iPod touch**, **Mac** (macOS 12.0+) and **Apple Vision** (visionOS 1.0+).
+The first four are intended.  The fifth is not something this repository has
+ever mentioned - `git grep -i visionos` matches nothing outside this entry.
+
+It is not a build anyone here made.  `TARGETED_DEVICE_FAMILY` is `"1,2"` and
+`SUPPORTS_MACCATALYST = YES`; no xrOS slice is produced.  What reaches Vision
+Pro is the unmodified iPad app, through the "Make this app available on Apple
+Vision Pro" setting in App Store Connect, which is **on by default** and which
+no session can see or change.
+
+So the platform count in this repository's own prose is wrong in the same
+direction every time it is written: "iOS and Mac Catalyst" describes what is
+BUILT, and one more thing than that can be installed.  Nothing about the app is
+known to be broken there - a CP/M terminal in a window is close to the best case
+for a compatible iPad app - and nothing about it is known to work either.
+
+**It is one checkbox, and the decision is a person's.**  Either turn it off in
+App Store Connect, or leave it on and say so where the platforms are listed.
+Do not quietly start claiming visionOS support on the strength of the listing:
+that is the same mistake as reading a submission as a release.
+
 ### No session can upload, whatever the toolchain here can do
 
 Not a bug and not a task — a standing fact, re-checked at build 58, at build 61,
