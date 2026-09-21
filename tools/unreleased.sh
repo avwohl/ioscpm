@@ -4,7 +4,8 @@
 # WHY THIS EXISTS.  "Done" means four different things and the gap between them
 # is where the mistakes come from: written, compiled, submitted, released.
 # `CLAUDE.md` has the rule this enforces by reporting rather than by gating -
-# archiving is not uploading, and submitted is not released.  On 2026-09-03 the
+# archiving is not uploading, and submitted is not released.  How tight the
+# answer is depends on the version: see "the commit that version was cut from".  On 2026-09-03 the
 # tree was at build 58 while the App Store served 1.4.9, builds 36/37, six
 # months old.  Twenty-one builds of true statements about this repository were
 # false statements about the product.
@@ -54,16 +55,38 @@ fi
 
 # --- the commit that version was cut from ------------------------------------
 # The App Store channel leaves no git tag behind - this repository's tags are
-# disk-image pins (v1.4.x), not app releases - so the anchor is the commit that
-# first set MARKETING_VERSION to the served value.  That is the FLOOR of the
-# build range the version covers, and anchoring there makes this list an UPPER
-# BOUND: if Apple actually served a later build of the same version, some of
-# what is reported below has in fact reached users.  That is the safe direction
-# for the question being asked - "what might I still owe a user" is better
-# over-answered than under-answered - but it is an over-count, not a truth, and
-# saying which way the error runs is the point.
-anchor=$(git -C "$root" log --format=%H --reverse -S"MARKETING_VERSION = $live" \
-             -- iOSCPM.xcodeproj/project.pbxproj 2>/dev/null | head -1)
+# disk-image pins (v1.4.x), not app releases - so the anchor has to be found in
+# the pbxproj's history.  There are two ways to find it and they are not equally
+# good, so this asks check-store-version.sh which one it has earned.
+#
+# EXACT, when the served version heads exactly one CHANGELOG entry.  That script
+# prints "which is  build NN" with no hedge in that case, and NN is then the
+# build users actually have: the anchor is the commit that set
+# CURRENT_PROJECT_VERSION to NN, and what follows is neither an over- nor an
+# under-count.
+#
+# FLOOR, otherwise.  Every version before 1.6.2 spanned several builds - 1.6.1
+# heads builds 67 to 72 - and the lookup does not say which of them Apple
+# served, so the script hedges with "at most build NN".  The anchor is then the
+# commit that first set MARKETING_VERSION to the served value, which is the
+# FLOOR of that range, and the list below becomes an UPPER BOUND: if a later
+# build of the same version shipped, some of what is reported has in fact
+# reached users.  That is the safe direction for "what might I still owe a
+# user" - better over-answered than under-answered - but it is an over-count,
+# not a truth, and saying which way the error runs is the point.
+exact=$(echo "$store_out" | sed -n 's/^  which is  *build \([0-9][0-9]*\).*/\1/p' | head -1)
+anchor=
+if [ -n "${exact:-}" ]; then
+    anchor=$(git -C "$root" log --format=%H --reverse -S"CURRENT_PROJECT_VERSION = $exact;" \
+                 -- iOSCPM.xcodeproj/project.pbxproj 2>/dev/null | head -1)
+fi
+if [ -n "${anchor:-}" ]; then
+    kind=exact
+else
+    kind=floor
+    anchor=$(git -C "$root" log --format=%H --reverse -S"MARKETING_VERSION = $live" \
+                 -- iOSCPM.xcodeproj/project.pbxproj 2>/dev/null | head -1)
+fi
 if [ -z "${anchor:-}" ]; then
     echo "  CANNOT MEASURE: no commit sets MARKETING_VERSION to $live."
     echo "  The App Store serves $live and this tree has no record of building it."
@@ -73,11 +96,18 @@ fi
 short=$(git -C "$root" rev-parse --short "$anchor")
 build=$(git -C "$root" show "$anchor:iOSCPM.xcodeproj/project.pbxproj" 2>/dev/null |
         sed -n 's/.*CURRENT_PROJECT_VERSION = \([0-9][0-9]*\);.*/\1/p' | head -1)
-echo "  $live first appears at $short (build ${build:-unknown}) - $(git -C "$root" log -1 --format=%s "$anchor")"
-echo "  That is the FLOOR of the builds $live covers.  Nothing here records"
-echo "  which build Apple actually served, so the list below is an UPPER BOUND:"
-echo "  if a later build of $live shipped, some of it has already reached users."
-echo "  Over-counting is the safe direction here, but it is over-counting."
+if [ "$kind" = exact ]; then
+    echo "  $live is build $exact, cut at $short - $(git -C "$root" log -1 --format=%s "$anchor")"
+    echo "  That is the build itself and not a floor: $live heads exactly one"
+    echo "  CHANGELOG entry, so what follows is what users do NOT have, neither"
+    echo "  over- nor under-counted."
+else
+    echo "  $live first appears at $short (build ${build:-unknown}) - $(git -C "$root" log -1 --format=%s "$anchor")"
+    echo "  That is the FLOOR of the builds $live covers.  Nothing here records"
+    echo "  which build Apple actually served, so the list below is an UPPER BOUND:"
+    echo "  if a later build of $live shipped, some of it has already reached users."
+    echo "  Over-counting is the safe direction here, but it is over-counting."
+fi
 echo
 
 n=$(git -C "$root" rev-list --count "$anchor..HEAD" 2>/dev/null)
@@ -93,8 +123,12 @@ else
     if [ "${app_n:-0}" != "0" ]; then
         git -C "$root" log --format='      %h  %s' "$anchor..HEAD" -- iOSCPM/
         echo
-        echo "  Those are features and fixes an App Store user on the FLOOR"
-        echo "  build does not have; some may be in a later build of $live."
+        if [ "$kind" = exact ]; then
+            echo "  Those are features and fixes an App Store user does not have."
+        else
+            echo "  Those are features and fixes an App Store user on the FLOOR"
+            echo "  build does not have; some may be in a later build of $live."
+        fi
         echo "  They reach a user only through a submission Apple then"
         echo "  releases - and the upload is a person with credentials, not"
         echo "  a session."
