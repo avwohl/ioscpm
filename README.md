@@ -3,7 +3,10 @@
 A Z80/CP/M emulator for iPhone, iPad and Mac, built on the
 [RomWBW](https://github.com/wwarthen/RomWBW) HBIOS platform. It ships on the App
 Store as **Z80CPM**; `iOSCPM` is the name of this repository and the Xcode
-target.
+target. Those three are what this repository builds for. The single App Store
+record also offers the app on Apple Vision (visionOS 1.0+), where what installs
+is the unmodified iPad app - no xrOS slice is built here and none has been run.
+See `KNOWN_PROBLEMS.md`, "The Store offers this app on visionOS".
 
 ## Features
 

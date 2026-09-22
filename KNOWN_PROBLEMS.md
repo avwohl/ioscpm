@@ -146,14 +146,14 @@ emulator is running off the file.
 
 The reason it is keyed on provenance and not on the file's own hash is this entry. Comparing installed bytes against the catalog classifies **every disk the user has saved work into** as stale, because `saveDownloadedDisks()` writes the running machine's image back over the file on every warm boot and every backgrounding. An automatic refresh keyed on that comparison would be precisely this entry's hazard, automated and unprompted. So an image proven pristine — its bytes still hash to the provenance recorded for it — may be refreshed automatically, and only on an unconstrained, inexpensive network. Anything else is offered as a button that says in as many words that files saved inside the disk will be lost. An install with no ledger yet cannot prove pristineness either way, and therefore never takes the automatic path.
 
-**The version-attribute wipe no longer reaches the build the Store serves, and that changed on 2026-09-12.** Measured 2026-09-15: the Store serves 1.6.1, released 2026-09-12, at most build 70; 1.6.1 heads builds 67-72, so it is at least 67, past the build-64 migration. Every build it could be is a v0 client that reads no `disks.xml` at all, so moving `<disks version="13">` cannot touch it. Until 2026-09-12 the opposite was true, and this paragraph said so: the Store served 1.5.1, at most build 61, which fetches `disks.xml` from the pinned `v1.4.12`.
+**The version-attribute wipe no longer reaches the build the Store serves, and that changed on 2026-09-12.** Measured 2026-09-21: the Store serves 1.6.2, released 2026-09-21, which is build 74 exactly — 1.6.2 heads one CHANGELOG entry, so there is no range to bracket this time — and that is well past the build-64 migration. Build 74 is a v0 client that reads no `disks.xml` at all, so moving `<disks version="13">` cannot touch it. Until 2026-09-12 the opposite was true, and this paragraph said so: the Store served 1.5.1, at most build 61, which fetches `disks.xml` from the pinned `v1.4.12`.
 
 **It frees nothing, because the hazard was never about the build being served.** It is about the builds people have. Anyone who has not updated is still on 1.5.x pinned to `v1.4.12` or `v1.4.5` — the pin arrived at build 42/43 and moved on 2026-09-03 with `CURRENT_PROJECT_VERSION` at 58 — and re-uploading either tag's catalog with a moved version attribute reaches those devices with no tap and no download. Older installs are worse: 1.4.9 (builds 36/37) floats on `releases/latest/download/` rather than a tag, so for those a *normal* release fires the wipe immediately. That is why `--prerelease` on an asset carrier is load-bearing rather than cosmetic, and the rules that came out of doing it are in `docs/DISK_W8FIX_RUNBOOK.md`, in the SUPERSEDED block at the top. `romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md` is where the ordering was first worked out; it now opens "Historical, and nothing here is current as of 2026-09-07", so read it for the reasoning and not for the procedure. Every version number in this paragraph is a measurement with a date on it, not a constant: re-derive it with `tools/check-store-version.sh` before relying on it.
 
 **Still open, and not foreclosed by the narrowing or by what the Store now serves:**
 - Copy-on-write: create a local copy when the user first modifies a downloaded disk. This is the only one that helps a user who kept data *in* a catalog disk, which is what the paragraph at the top of this entry is about. Build 61 warns before replacing such a disk and never replaces one unasked; it still cannot preserve the contents.
 - Confirm before the wipe, rather than reporting it afterwards. In this tree there is no wipe left to confirm — build 66 deletes nothing on a catalog change, and the provenance path asks first. In the builds users have, the version-attribute path is unchanged and still reports afterwards.
-- How much of it a user actually has cannot be established from here. The narrowing landed in build 56 and the ledger in build 61, and the Store's 1.6.1 is at least build 67, so a device on the current version has both and the wipe removed outright at build 66 besides. `tools/check-store-version.sh` still cannot say which build inside the range it is, and neither can this file. A device nobody has updated has whatever it had: a 1.5.x install may have the ledger, and one still on 1.4.9 has neither.
+- How much of it a user actually has cannot be established from here. The narrowing landed in build 56 and the ledger in build 61, and the Store's 1.6.2 is build 74 exactly, so a device on the current version has both and the wipe removed outright at build 66 besides. `tools/check-store-version.sh` names that build rather than bracketing it, because 1.6.2 heads one CHANGELOG entry rather than a range of them. A device nobody has updated has whatever it had: a 1.5.x install may have the ledger, and one still on 1.4.9 has neither.
 
 ## Interface v0
 
@@ -324,8 +324,14 @@ because that is the one case where the bytes can be proven not to be this app's.
 Measured 2026-09-21 off the storefront page for trackId `6756590871`, which is
 the single record this app has: under Compatibility it lists **iPhone**, **iPad**,
 **iPod touch**, **Mac** (macOS 12.0+) and **Apple Vision** (visionOS 1.0+).
-The first four are intended.  The fifth is not something this repository has
-ever mentioned - `git grep -i visionos` matches nothing outside this entry.
+The first four are intended.  The fifth is not something this repository builds
+for.  `git grep -i visionos` matched NOTHING at all until 2026-09-21, when the
+Store listing was read for the first time; what it matches now is this entry,
+the `[RELEASE]` item in `todo.txt` asking for the checkbox to be decided, the
+note beside the lookup in `tools/check-store-version.sh`, and the two places
+that enumerate platforms and now say the list is short - `README.md` and
+`docs/appstore.txt`.  Every one of them records the LISTING.  None of them
+claims the platform, and none may start to before a person decides it.
 
 It is not a build anyone here made.  `TARGETED_DEVICE_FAMILY` is `"1,2"` and
 `SUPPORTS_MACCATALYST = YES`; no xrOS slice is produced.  What reaches Vision

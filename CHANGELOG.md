@@ -1,13 +1,101 @@
 # Changelog
 
+## Unreleased
+
+Build 74 is released, so this section reopens. Nothing here is in a binary:
+two tools and the documents they feed.
+
+### check-store-version.sh read a cached lookup, and said 1.6.1 for six hours
+
+The script this repository defers to for "what do USERS have" was reporting a
+version up to a day stale, with nothing in its output to say so. Caught
+2026-09-21, on the day it mattered: the App Store flipped to 1.6.2 at 23:44Z,
+five storefronts and the storefront page said so, and this script said 1.6.1
+three runs in a row.
+
+Apple serves the lookup with `cache-control: max-age=86400` and the edge keys
+on the whole URL, so a FIXED URL keeps returning the body it first cached. The
+stale response carried `max-age=64224` — an object already six hours into its
+day. The same URL with one unique parameter appended returned 1.6.2, three runs
+in a row, in the same minute. `LOOKUP` now carries `&_cb=$(date +%s)$$`, which
+the API ignores and its cache cannot match.
+
+It failed in the one direction that matters. A cache cannot invent a version,
+so this script could never have claimed a build Apple does NOT serve — it could
+only go on insisting the OLD version is what users have, which is exactly the
+claim `CLAUDE.md`, `MANUAL_CHECKS.md` and `docs/ROM_ATTESTATION.md` all defer to
+it for. Its own header says "record the DATE beside the number — that date is
+the whole of its authority"; the date was honest and the data could be a day
+older than it.
+
+### unreleased.sh: when the version IS a build, stop reporting a floor
+
+With 1.6.2 served, it reported eleven commits since "the FLOOR of the builds
+1.6.2 covers", six of them touching `iOSCPM/`, as "features and fixes an App
+Store user on the FLOOR build does not have". All six are in build 74 and in
+the hands of anyone who has updated; the over-count it warns about in its own
+prose had grown to the whole answer.
+
+It now asks `check-store-version.sh` which kind of answer it earned. EXACT —
+"which is  build NN" with no hedge — anchors on the commit that set
+`CURRENT_PROJECT_VERSION` to NN and says outright that the list is neither an
+over- nor an under-count. FLOOR — "at most build NN" — is the old behaviour and
+the old warning, unchanged, because every version before 1.6.2 spanned several
+builds. The parser refuses the hedged form rather than misreading it.
+
+### The documents that record what users have, now that they do
+
+For the first time the tree and the Store agree, and a dozen paragraphs written
+against a bracket had to move. Every one of them reasoned from "1.6.1 heads
+builds 67-72 and the lookup does not say which": `MANUAL_CHECKS.md`'s anchor
+for what users have, `docs/ROM_ATTESTATION.md`'s argument that the shipping
+binary is past the bundled-ROM removal, `docs/DISK_DISTRIBUTION.md` and
+`docs/DISK_CATALOG_PINNING.md` on what the shipping binary pins and where it
+fetches help, and `KNOWN_PROBLEMS.md` on what the `<disks version>` wipe can
+reach. 1.6.2 heads one entry, so each of those is now a statement about one
+binary, and two of them flip rather than tighten: build 70 moved help onto the
+catalog, the old bracket straddled it, and build 74 is four past it — so the
+floating help URL is no longer load-bearing for the SHIPPING binary, only for
+installs nobody has updated.
+
+**An unbracketed build is not self-certifying, and the file says so.** This
+script printed one on 2026-09-06 — build 65, never compiled — and was wrong;
+that was the first-match bug, recorded further down. What makes this reading
+sound is that 1.6.2 heads a single heading, so there is nothing for a first
+match to get wrong.
+
+### The Store offers this app on visionOS, and the listing is years stale
+
+Two things measured off the store record, neither of them previously known here.
+
+`git grep -i visionos` matched **nothing** in this repository until 2026-09-21.
+The single record (trackId 6756590871) lists iPhone, iPad, iPod touch, Mac and
+**Apple Vision (visionOS 1.0+)** under one version, so `check-store-version.sh`
+speaks for the Mac without a second query — measured, because adding one is the
+obvious thing to "fix" — and "iOS and Mac Catalyst" has been describing one
+platform fewer than can install this. No xrOS slice is built; what reaches a
+Vision Pro is the unmodified iPad app, through a default-on App Store Connect
+setting no session can see. `KNOWN_PROBLEMS.md` has it; the decision is one
+checkbox and a person's.
+
+And the live listing is far older than `docs/appstore.txt`. Measured against it
+while it served 1.6.2: 1682 characters to this repo's 2388, the app called
+"RomWBW CP/M", GETTING STARTED still reading "Open Settings and download a disk
+image" and **"Press 0 at the boot menu to boot from disk"** — 0 is the RAM disk
+— "64MB per disk" where the Combo image is 49 MB, and no "Choose Your RomWBW
+Release" bullet at all. The What's New for 1.6.2 is current; the description
+under it is not. That file now carries the measurement at the top, so nobody
+has to rediscover that it has never been pasted.
+
 ## Version 1.6.2 (Build 74)
 
-The first build under 1.6.2. The Store serves 1.6.1, released 2026-09-12, and
-a released version cannot take another submission, so this one needed the
-version string and not only the build number; `CLAUDE.md` records the move.
-**Nothing below has been submitted or released** - `sh tools/check-store-version.sh`
-is the only thing that says what users have, and a TestFlight build is not one
-of the things it can see.
+The first build under 1.6.2. The Store served 1.6.1, released 2026-09-12, when
+this was written, and a released version cannot take another submission, so
+this one needed the version string and not only the build number; `CLAUDE.md`
+records the move. **This build is now what users have** - measured 2026-09-21,
+`sh tools/check-store-version.sh` says the Store serves 1.6.2, released
+2026-09-21, and 1.6.2 heads this entry alone, so the served version is build 74
+exactly. Everything below has been released.
 
 **The number moved 73 -> 74 for the TestFlight upload, and no code moved with
 it.** `CURRENT_PROJECT_VERSION` went from 73 to 74 on its own, in both
@@ -683,9 +771,11 @@ which is what made them easy to miss:
 
 `docs/whats_new_2026_08.md` says the old thing in three places and was left
 alone on purpose. It is a dated forum post — the filename is the only date it
-carries, by design — describing the build the Store serves, which still has the
-filter in it. Rewriting it would make an August post describe an unshipped
-change. The next post is a new file.
+carries, by design — describing the build the Store served when it was
+written, which still had the filter in it. It was left alone while the change
+was unshipped, and 1.6.2 has since been released, so the post is now a record
+of a superseded build rather than a description of the current one. The next
+post is a new file.
 
 **Not done when this was written, and done since.** `Tests/run_tests.sh`
 passed in full but cannot compile the five files that import UIKit —

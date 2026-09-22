@@ -10,14 +10,16 @@ binary the App Store is serving does. Everything before it describes the older
 scheme, which is still live on devices nobody has updated.
 
 `sh tools/check-store-version.sh` is what settles that, and it is a measurement
-rather than a constant. On 2026-09-15 it reports **1.6.1, released 2026-09-12,
-at most build 70** — and 1.6.1 heads builds 67-72, so the shipping binary is at
-*least* 67. Build 64 is the v0 migration, so every build it could be reads the
-interface-v0 catalog: one compiled-in index URL at `avwohl/romwbw_disks`, one
-catalog per RomWBW release, asset URLs taken from the catalog's own `base_url`.
-No `release_assets/disks.xml`, no `avwohl/ioscpm` release tag, no `releaseTag`
-constant. On 2026-09-08 the same script said 1.5.1 at most build 61, which is
-pre-v0 — that is the sentence that changed.
+rather than a constant. On 2026-09-21 it reports **1.6.2, released 2026-09-21,
+build 74** — 1.6.2 heads exactly one CHANGELOG entry, so for the first time the
+answer is a build and not a range, and it is the build this tree is on. Build
+64 is the v0 migration, so the shipping binary reads the interface-v0 catalog:
+one compiled-in index URL at `avwohl/romwbw_disks`, one catalog per RomWBW
+release, asset URLs taken from the catalog's own `base_url`. No
+`release_assets/disks.xml`, no `avwohl/ioscpm` release tag, no `releaseTag`
+constant. On 2026-09-15 the same script said 1.6.1, at most build 70, and on
+2026-09-08 1.5.1 at most build 61, which is pre-v0 — that is the sentence that
+changed.
 
 The disk images are **not** in this repo; they exist only as release assets
 (removed from `release_assets/` in f570676).
@@ -210,10 +212,11 @@ that names the ROMs and the disks, carrying a `help` block whose `base_url`
 points at `avwohl/romwbw_disks`' `help-v0` tag. `docs/HELP_SYSTEM.md` has the
 shape and the three offline tiers.
 
-**That URL still has to answer, and for the same reason the disk tags do.** The
-Store serves at most build 70 and at least 67, and 70 is precisely the build
-that moved help — so whether the currently shipping binary fetches help from
-`avwohl/ioscpm/releases/latest/download/` is *not knowable from this tree*.
+**That URL still has to answer, but not for the reason it used to.** The Store
+serves build 74 as of 2026-09-21, past the build-70 move, so the currently
+shipping binary fetches help from the catalog and not from
+`avwohl/ioscpm/releases/latest/download/`. What keeps that URL load-bearing is
+every install nobody has updated, exactly as with the disk tags.
 Re-measured 2026-09-15: `help_index.json` and the topics there answer 200, and
 the bytes are byte-identical to what `romwbw_disks/help/` holds. Nothing new
 will be attached there; nothing may be taken away either.
@@ -258,12 +261,13 @@ and its SUPERSEDED block first, never through this list.
    `sh tools/check-store-version.sh` and read the number it gives rather than
    deriving one.
 
-   On 2026-09-15 it says **1.6.1, released 2026-09-12, at most build 70**.
-   1.6.1 heads builds 67-72, so the shipping binary is at least 67 — past the
-   build-64 migration, and therefore a v0 client that reads none of the tags
-   below. **That is new.** On 2026-09-08 the same script said 1.5.1, released
-   2026-09-05, at most build 61, which is pre-v0; the pinned scheme was what
-   users were on, and it no longer is.
+   On 2026-09-21 it says **1.6.2, released 2026-09-21, build 74**. 1.6.2 heads
+   exactly one CHANGELOG entry, so the shipping binary is build 74 exactly —
+   past the build-64 migration, and therefore a v0 client that reads none of
+   the tags below. **What is new is the precision**: every earlier reading was
+   a range. On 2026-09-15 it said 1.6.1, at most build 70; on 2026-09-08 1.5.1,
+   released 2026-09-05, at most build 61, which is pre-v0 — the pinned scheme
+   was what users were on, and it no longer is.
 
    It changes nothing about keeping the tags live. Older installs nobody has
    updated are still out there: 1.5.x reads a pin, and 1.4.9 (builds 36/37)
@@ -457,8 +461,9 @@ as `Codable` structs, and `Tests/CatalogDocumentTests.swift` covers them.
 
 **Landed 2026-09-01, in build 55.** Every download is verified before it is
 installed. Whether a given user's copy has it is a separate question and a
-measured one — `sh tools/check-store-version.sh` bounds what the Store serves,
-and it cannot say which build inside that bound it is.
+measured one — `sh tools/check-store-version.sh` says the Store serves 1.6.2,
+which is build 74 exactly, so the currently shipping binary has it. What it
+cannot say is which build an install nobody has updated is running.
 
 The only download path is `downloadDiskFromSettings` in
 `EmulatorViewModel.swift`, reached from `downloadDisk` (the Settings button),

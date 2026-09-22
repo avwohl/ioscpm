@@ -21,9 +21,13 @@ base from a single `releaseTag`. **The pin moved to `v1.4.12` in `0010591`
 deleted the constant outright.
 
 **The shipping binary carries no pin at all any more.**
-`sh tools/check-store-version.sh` on 2026-09-15 says 1.6.1, released
-2026-09-12, **at most build 70**; 1.6.1 heads builds 67-72, so it is at least
-67, and build 64 deleted the constant. Every build it could be is a v0 client
+`sh tools/check-store-version.sh` on 2026-09-21 says 1.6.2, released
+2026-09-21, **build 74** — a build and not a range, because 1.6.2 heads exactly
+one CHANGELOG entry and there is nothing for the version-to-build mapping to
+choose between. (It has named a build before, on 2026-09-06, and was wrong:
+that was the first-match bug, and `CHANGELOG.md` records it. An unbracketed
+answer is only worth what the heading count behind it is worth.) Build 64
+deleted the constant long before either. The shipping binary is a v0 client
 reading `avwohl/romwbw_disks`. The question this paragraph used to answer —
 which of `v1.4.5` and `v1.4.12` the Store's binary reads — no longer has a
 subject.
@@ -203,9 +207,10 @@ index whose `base_url` is `avwohl/romwbw_disks`' `help-v0` tag. See
 The asymmetry the instruction was protecting — help not version-locked to the
 ROM, disk images are — still holds; help simply reaches the client by the same
 document as everything else now. What has *not* changed is the obligation
-below: the floating help URL must keep answering, because the Store's binary is
-at most build 70 and at least 67, so whether it fetches help from there is not
-knowable from this tree.
+below: the floating help URL must keep answering — though no longer for the
+Store's binary, which is 1.6.2 build 74 exactly (1.6.2 heads one CHANGELOG
+entry, so the served version names one build), four past the one that moved
+help. What holds it live now is the installs on build 69 and older.
 
 ---
 

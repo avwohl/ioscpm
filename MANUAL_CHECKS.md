@@ -71,10 +71,15 @@ Build 67 was the last one driven on a simulator, on 2026-09-07: section 18 was
 worked through and 8 of its 11 boxes are ticked with what was measured.
 
 `sh tools/check-store-version.sh` is the only thing that says what USERS have.
-Measured 2026-09-21: the App Store serves 1.6.1, released 2026-09-12, against a
-tree at 1.6.2 build 74 - which the script brackets as "at most build 70", since
-1.6.1 heads builds 67-72 and the lookup does not say which. Run it rather than
-reading this line; built is not shipped.  **Observations
+Measured 2026-09-21: the App Store serves 1.6.2, released 2026-09-21, and 1.6.2
+heads exactly one CHANGELOG entry - "## Version 1.6.2 (Build 74)" - so the
+served version resolves to build 74 exactly, with no bracket, and the script's
+last line reads "The tree and the Store agree on what users have".  Do NOT read
+an unbracketed build as proof on its own: this script printed one on
+2026-09-06, build 65, and was wrong - `CHANGELOG.md` has the first-match bug
+that caused it.  What makes this reading sound is that 1.6.2 heads a single
+heading, so there is nothing for a first match to get wrong.  Run the script
+rather than reading this line; the next build reopens the gap.  **Observations
 below carrying a date or a build number older than 67 were made on an EARLIER
 tree** - build 55, 56 or 61 - and have not been repeated since.
 

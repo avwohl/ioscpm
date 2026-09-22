@@ -28,9 +28,9 @@ build 66 (`7b9feb3`, 2026-09-07).
 
 That sentence used to end "the version the App Store serves today still
 contains it". It no longer does: `sh tools/check-store-version.sh` on
-2026-09-21 reports 1.6.1, released 2026-09-12, at most build 70, and 1.6.1
-heads builds 67-72 — so the shipping binary is at least 67 and past the
-removal. Every copy Apple can currently download fetches its ROM from the
+2026-09-21 reports 1.6.2, released 2026-09-21, and 1.6.2 heads exactly one
+build — 74 — so the shipping binary is build 74, well past the removal in
+build 66. Every copy Apple can currently download fetches its ROM from the
 catalog below.
 
 Nothing about the rights position changed when it went. The same bytes are still

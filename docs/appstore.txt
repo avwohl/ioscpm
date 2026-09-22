@@ -1,6 +1,23 @@
 App Store Listing for Z80CPM
 ============================
 
+NOTE, and not part of the copy below.
+
+**This file has never been pasted into App Store Connect.**  Measured
+2026-09-21 against the live listing for trackId 6756590871, while it served
+1.6.2: the live description is 1682 characters to this file's 2388, it calls
+the app "RomWBW CP/M", its GETTING STARTED still reads "Open Settings and
+download a disk image" and "Press 0 at the boot menu to boot from disk" - 0 is
+the RAM disk - it says "64MB per disk" where the Combo image is 49 MB, and it
+carries no "Choose Your RomWBW Release" bullet at all.  The What's New text for
+1.6.2 is current; the description underneath it is not.
+
+The copy below names iPhone, iPad and Mac.  The one store record this app has
+also offers it on Apple Vision (visionOS 1.0+), so every platform list here is
+shorter than the set of devices the listing installs on.  Whether to say so is
+the checkbox decision in KNOWN_PROBLEMS.md, "The Store offers this app on
+visionOS"; do not add Vision to the copy before a person settles it.
+
 PROMOTIONAL TEXT (max 170 characters)
 -------------------------------------
 Run classic CP/M software on your iPhone, iPad, or Mac. Experience WordStar, Zork, Turbo Pascal, and more with authentic Z80 emulation.
