@@ -70,9 +70,9 @@ Measured on macOS, 2026-09-15: `create` gives exactly 8,388,608 bytes and
 **slice 3** of the combo lists and extracts back byte-for-byte. It runs wherever
 Python does; there is nothing Linux-specific about any of this.
 
-`create --sssd` exists for a 250 KB 8" floppy and does not work - it fails its
-own post-create verify and writes no file - and the emulator accepts no image
-that size anyway.
+`create --sssd` exists for a 250 KB 8" floppy. Through cpmemu 4.9.0 it failed
+its own post-create verify and wrote no file; 4.10.0 fixed it. The emulator
+accepts no image that size in any case.
 
 **This section used to prescribe cpmtools**, with a diskdefs file to install and
 three ways to obtain a `wbw_hd1k` definition. Do not restore it. The measured

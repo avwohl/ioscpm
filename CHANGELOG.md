@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Two notes about `cpm_disk.py` that stopped being true
+
+`KNOWN_PROBLEMS.md` said `create --sssd` does not work, and
+`docs/DISK_W8FIX_RUNBOOK.md` said the combo extract/add path returned the wrong
+slice's file. cpmemu 4.9.0 fixed the combo addressing and 4.10.0 fixed
+`create --sssd`; checked by adding a different file to each of a combo image's
+six slices and extracting each back, byte for byte up to its record padding.
+The runbook keeps the dd-slice recipe. Documentation only.
+
 Build 74 is released, so this section reopens. Nothing here is in a binary:
 two tools and the documents they feed.
 

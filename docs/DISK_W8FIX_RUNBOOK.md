@@ -197,10 +197,13 @@ served.
 > "the interlock is not a security boundary" block. That exposure predates today
 > and is unchanged by it. See "2026-09-04" below for why the trade was taken.
 
-Note: `cpmemu/util/cpm_disk.py` reads/writes **single hd1k** images correctly
-but its **combo** extract/add path is unreliable (it returned the wrong slice's
-`w8.com`). Always patch a combo via the dd-slice method below, never the combo
-path directly.
+Note: when this runbook was written (2026-07), `cpmemu/util/cpm_disk.py`'s
+**combo** extract/add path was unreliable - it returned the wrong slice's
+`w8.com`. cpmemu 4.9.0 fixed that (combo file data was addressed 16384 bytes
+early, and `--slice N` reached only the first slice), and with 4.9.0 and 4.10.0
+a file added to each of a combo's six slices extracts back from that slice. The
+dd-slice method below still works and is kept as the recipe; `cpm_disk.py
+--slice N` on the combo is now an alternative.
 
 ## Produce the fixed combo (reproducible, verified)
 
