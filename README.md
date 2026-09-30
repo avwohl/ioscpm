@@ -55,129 +55,8 @@ See `KNOWN_PROBLEMS.md`, "The Store offers this app on visionOS".
    device already
 6. At the boot menu, type `2` and Enter to boot the first hard disk
 
-### Boot Menu Keys
-
-Every command is read as a line, so nothing happens until you press Enter.
-
-- `2` - boot the first hard disk, slice 0; `2.3` for slice 3
-- `C` - boot CP/M 2.2 from ROM
-- `D` - list the disk devices
-- `W` - **SYSCONF**, to configure auto-boot
-- `H` - the full menu
-
-Units 0 and 1 are the on-board RAM and ROM memory disks and carry no operating
-system, so booting `0` answers `*** No boot record` on RomWBW 3.6.0 and
-`*** No system image on disk` on 3.5.1.
-
-### Auto-Boot Configuration
-
-Press `W` at the boot menu for SYSCONF, choose a boot device and timeout, and
-the setting persists across app restarts. Settings has a "Clear Auto-Boot"
-button to undo it.
-
-## Disk Images
-
-ROMs and disk images come from
-[romwbw_disks](https://github.com/avwohl/romwbw_disks), which publishes one
-catalog per RomWBW release. The app compiles in a single index URL: the index
-lists the releases, Settings' **RomWBW Release** picker chooses among them, and
-every download URL comes from the chosen release's own catalog. Settings' **Catalog**
-section points the app at a different index entirely; each index keeps its own
-downloads and settings.
-
-Every download is checked against the SHA-256 the catalog gives, and the
-catalog itself against the index's before it is read. The ROM is re-verified
-every time it is loaded, which is a check no disk could survive once the guest
-has written to it. A release whose ROM cannot be fetched does not start: an
-alert names the release and the file rather than quietly substituting another
-release's ROM, which is what leaves RomWBW printing an HBIOS/CBIOS version
-mismatch part-way through a boot.
-
-Each release publishes more than one ROM, and which of them boots is a choice in
-Settings. A release flagged `preview` is marked as one in the picker. When a ROM
-cannot be fetched the app names the release and the file and says what would fix
-it - a connection, or the other ROM that release publishes - rather than falling
-back to another release's ROM, which is what leaves RomWBW printing a version
-mismatch part-way through a boot.
-
-**A new RomWBW release does NOT need a new build**, and neither do new disks or
-ROMs within one. The picker offers every release the published index lists -
-with one exception that is a choice and not a compile-time list: an entry the
-index flags `prerelease` is a RomWBW development snapshot, and the picker drops
-it unless Settings -> RomWBW Release -> Show Development Snapshots is ticked,
-which is off in a fresh install.
-
-That is a change: until romwbw_emu v1.44 this app filtered the index against a
-compile-time list of releases its core had been checked against, so 3.7.0 would
-have been fetched and then hidden. The list gated the wrong axis. A release
-number is the pairing between HBIOS and a disk image's CBIOS - which the guest
-itself enforces, by printing *** WARNING: HBIOS/CBIOS Version Mismatch *** on a
-mismatched pair - and not what the emulator depends on. What the emulator
-depends on is two I/O ports and the set of HBIOS functions it services, and that
-interface is versioned by the catalog's own name: everything a **v0** index
-publishes speaks v0, and a change this core could not service would be published
-as `index-v1.json`, which this app does not read.
-
-Which releases exist, which is the default, and what each one carries are
-questions for the published index, not for this file - the app shows what it
-finds, and [romwbw_disks](https://github.com/avwohl/romwbw_disks) is where it is
-published. Each disk entry carries its own `license` field, which the app
-displays; that field is the authority on what an image is under.
-
-Downloaded images live in the app's `Documents/Disks` folder (a custom index
-gets its own `Disks@<hash>` beside it, so two catalogs' identically-named
-images cannot collide) and work offline. Filenames carry the release -
-`hd1k_combo-v0-3.5.1.img` - so two RomWBW releases' disks sit side by side, and
-so do the slot selections and boot settings that go with them. Switching
-release deletes nothing.
-
-## Technical Details
-
-### Architecture
-
-```
-┌─────────────────────────────────────┐
-│         SwiftUI Interface           │
-├─────────────────────────────────────┤
-│      EmulatorViewModel (Swift)      │
-├─────────────────────────────────────┤
-│    RomWBWEmulator (Obj-C++ Bridge)  │
-├─────────────────────────────────────┤
-│       HBIOSEmulator (C++)           │
-│  ┌─────────────┬─────────────────┐  │
-│  │   qkz80     │  HBIOSDispatch  │  │
-│  │  (Z80 CPU)  │  (HBIOS calls)  │  │
-│  └─────────────┴─────────────────┘  │
-└─────────────────────────────────────┘
-```
-
-### Dependencies
-
-Most of `iOSCPM/Core/` is symlinks into sibling checkouts:
-
-- `../cpmemu/src/` - the qkz80 Z80 CPU core
-- `../romwbw_emu/src/` - HBIOS dispatch and memory banking
-
-`emu_io_ios.mm`, `hbios_core.cc` and `hbios_core.h` are this repository's own.
-
-### Terminal Emulation
-
-ANSI/VT100 escape sequences: cursor positioning (`ESC[row;colH`), screen and
-line clearing (`ESC[2J`, `ESC[K`), text attributes (`ESC[7m` reverse video) and
-cursor save/restore (`ESC 7`, `ESC 8`) - enough for programs like Zork that use
-cursor positioning for a status line.
-
-The VT52 dialect is implemented too. A session starts in ANSI and follows
-DECANM (`ESC[?2h` ANSI, `ESC[?2l` VT52) when a program asks explicitly.
-Otherwise VT52 is inferred only from `ESC A/B/C/F/G/I/Y`, which a
-VT100-configured program has no reason to emit - and deliberately not from
-`ESC J` or `ESC K`, the ordinary erase commands of the ADM-3A, Televideo,
-Hazeltine and Heath families.
-
-### Disk Format
-
-RomWBW hd1k: 8 MB per slice, up to 8 slices per disk, 1024 directory entries
-per slice.
+[docs/boot_menu.md](docs/boot_menu.md) lists the boot menu keys and the auto-boot
+setup.
 
 ## Building
 
@@ -192,6 +71,18 @@ and belongs in `CHANGELOG.md` against that build, not here.
 2. Open `iOSCPM.xcodeproj`
 3. Select a target device
 4. Build and run
+
+## Documentation
+
+- [docs/boot_menu.md](docs/boot_menu.md) - boot menu keys and auto-boot configuration
+- [docs/disk_images.md](docs/disk_images.md) - where ROMs and disk images come from, how they are checked and stored
+- [docs/technical_details.md](docs/technical_details.md) - architecture, dependencies, terminal emulation, disk format
+- [docs/DISK_DISTRIBUTION.md](docs/DISK_DISTRIBUTION.md) - the disk catalog and release process
+- [docs/HELP_SYSTEM.md](docs/HELP_SYSTEM.md) - the in-app help topics
+- [docs/notes_to_windos.md](docs/notes_to_windos.md) - cross-platform pitfalls when syncing with sibling repos
+- [KNOWN_PROBLEMS.md](KNOWN_PROBLEMS.md) - known problems
+- [CHANGELOG.md](CHANGELOG.md) - changes
+- [PRIVACY.md](PRIVACY.md) - privacy policy
 
 ## License
 

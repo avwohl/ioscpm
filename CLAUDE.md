@@ -1,5 +1,8 @@
 # Claude Code Notes for iOSCPM
 
+## README stays short
+README.md is at most 150 lines. New detail goes in docs/<topic>.md with a one-line link from the README; never add sections to the README.
+
 ## NEVER change MARKETING_VERSION
 
 `MARKETING_VERSION` in `iOSCPM.xcodeproj/project.pbxproj` is the App Store
