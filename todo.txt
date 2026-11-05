@@ -56,3 +56,6 @@ greppable string, never a file:line.
 - [MAC] decide whether switching release should carry the slot IDENTITIES across
   - resolve each occupied slot's catalog id in the new release and mount it -
   instead of arriving with four empty drives.
+
+- [MAC] add the GDB stub (no code here yet): a Settings toggle (off by default) and
+  port; call Stub::serve() from RomWBWEmulator's runLoop thread. Recipe: romwbw_emu docs/GDB.md.
