@@ -78,6 +78,7 @@ and belongs in `CHANGELOG.md` against that build, not here.
 - [docs/disk_images.md](docs/disk_images.md) - where ROMs and disk images come from, how they are checked and stored
 - [docs/technical_details.md](docs/technical_details.md) - architecture, dependencies, terminal emulation, disk format
 - [docs/DISK_DISTRIBUTION.md](docs/DISK_DISTRIBUTION.md) - the disk catalog and release process
+- [docs/gdb.md](docs/gdb.md) - debug a Z80 program with GDB or udb80 over the network
 - [docs/HELP_SYSTEM.md](docs/HELP_SYSTEM.md) - the in-app help topics
 - [docs/notes_to_windos.md](docs/notes_to_windos.md) - cross-platform pitfalls when syncing with sibling repos
 - [KNOWN_PROBLEMS.md](KNOWN_PROBLEMS.md) - known problems

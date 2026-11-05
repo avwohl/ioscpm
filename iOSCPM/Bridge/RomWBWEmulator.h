@@ -43,6 +43,12 @@ typedef NS_ENUM(NSInteger, RWBControlifyMode) {
 
 // Disk flush (called on warm boot when program ends)
 - (void)emulatorShouldFlushDisks;
+
+// GDB stub (docs/gdb.md). The text to show while the stub waits for a debugger
+// or has one ("Waiting for GDB: target remote 127.0.0.1:1234"), or nil when
+// there is nothing to show (the stub is off, or the machine stopped). Called on
+// the main queue.
+- (void)emulatorDidChangeGdbStatus:(nullable NSString*)status;
 @end
 
 @interface RomWBWEmulator : NSObject
@@ -122,6 +128,29 @@ typedef NS_ENUM(NSInteger, RWBControlifyMode) {
 - (void)setDiskIsManifest:(int)unit isManifest:(BOOL)isManifest;
 - (void)setDiskWarningSuppressed:(int)unit suppressed:(BOOL)suppressed;
 - (BOOL)pollManifestWriteWarning;
+
+// GDB stub (docs/gdb.md). Off by default. Set these before -start; the stub
+// is made by -start and ends with the machine.
+//
+// With gdbEnabled, -start opens the port and then the machine WAITS, before its
+// first instruction, for a debugger to connect. The wait and the debugging
+// session run on the emulation queue, never on the main thread.
+@property (nonatomic) BOOL gdbEnabled;
+/// 1 to 65535. The conventional port is 1234.
+@property (nonatomic) int gdbPort;
+/// NO: listen on 127.0.0.1, so only this device (and a simulator's Mac) can
+/// connect. YES: listen on every interface, so anyone who can reach the port
+/// controls the emulated machine. The stub has no password.
+@property (nonatomic) BOOL gdbAllowNetwork;
+/// Why the last -start could not open the port, or nil. When it is not nil the
+/// machine did not start.
+@property (readonly, copy, nonatomic, nullable) NSString* gdbStartError;
+
+/// The IPv4 addresses a debugger can use to reach this device, one per
+/// interface, as "192.168.1.20" - for the status line when the stub listens on
+/// the network. Loopback, tunnels and the cellular interface are left out.
+/// Empty when the device has no network address.
++ (NSArray<NSString*>*)gdbNetworkAddresses;
 
 // Execution control
 - (void)start;

@@ -112,6 +112,17 @@ struct ContentView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
 
+                    // Where to connect GDB, while the stub waits for it. Its own
+                    // text and not statusText: the core overwrites statusText
+                    // whenever the guest first touches a drive.
+                    if let gdb = viewModel.gdbStatusText {
+                        Text(gdb)
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .lineLimit(1)
+                            .textSelection(.enabled)
+                    }
+
                     Spacer()
 
                     if viewModel.isRunning {
@@ -1191,6 +1202,50 @@ struct SettingsView: View {
                     Text("Lines of terminal history kept for scrollback (0 disables). Scroll with two-finger drag / mouse wheel; on a hardware keyboard, Shift+PageUp/PageDown page and Ctrl+Home/End jump to oldest/live.")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                }
+
+                // GDB debugger. Off by default, and the network switch under it is
+                // off by default too. See docs/gdb.md.
+                Section(header: Text("GDB Debugger")) {
+                    Toggle("GDB Stub", isOn: $viewModel.gdbEnabled)
+                    Text("Lets GDB or udb80 debug a Z80 program in the emulated machine. When you press Play, the machine waits, before its first instruction, for a debugger to connect, and the status bar shows the address to use: target remote ADDRESS:PORT.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    if viewModel.gdbEnabled {
+                        HStack {
+                            Text("Port")
+                            Spacer()
+                            TextField("1234", value: $viewModel.gdbPort,
+                                      format: .number.grouping(.never))
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(maxWidth: 100)
+                        }
+                        if !viewModel.gdbPortIsValid {
+                            Text("The port must be 1 to 65535. Play will not start the machine with this port.")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+
+                        Toggle("Allow Connections From the Network", isOn: $viewModel.gdbAllowNetwork)
+                        Text("Off: only this device can connect (127.0.0.1). The iOS Simulator and the Mac app share the Mac's loopback, so GDB on the same Mac connects with 127.0.0.1. A real iPhone or iPad needs this switch on for GDB on another computer, and the address to use is the Wi-Fi address of the device.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        if viewModel.gdbAllowNetwork {
+                            Text("Warning: the stub has no password. Anyone who can reach the port can read and write the memory of the emulated machine and control it. Use this only on a network you trust, and only while you debug.")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                            let addresses = viewModel.gdbNetworkAddresses
+                            Text(addresses.isEmpty
+                                 ? "This device has no network address now."
+                                 : "Addresses of this device: " + addresses.joined(separator: ", "))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
                 }
 
                 // Keyboard mapping Section (external/hardware keyboards)

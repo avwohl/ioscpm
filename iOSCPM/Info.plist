@@ -53,6 +53,8 @@
     <true/>
     <key>UISupportsDocumentBrowser</key>
     <true/>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Only used when you turn on the GDB stub with "Allow Connections From the Network": a debugger on another computer connects to the emulated machine over your local network.</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
 </dict>

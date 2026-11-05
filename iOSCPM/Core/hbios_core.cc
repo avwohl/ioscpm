@@ -9,6 +9,11 @@
 #include "emu_io.h"
 #include <cstring>
 #include <cstdarg>
+#include <unistd.h>
+
+#include "gdb_platform_ios.h"
+#include "gdbstub.h"
+#include "romwbw_gdb.h"
 
 //=============================================================================
 // HBIOSCPUDelegate Implementation
@@ -293,10 +298,125 @@ void HBIOSEmulator::runBatch(int count) {
   }
 
   // Poll output buffer and send chars to display
+  flushOutput();
+}
+
+//=============================================================================
+// The GDB stub (docs/gdb.md)
+//=============================================================================
+
+// A listening stub, its target, and the flag that ends a wait.  The stub and
+// the target are made on the thread that calls gdbListen() and used on the
+// emulation thread, one after the other, never at the same time.
+struct GdbSession {
+  volatile bool cancel;      // gdbCancel(); the target's stop flag too
+  volatile bool connected;
+  RomwbwTarget target;
+  gdb::Tracker tracker;
+  gdb::Stub stub;
+  GdbSession(qkz80& cpu, banked_mem& mem)
+      : cancel(false), connected(false), target(cpu, mem, &cancel), stub(target, tracker) {
+    target.stub = &stub;
+    target.tracker = &tracker;
+  }
+};
+
+void HBIOSEmulator::flushOutput() {
   if (hbios.hasOutputChars()) {
     std::vector<uint8_t> chars = hbios.getOutputChars();
     for (uint8_t ch : chars) {
       emu_console_write_char(ch);
     }
   }
+}
+
+std::shared_ptr<GdbSession> HBIOSEmulator::gdbListen(uint32_t addr, int port, std::string* error) {
+  std::shared_ptr<GdbSession> s = std::make_shared<GdbSession>(cpu, memory);
+  s->target.step_fn = [this, raw = s.get()](gdb::StepEvents& ev) {
+    ev = gdb::StepEvents();
+    if (raw->cancel || !running) throw GdbRunEnd{false};
+
+    // One turn: the same instruction runBatch() runs, and the same checks
+    // after it.  This port has no interrupts to take and no instruction limit.
+    const uint16_t pc = cpu.regs.PC.get_pair16();
+    ev.exec_pc = pc;
+    ev.exec_sp = cpu.regs.SP.get_pair16();
+    if ((memory.fetch_mem(pc, true) & 0xFF) == 0x76) {
+      // A HLT ends the machine when nothing is attached.  With a debugger it
+      // is a stop that the debugger can go on past: the HLT is not executed.
+      cpu.regs.PC.set_pair16((uint16_t)(pc + 1));
+      ev.halt = true;
+      return;
+    }
+    cpu.execute();
+    instruction_count++;
+    if (hbios.getState() == HBIOS_HALTED) running = false;
+    flushOutput();
+    if (!running) throw GdbRunEnd{false};
+
+    // A guest that waits for a key, or polls an idle console, would spin on
+    // this thread.  Sleep as the run loop does, and let the stub look at its
+    // socket for ^C: ev.poll.
+    if (hbios.isWaitingForInput()) {
+      usleep(1000);
+      ev.poll = true;
+    } else if (hbios.takeIdlePoll()) {
+      usleep(10000);
+      ev.poll = true;
+    }
+  };
+
+  if (port < 1 || port > 65535) {
+    if (error) *error = "the port must be 1 to 65535";
+    return nullptr;
+  }
+  if (!s->stub.listen(addr, port, nullptr)) {
+    if (error) {
+      const char* why = gdb_platform_last_error();
+      *error = std::string("cannot listen on port ") + std::to_string(port) +
+               (*why ? std::string(": ") + why : std::string());
+    }
+    return nullptr;
+  }
+  return s;
+}
+
+void HBIOSEmulator::gdbRun(const std::shared_ptr<GdbSession>& session,
+                           const std::function<void()>& on_connect) {
+  if (!session) return;
+  GdbSession& g = *session;
+  gdb_platform_set_cancel(&g.cancel);
+  bool ended = false;
+  if (g.stub.accept()) {
+    g.connected = true;
+    if (on_connect) on_connect();
+    try {
+      g.stub.serve();
+    } catch (const GdbRunEnd&) {
+      ended = true;
+    }
+  } else {
+    // Cancelled while waiting, or accept() failed: either way there is no
+    // debugger, and the caller decides whether the machine goes on.
+    ended = g.cancel;
+  }
+  g.connected = false;
+  if (g.stub.killed()) {
+    // k: the debugger ended the program.
+    running = false;
+  } else if (ended || g.cancel) {
+    // The machine stopped under the debugger, or Stop was pressed.  The W
+    // packet tells the debugger that the program is over.
+    g.stub.report_exit(0);
+    running = false;
+  }
+  gdb_platform_set_cancel(nullptr);
+}
+
+void HBIOSEmulator::gdbCancel(const std::shared_ptr<GdbSession>& session) {
+  if (session) session->cancel = true;
+}
+
+bool HBIOSEmulator::gdbConnected(const std::shared_ptr<GdbSession>& session) const {
+  return session && session->connected;
 }

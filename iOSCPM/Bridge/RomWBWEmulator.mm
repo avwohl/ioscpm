@@ -9,6 +9,10 @@
 #include "emu_io.h"
 #include "emu_init.h"
 #include <memory>
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
 
 // Forward declare the delegate setter from emu_io_ios.mm
 extern "C" void emu_io_set_delegate(id delegate);
@@ -101,6 +105,8 @@ extern "C" void emu_io_set_delegate(id delegate);
   RomWBWEmulatorInternal* _internal;
   BOOL _shouldRun;
   BOOL _debug;
+  std::shared_ptr<GdbSession> _gdb;   // the stub of this run, or null
+  NSString* _gdbStartError;
 }
 
 + (nullable NSString*)romWBWReleaseOfImageData:(NSData*)data {
@@ -303,15 +309,98 @@ static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
   return _emulator->isWaitingForInput();
 }
 
+// 127.0.0.1, which is gdb::kLoopback (gdbstub.h; this file does not include it).
+static const uint32_t kGdbLoopback = 0x7F000001u;
+
++ (NSArray<NSString*>*)gdbNetworkAddresses {
+  NSMutableArray<NSString*>* out = [NSMutableArray array];
+  struct ifaddrs* list = NULL;
+  if (getifaddrs(&list) != 0) return out;
+  for (struct ifaddrs* a = list; a; a = a->ifa_next) {
+    if (!a->ifa_addr || a->ifa_addr->sa_family != AF_INET) continue;
+    if (!(a->ifa_flags & IFF_UP) || (a->ifa_flags & IFF_LOOPBACK)) continue;
+    // Tunnels, the cellular interface and the peer-to-peer ones are not a
+    // place a debugger on a LAN can reach.
+    const char* n = a->ifa_name;
+    if (!strncmp(n, "utun", 4) || !strncmp(n, "pdp_ip", 6) || !strncmp(n, "awdl", 4) ||
+        !strncmp(n, "llw", 3) || !strncmp(n, "ipsec", 5) || !strncmp(n, "ap", 2) ||
+        !strncmp(n, "anpi", 4)) continue;
+    char text[INET_ADDRSTRLEN];
+    const struct sockaddr_in* in = (const struct sockaddr_in*)a->ifa_addr;
+    if (!inet_ntop(AF_INET, &in->sin_addr, text, sizeof text)) continue;
+    NSString* t = [NSString stringWithUTF8String:text];
+    if (![out containsObject:t]) [out addObject:t];
+  }
+  freeifaddrs(list);
+  return out;
+}
+
+- (void)reportGdbStatus:(nullable NSString*)status {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (self.delegate && [self.delegate respondsToSelector:@selector(emulatorDidChangeGdbStatus:)]) {
+      [self.delegate emulatorDidChangeGdbStatus:status];
+    }
+  });
+}
+
+/// "127.0.0.1:1234", or the device's addresses with the port when the stub
+/// listens on the network.
+- (NSString*)gdbConnectText {
+  if (!_gdbAllowNetwork) {
+    return [NSString stringWithFormat:@"127.0.0.1:%d", _gdbPort];
+  }
+  NSArray<NSString*>* addrs = [RomWBWEmulator gdbNetworkAddresses];
+  if (addrs.count == 0) {
+    return [NSString stringWithFormat:@"(this device's address):%d", _gdbPort];
+  }
+  NSMutableArray<NSString*>* parts = [NSMutableArray array];
+  for (NSString* a in addrs) [parts addObject:[NSString stringWithFormat:@"%@:%d", a, _gdbPort]];
+  return [parts componentsJoinedByString:@" or "];
+}
+
 - (void)start {
   if (_debug) NSLog(@"[RomWBW] start called");
+  _gdbStartError = nil;
+  _gdb.reset();
+
+  // The stub first, so that a port in use stops the start before the machine
+  // has run an instruction. Opening the socket does not block; waiting for the
+  // debugger does, and that happens below on the emulation queue.
+  if (_gdbEnabled) {
+    std::string error;
+    _gdb = _emulator->gdbListen(_gdbAllowNetwork ? 0u : kGdbLoopback, _gdbPort, &error);
+    if (!_gdb) {
+      _gdbStartError = [NSString stringWithFormat:@"GDB stub: %s", error.c_str()];
+      [self reportGdbStatus:nil];
+      return;
+    }
+  }
+
   _shouldRun = YES;
   _emulator->start();
   if (_debug) NSLog(@"[RomWBW] emulator started, isRunning=%d", _emulator->isRunning());
 
+  std::shared_ptr<GdbSession> gdb = _gdb;
+  NSString* connectText = gdb ? [self gdbConnectText] : nil;
+  if (gdb) {
+    [self reportGdbStatus:[NSString stringWithFormat:@"Waiting for GDB: target remote %@", connectText]];
+  }
+
   // Start emulation loop on background queue
   dispatch_async(_emulatorQueue, ^{
     if (self->_debug) NSLog(@"[RomWBW] entering runLoop");
+    if (gdb) {
+      // On this queue and not the main one: gdbRun() holds the machine, and
+      // blocks, until the debugger lets go.
+      self->_emulator->gdbRun(gdb, [self]() {
+        [self reportGdbStatus:@"GDB connected"];
+      });
+      if (self->_emulator->isRunning() && self->_shouldRun) {
+        [self reportGdbStatus:@"GDB detached: running"];
+      } else {
+        [self reportGdbStatus:nil];
+      }
+    }
     [self runLoop];
     if (self->_debug) NSLog(@"[RomWBW] exited runLoop");
   });
@@ -319,6 +408,7 @@ static const size_t DISK_SIZE_8MB = 8 * 1024 * 1024;
 
 - (void)stop {
   _shouldRun = NO;
+  _emulator->gdbCancel(_gdb);
   _emulator->stop();
 }
 

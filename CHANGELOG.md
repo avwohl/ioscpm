@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### A GDB stub, off by default, and a switch for the network
+
+Settings has a "GDB Debugger" section: "GDB Stub" (off), a port (1234) and
+"Allow Connections From the Network" (off, with a warning in plain words: the
+stub has no password). When Play is pressed with the stub on, the machine waits
+before its first instruction for GDB or udb80, and the status bar and the
+terminal show `target remote ADDRESS:PORT`. Off the network the stub listens on
+127.0.0.1; on it, on 0.0.0.0. How to connect, per platform: `docs/gdb.md`.
+
+The stub is cpmemu's `gdbstub.cc` and romwbw_emu's `romwbw_gdb.cc`, symlinked
+into `iOSCPM/Core/` like the rest of the shared core (the symlink count in
+`Tests/run_tests.sh` is 25 now). The socket layer is this port's own,
+`gdb_platform_ios.cc`: every wait is a poll that looks at a cancel flag,
+because romwbw_emu's blocks in accept() and recv() and Stop would hang. The wait
+and the session run on the emulation queue (`gdbRun()` from `RomWBWEmulator`'s
+start block), never on the main thread. `NSLocalNetworkUsageDescription` and
+`ENABLE_INCOMING_NETWORK_CONNECTIONS` (the Catalyst sandbox's server right,
+read back from the ad-hoc-signed build) went in.
+
+Measured on macOS 27 arm64, Xcode 27.2: `xcodebuild` builds for the iOS
+Simulator and for Mac Catalyst; `sh Tests/run_tests.sh` passes (1412 checks
+before, 1441 after); `Tests/gdb_stub_test.py` drives the app's core through
+`Tests/GdbHost.cc` over a socket (T05 at PC 0000, breakpoint, HLT, ^C, detach,
+Stop during the wait and during a session, port in use, loopback only);
+udb80 0.4.1 `--wait-program` and GDB 18.1 both stopped at INNER of
+`romwbw_emu/tests/gdb_prog.asm` with a 3-frame `bt`. NOT measured: the Settings
+screen and Play driving a debugger, a real iPhone or iPad, the Local Network
+prompt. `MANUAL_CHECKS.md` has the check.
+
 ### Two notes about `cpm_disk.py` that stopped being true
 
 `KNOWN_PROBLEMS.md` said `create --sssd` does not work, and

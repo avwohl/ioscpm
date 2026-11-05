@@ -1233,3 +1233,26 @@ not produce, and every one of them is still open on an iPhone or iPad.
       `[START] the machine is already running`.  Before this guard the second
       flight cleared the screen, emptied the scrollback and cold-restarted the
       guest.
+
+## 24. The GDB stub through the app
+
+The stub's protocol and threading are measured by `Tests/gdb_stub_test.py`; the
+Settings screen, Play, and a real device are not.
+
+- [ ] Settings -> GDB Debugger: "GDB Stub" and "Allow Connections From the
+      Network" are both off in a fresh install.  Turn the second on: the red
+      warning about no password appears and the device's addresses are listed.
+- [ ] Stub on, port 1234, network off, press Play.  The status bar and the
+      terminal say `Waiting for GDB: target remote 127.0.0.1:1234` and the
+      guest prints nothing.  On the same Mac (Simulator or Catalyst):
+      `udb80 PROG.dbg --connect 127.0.0.1:1234 --wait-program`, then type the
+      program name in the app.  Right: udb80 stops at 0100H, `bt` shows frames,
+      the status bar says "GDB connected".
+- [ ] Press Stop while waiting, and again while connected: the app does not
+      freeze and Play works again at once on the same port.
+- [ ] Play with the port busy: an error alert, and the machine does not start.
+- [ ] REAL iPhone or iPad, network on: connect from the Mac to the device's Wi-Fi
+      address.  Right: iOS asks for Local Network once (the text in
+      Info.plist), and the connection works after you allow it.  With network
+      off, the same address is refused.
+

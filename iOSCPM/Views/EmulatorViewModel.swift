@@ -1123,6 +1123,50 @@ class EmulatorViewModel: NSObject, ObservableObject {
         didSet { UserDefaults.standard.set(showKeyRow, forKey: Self.showKeyRowKey) }
     }
 
+    // MARK: - GDB stub (docs/gdb.md)
+
+    // OFF unless the user asks, and "allow connections from the network" is a
+    // second switch that is also OFF: a stub on 127.0.0.1 can be reached only
+    // from this device (and, for the simulator and the Mac app, the Mac), and a
+    // stub on the network can be reached by anyone who can reach the port. The
+    // stub has no password, and a debugger reads and writes the emulated
+    // machine's memory and controls it. The three values are read when Play is
+    // pressed (startEmulator()): Settings cannot be opened while the machine
+    // runs, so there is no running stub to change.
+    static let gdbEnabledKey = "gdbStubEnabled"
+    static let gdbPortKey = "gdbStubPort"
+    static let gdbAllowNetworkKey = "gdbStubAllowNetwork"
+    static let gdbDefaultPort = 1234
+
+    @Published var gdbEnabled: Bool =
+        UserDefaults.standard.bool(forKey: EmulatorViewModel.gdbEnabledKey) {
+        didSet { UserDefaults.standard.set(gdbEnabled, forKey: Self.gdbEnabledKey) }
+    }
+
+    /// 1 to 65535 is a port; anything else is refused when the machine starts
+    /// (the bridge says "the port must be 1 to 65535") rather than clamped, so
+    /// a typo is not silently a different port.
+    @Published var gdbPort: Int =
+        UserDefaults.standard.object(forKey: EmulatorViewModel.gdbPortKey) as? Int
+            ?? EmulatorViewModel.gdbDefaultPort {
+        didSet { UserDefaults.standard.set(gdbPort, forKey: Self.gdbPortKey) }
+    }
+
+    @Published var gdbAllowNetwork: Bool =
+        UserDefaults.standard.bool(forKey: EmulatorViewModel.gdbAllowNetworkKey) {
+        didSet { UserDefaults.standard.set(gdbAllowNetwork, forKey: Self.gdbAllowNetworkKey) }
+    }
+
+    var gdbPortIsValid: Bool { (1...65535).contains(gdbPort) }
+
+    /// What the stub is doing, for the status bar: where to connect while it
+    /// waits, "GDB connected" while a debugger has the machine. nil when the
+    /// stub is off or the machine has stopped.
+    @Published var gdbStatusText: String? = nil
+
+    /// The addresses to type into GDB for a stub on the network, for Settings.
+    var gdbNetworkAddresses: [String] { RomWBWEmulator.gdbNetworkAddresses() }
+
     /// Send a remapped navigation key's byte sequence to the guest.
     func sendSpecialKey(_ key: SpecialKey) {
         scrollToLiveBottom()
@@ -2905,7 +2949,23 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
 
         debugPrint("🟢 [START] calling emulator.start()")
+        // The GDB stub, if Settings asked for it. start() opens the port and the
+        // machine then waits for the debugger BEFORE its first instruction; the
+        // wait runs on the emulation queue, so this thread does not block.
+        emulator?.gdbEnabled = gdbEnabled
+        emulator?.gdbPort = Int32(clamping: gdbPort)
+        emulator?.gdbAllowNetwork = gdbAllowNetwork
         emulator?.start()
+        if let gdbError = emulator?.gdbStartError {
+            // The port is in use, or is not a port. Running the machine anyway
+            // would run the program the debugger was meant to catch.
+            isRunning = false
+            gdbStatusText = nil
+            statusText = gdbError
+            showError("\(gdbError). The machine did not start. Change the port in Settings, or turn the GDB stub off.")
+            endStart()
+            return
+        }
         isRunning = emulator?.isRunning ?? false
         // And in the status line as well, because the terminal stops being ours
         // on the line above and nothing here can promise what the guest does to
@@ -2956,6 +3016,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         emulator?.stop()
         isRunning = false
+        gdbStatusText = nil
         statusText = "Stopped - disk changes saved"
 
         // A release the index asked for while this was running. Taken now, and
@@ -3083,6 +3144,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         saveDownloadedDisks()
 
         emulator?.reset()
+        gdbStatusText = nil
 
         // Apply boot setting - empty means no autoboot
         emulator?.setNvramSetting(bootString)
@@ -5556,6 +5618,16 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
     func emulatorDidChangeStatus(_ status: String) {
         DispatchQueue.main.async {
             self.statusText = status
+        }
+    }
+
+    func emulatorDidChangeGdbStatus(_ status: String?) {
+        // Called on the main queue. Where to connect is also written into the
+        // terminal, where the user is looking: the status bar line is small, and
+        // the guest has not printed anything yet because it has not started.
+        gdbStatusText = status
+        if let status = status {
+            writeToTerminal(status + "\n")
         }
     }
 

@@ -91,7 +91,7 @@ run_core_suite() {
     echo
 }
 
-# The 20 entries under iOSCPM/Core/ are symlinks into ../romwbw_emu/src and
+# The 25 entries under iOSCPM/Core/ are symlinks into ../romwbw_emu/src and
 # ../cpmemu/src. They have been flattened into stale copies once already (see
 # docs/notes_to_windos.md), and a flattened copy still compiles and still
 # passes every test below - it just stops tracking upstream. Check the shape
@@ -101,13 +101,15 @@ printf '%s\n' "=== CoreSymlinks ==="
 # checkout. An exported tree has no index to consult and is not a failure.
 if (cd "$ROOT" && git rev-parse --is-inside-work-tree >/dev/null 2>&1); then
     links=$( (cd "$ROOT" && git ls-files -s iOSCPM/Core/ | grep -c '^120000') || true)
+    # Five more since the GDB stub: gdbstub.cc and gdbstub.h and the os/ folder of
+    # cpmemu, romwbw_gdb.cc and romwbw_gdb.h of romwbw_emu (docs/gdb.md).
     # 20 and not 21 since romwbw_emu v1.44 deleted src/romwbw_pin.h: the
     # symlink to it here dangled the moment that landed, with no commit in this
     # repository, and it went with the release gate it was the header for.
-    if [ "${links:-0}" -eq 20 ]; then
-        echo "PASS: all 20 iOSCPM/Core entries are still symlinks"
+    if [ "${links:-0}" -eq 25 ]; then
+        echo "PASS: all 25 iOSCPM/Core entries are still symlinks"
     else
-        echo "FAIL: expected 20 symlinks under iOSCPM/Core, found ${links:-0}"
+        echo "FAIL: expected 25 symlinks under iOSCPM/Core, found ${links:-0}"
         echo "      a flattened copy compiles and passes - and stops tracking upstream"
         status=1
     fi
@@ -1063,6 +1065,36 @@ if command -v xcrun >/dev/null 2>&1; then
     fi
 else
     echo "SKIP: no Objective-C toolchain (needs a Mac)"
+    skipped=$((skipped + 1))
+fi
+echo
+
+# The GDB stub in this app's core (docs/gdb.md), run.
+#
+# Tests/GdbHost.cc is HBIOSEmulator with gdbListen(), gdbRun() and gdbCancel()
+# and no views; Tests/gdb_stub_test.py drives it as a debugger would, over a
+# real socket, and checks stop replies, a breakpoint, a HLT, ^C, detach, Stop
+# during a wait and during a session, a port in use, and loopback-only. It needs
+# a cached ROM (romwbw_emu's tools/romwbw-get) and skips, saying so, without one.
+printf '%s\n' "=== GdbStub ==="
+if command -v xcrun >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+    C="$ROOT/iOSCPM/Core"
+    if xcrun --sdk macosx clang++ -std=c++17 -O1 -x objective-c++ -fobjc-arc -c \
+            -I "$C" "$C/emu_io_ios.mm" -o "$OUT/emu_io_ios.o" 2>&1 &&
+       xcrun --sdk macosx clang++ -std=c++17 -O1 -Wall -I "$C" \
+            "$ROOT/Tests/GdbHost.cc" "$C/hbios_core.cc" "$C/hbios_dispatch.cc" \
+            "$C/hbios_cpu.cc" "$C/emu_init.cc" "$C/emu_io_common.cc" "$C/qkz80.cc" \
+            "$C/qkz80_mem.cc" "$C/qkz80_reg_set.cc" "$C/qkz80_errors.cc" \
+            "$C/gdbstub.cc" "$C/romwbw_gdb.cc" "$C/gdb_platform_ios.cc" \
+            "$OUT/emu_io_ios.o" -framework Foundation -framework AVFoundation \
+            -o "$OUT/gdb_host" 2>&1; then
+        python3 -I "$ROOT/Tests/gdb_stub_test.py" "$OUT/gdb_host" || status=1
+    else
+        echo "FAIL: the GDB host program does not compile"
+        status=1
+    fi
+else
+    echo "SKIP: needs a Mac (xcrun) and python3"
     skipped=$((skipped + 1))
 fi
 echo

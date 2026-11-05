@@ -47,6 +47,9 @@
 		A1000075 /* help_qpm.md in Resources */ = {isa = PBXBuildFile; fileRef = B1000075 /* help_qpm.md */; };
 		A1000076 /* help_zpm3.md in Resources */ = {isa = PBXBuildFile; fileRef = B1000076 /* help_zpm3.md */; };
 		A1000077 /* help_zsdos.md in Resources */ = {isa = PBXBuildFile; fileRef = B1000077 /* help_zsdos.md */; };
+		A1000201 /* gdbstub.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000201 /* gdbstub.cc */; };
+		A1000203 /* romwbw_gdb.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000203 /* romwbw_gdb.cc */; };
+		A1000205 /* gdb_platform_ios.cc in Sources */ = {isa = PBXBuildFile; fileRef = B1000205 /* gdb_platform_ios.cc */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -108,6 +111,12 @@
 		B1000076 /* help_zpm3.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = help_zpm3.md; path = release_assets/help_zpm3.md; sourceTree = SOURCE_ROOT; };
 		B1000077 /* help_zsdos.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = help_zsdos.md; path = release_assets/help_zsdos.md; sourceTree = SOURCE_ROOT; };
 		C1000001 /* iOSCPM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iOSCPM.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1000201 /* gdbstub.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = gdbstub.cc; sourceTree = "<group>"; };
+		B1000202 /* gdbstub.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = gdbstub.h; sourceTree = "<group>"; };
+		B1000203 /* romwbw_gdb.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = romwbw_gdb.cc; sourceTree = "<group>"; };
+		B1000204 /* romwbw_gdb.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = romwbw_gdb.h; sourceTree = "<group>"; };
+		B1000205 /* gdb_platform_ios.cc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = gdb_platform_ios.cc; sourceTree = "<group>"; };
+		B1000206 /* gdb_platform_ios.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = gdb_platform_ios.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -214,6 +223,12 @@
 				B1000045 /* qkz80_trace.h */,
 				B1000046 /* qkz80_types.h */,
 				B1000023 /* qkz80_errors.cc */,
+				B1000201 /* gdbstub.cc */,
+				B1000202 /* gdbstub.h */,
+				B1000203 /* romwbw_gdb.cc */,
+				B1000204 /* romwbw_gdb.h */,
+				B1000205 /* gdb_platform_ios.cc */,
+				B1000206 /* gdb_platform_ios.h */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -342,6 +357,9 @@
 				A1000026 /* hbios_cpu.cc in Sources */,
 				A1000027 /* emu_init.cc in Sources */,
 				A1000028 /* emu_io_common.cc in Sources */,
+				A1000201 /* gdbstub.cc in Sources */,
+				A1000203 /* romwbw_gdb.cc in Sources */,
+				A1000205 /* gdb_platform_ios.cc in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -360,6 +378,7 @@
 				CURRENT_PROJECT_VERSION = 74;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
@@ -400,6 +419,7 @@
 				CURRENT_PROJECT_VERSION = 74;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				HEADER_SEARCH_PATHS = (
