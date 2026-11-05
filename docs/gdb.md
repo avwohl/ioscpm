@@ -73,8 +73,12 @@ A debugger on another computer cannot reach 127.0.0.1 of the device.
 udb80 PROG.dbg --connect 192.168.1.20:1234 --wait-program
 ```
 
-iOS can ask for permission for "Local Network". Allow the permission. The app
-has the text for the question in `NSLocalNetworkUsageDescription`. If you
+Keep the app in the foreground and the screen on while you connect. iOS
+suspends an app that goes to the background or locks the screen. Then the wait
+for the debugger does not go on, and a session does not go on.
+
+iOS can ask for permission for "Local Network". If iOS asks, allow the
+permission. The app has the text for the question in `NSLocalNetworkUsageDescription`. If you
 refused, open the Settings app of iOS, find this app, and set Local Network to on.
 
 A Mac app can use the same switch to accept a debugger from another computer.

@@ -17,7 +17,8 @@ into `iOSCPM/Core/` like the rest of the shared core (the symlink count in
 `gdb_platform_ios.cc`: every wait is a poll that looks at a cancel flag,
 because romwbw_emu's blocks in accept() and recv() and Stop would hang. The wait
 and the session run on the emulation queue (`gdbRun()` from `RomWBWEmulator`'s
-start block), never on the main thread. `NSLocalNetworkUsageDescription` and
+start block), never on the main thread. `start` waits for the block of the run before, so
+Stop then Play at once cannot meet the old listener. `NSLocalNetworkUsageDescription` and
 `ENABLE_INCOMING_NETWORK_CONNECTIONS` (the Catalyst sandbox's server right,
 read back from the ad-hoc-signed build) went in.
 

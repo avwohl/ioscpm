@@ -360,6 +360,10 @@ static const uint32_t kGdbLoopback = 0x7F000001u;
 
 - (void)start {
   if (_debug) NSLog(@"[RomWBW] start called");
+  // Wait for the block of the run before: it may still be in its 100 ms poll of
+  // the stub, with the old listener open and a write to the machine's running
+  // flag still to come. stop() has already told that block to end.
+  dispatch_sync(_emulatorQueue, ^{});
   _gdbStartError = nil;
   _gdb.reset();
 

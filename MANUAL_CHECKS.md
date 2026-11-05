@@ -1250,6 +1250,11 @@ Settings screen, Play, and a real device are not.
       the status bar says "GDB connected".
 - [ ] Press Stop while waiting, and again while connected: the app does not
       freeze and Play works again at once on the same port.
+- [ ] Press Stop and then Play at once, several times, on the same port: no
+      "Address already in use" alert, and the status bar keeps saying
+      "Waiting for GDB".
+- [ ] On a real device, lock the screen while the app waits for GDB.  Write
+      down what happens; docs/gdb.md says the wait does not go on.
 - [ ] Play with the port busy: an error alert, and the machine does not start.
 - [ ] REAL iPhone or iPad, network on: connect from the Mac to the device's Wi-Fi
       address.  Right: iOS asks for Local Network once (the text in
