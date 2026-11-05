@@ -12,7 +12,7 @@ the monitor commands is in these documents:
 ## What you need
 
 - GDB 18.1 with the Z80 target. The Homebrew formula `gdb` has the target.
-- Or udb80: `pip install "um80>=0.4.1"`. udb80 needs no GDB.
+- Or udb80: `pip install "um80>=0.4.2"`. udb80 needs no GDB.
 - A program that you built with `um80 --debug-info` and `ul80 --debug-info`.
   The tools write `PROG.dbg`. For GDB, run `dbg2elf PROG.dbg`.
 
@@ -104,18 +104,24 @@ program starts.
 With udb80, add `--wait-program`. Then press Play, and type the name of the
 program in the app when the CP/M prompt shows. udb80 stops at 0100H.
 
-With GDB, restrict the breakpoints to bank 8EH. Do this before `continue`:
+With GDB, type this before `continue`:
 
 ```
-(gdb) monitor break-bank 8E
 (gdb) monitor wait-program sha256 LENGTH HEX64
-(gdb) break *0x100
 (gdb) continue
 ```
 
-LENGTH and the SHA-256 are in `image.length` and `image.sha256` of
-`PROG.dbg`. Without `monitor break-bank 8E`, GDB stops at 0100H in the ROM
-before CP/M runs. Without `break *0x100`, GDB does not show the stop.
+Then press Play, and type the name of the program in the app. GDB stops with `Program received signal SIGTRAP` at the first line of the
+program, at 0100H in bank 8EH. LENGTH and HEX64 are `image.length` and
+`image.sha256` of `PROG.dbg`.
+
+This needs a build that compiled the cpmemu stub
+of 2026-11-05 or later (cpmemu `365dfc2`). With an older build, GDB continues
+past the stop with no message. Then use `monitor break-bank 8E`,
+`break *0x100` and `continue`, which stop at the first program that CP/M
+starts at 0100H. The romwbw_emu document
+[GDB.md, Find the program with GDB](https://github.com/avwohl/romwbw_emu/blob/main/docs/GDB.md#find-the-program-with-gdb) gives the reasons and the
+measurements.
 
 ## Limits
 
