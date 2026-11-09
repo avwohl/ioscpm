@@ -146,6 +146,111 @@ def lan_address():
         return None
 
 
+# tests/gdb_prog.asm of romwbw_emu, the sibling checkout that iOSCPM/Core
+# already symlinks into.  The offsets are that test's, checked against the
+# linked bytes before they are used.
+SIBLINGS = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+GDB_PROG = os.path.join(SIBLINGS, "romwbw_emu", "tests", "gdb_prog.asm")
+A_CALL_OUTER_RET, A_CALL_INNER_RET, A_INNER = 0x010B, 0x0119, 0x011A
+
+
+def program_disk(work, cpm22):
+    """GP.COM from gdb_prog.asm on slice 0 of a copy of hd1k_cpm22; (disk, bytes),
+    or a reason string when a tool is missing."""
+    import shutil
+    for tool in ("um80", "ul80"):
+        if shutil.which(tool) is None:
+            return "%s is not on PATH (pip install um80)" % tool
+    if not os.path.isfile(GDB_PROG):
+        return "no %s" % GDB_PROG
+    cpm_disk = shutil.which("cpm_disk")
+    cpm_disk = [cpm_disk] if cpm_disk else [sys.executable, os.path.join(SIBLINGS, "cpmemu", "util", "cpm_disk.py")]
+    if len(cpm_disk) == 2 and not os.path.isfile(cpm_disk[1]):
+        return "no cpm_disk on PATH and no %s" % cpm_disk[1]
+    rel, com, img = (os.path.join(work, n) for n in ("gp.rel", "gp.com", "disk.img"))
+    subprocess.run(["um80", "-o", rel, GDB_PROG], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(["ul80", "-o", com, rel], check=True, stdout=subprocess.DEVNULL)
+    shutil.copyfile(cpm22, img)
+    os.chmod(img, 0o644)
+    subprocess.run(cpm_disk + ["add", "--slice", "0", img, com], check=True, stdout=subprocess.DEVNULL)
+    return img, open(com, "rb").read()
+
+
+def program_session(binary, rom, disk, arm):
+    """Boot CP/M from `disk` (Boot Options "2", as the app sets it), type GP,
+    arm wait-program with `arm`, continue.  (host, rsp, stop reply or None)."""
+    port = free_port()
+    h = Host(binary, rom, disk, port, ["--nvram=2", "--keys=GP\n", "--run-ms=300"])
+    h.wait_listening()
+    r = Rsp(port)
+    r.cmd("?")
+    armed = r.monitor("wait-program " + arm)
+    check("armed" in armed, "wait-program %s is armed (%r)" % (arm.split()[0], armed[:40]))
+    r.send_packet("c")
+    try:
+        stop = r.recv(10)
+    except socket.timeout:
+        stop = None
+    return h, r, stop
+
+
+def case_wait_program(binary, rom, cpm22):
+    import hashlib
+    import shutil
+    import tempfile
+    work = tempfile.mkdtemp(prefix="gdbtest-")
+    try:
+        made = program_disk(work, cpm22)
+        if isinstance(made, str):
+            print("SKIP: wait-program: " + made)
+            return
+        disk, com = made
+        check(com[0:5] == bytes([0x0E, 0x09, 0x11, 0x1E, 0x01]) and com[A_INNER - 0x100] == 0x3E and
+              com[A_CALL_INNER_RET - 0x100 - 3] == 0xCD and com[A_CALL_OUTER_RET - 0x100 - 3] == 0xCD,
+              "gdb_prog.asm links to the offsets that this test uses")
+        n = len(com.rstrip(b"\x00"))
+        for how, arm in (("bytes", "bytes " + com[:24].hex()),
+                         ("sha256", "sha256 %d %s" % (n, hashlib.sha256(com[:n]).hexdigest()))):
+            h, r, stop = program_session(binary, rom, disk, arm)
+            # GDB continues past a T05swbreak it did not ask for (cpmemu 365dfc2)
+            check(stop == "T05", "wait-program %s: CP/M starting GP.COM stops with a plain T05 (%s)" % (how, stop))
+            check(r.reg(REG_PC) == 0x0100, "wait-program %s: PC is 0100H" % how)
+            st = r.monitor("status")
+            check("CPU bank 8E" in st and "not armed" in st, "wait-program %s: bank 8EH, and the rule is one-shot" % how)
+            check(r.read_mem(0x100, 24) == com[:24], "wait-program %s: 0100H holds GP.COM" % how)
+            if how == "bytes":
+                check(r.cmd("Z0,%x,1" % A_INNER) == "OK", "Z0 sets a breakpoint at INNER")
+                stop = r.cmd("c")
+                check(stop.startswith("T05") and r.reg(REG_PC) == A_INNER,
+                      "continue stops at INNER (%s)" % stop)
+                bt = r.monitor("bt").splitlines()
+                check(len(bt) >= 3 and bt[0] == "#0  0x%04X" % A_INNER and
+                      bt[1].startswith("#1  0x%04X" % A_CALL_INNER_RET) and
+                      bt[2].startswith("#2  0x%04X" % A_CALL_OUTER_RET),
+                      "monitor bt: INNER, OUTER, the main routine (%r)" % bt[:3])
+                r.cmd("z0,%x,1" % A_INNER)
+            r.send_packet("D")
+            r.recv()
+            r.close()
+            h.finish(20)
+
+        # A rule that does not match lets GP.COM run; ^C finds it not armed-and-hit.
+        wrong = bytearray(com[:24])
+        wrong[2] ^= 0xFF
+        h, r, stop = program_session(binary, rom, disk, "bytes " + bytes(wrong).hex())
+        check(stop is None, "a wait-program for a different program does not stop (%s)" % stop)
+        r.sock.sendall(b"\x03")
+        r.recv(5)
+        st = r.monitor("status")
+        check("wait-program: armed" in st, "and the rule is still armed after GP.COM ran")
+        r.send_packet("D")
+        r.recv()
+        r.close()
+        h.finish(20)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def main():
     binary = sys.argv[1] if len(sys.argv) > 1 else None
     if not binary or not os.access(binary, os.X_OK):
@@ -275,6 +380,17 @@ def main():
             ok = False
         check(ok, "with --lan a client on %s:%d connects and gets T05" % (lan, port))
         h.finish(20)
+
+    # ---- monitor wait-program: CP/M loads a program, and the stub stops at it ----
+    # The ROM and the disk from one release, so HBIOS and CBIOS match.
+    if not disks:
+        print("SKIP: wait-program: no cached hd1k_cpm22 (romwbw_emu's tools/romwbw-get fetch hd1k_cpm22)")
+    else:
+        pair = glob.glob(os.path.join(os.path.dirname(disks[-1]), "emu_avw-v0-*.rom"))
+        if not pair:
+            print("SKIP: wait-program: no ROM beside %s" % disks[-1])
+        else:
+            case_wait_program(binary, pair[0], disks[-1])
 
     print("")
     if failures:

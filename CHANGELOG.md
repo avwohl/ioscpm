@@ -1,6 +1,25 @@
 # Changelog
 
-## Unreleased
+## Version 1.7.1 (Build 75)
+
+The first build under 1.7.1, set by a human on 2026-11-09; `CLAUDE.md` records
+the move. The Store serves 1.6.2 (build 74). **Nothing in this section has been
+submitted or released** - `sh tools/check-store-version.sh` is the only thing
+that says what users have, and a TestFlight build is not one of the things it
+can see. The GDB stub sections below were written and measured while the
+project said 1.6.2 (74); they mean this build.
+
+### Tests/gdb_stub_test.py: wait-program, run on this app's core
+
+The stub test now boots CP/M 2.2 in the app's core (`Tests/GdbHost.cc`, Boot
+Options "2", `GP` typed ahead) with `romwbw_emu/tests/gdb_prog.asm` on slice 0
+of a copy of the cached hd1k_cpm22, and checks `monitor wait-program` in both
+forms: the stop is a plain `T05` at 0100H in bank 8EH, the rule is one-shot,
+0100H holds the program, a breakpoint at INNER gives a 3-frame `monitor bt`,
+and a rule for a different program does not stop. Before, the wait-program
+change in cpmemu `365dfc2` was measured only on romwbw_emu. It skips, saying
+why, without um80/ul80, cpm_disk.py or a cached hd1k_cpm22. Measured
+2026-11-09: 20 new checks, all pass.
 
 ### docs/gdb.md: monitor wait-program now stops GDB
 
@@ -51,8 +70,8 @@ slice's file. cpmemu 4.9.0 fixed the combo addressing and 4.10.0 fixed
 six slices and extracting each back, byte for byte up to its record padding.
 The runbook keeps the dd-slice recipe. Documentation only.
 
-Build 74 is released, so this section reopens. Nothing here is in a binary:
-two tools and the documents they feed.
+The sections from here down to the GDB stub were written after build 74 was
+released. They are not in a binary: two tools and the documents they feed.
 
 ### check-store-version.sh read a cached lookup, and said 1.6.1 for six hours
 

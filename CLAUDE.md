@@ -6,12 +6,12 @@ README.md is at most 150 lines. New detail goes in docs/<topic>.md with a one-li
 ## NEVER change MARKETING_VERSION
 
 `MARKETING_VERSION` in `iOSCPM.xcodeproj/project.pbxproj` is the App Store
-version string (**1.6.2** at time of writing). **Do not change it unless a human
+version string (**1.7.1** at time of writing). **Do not change it unless a human
 explicitly asks you to change it, or the Store has already RELEASED the version
 the project names** - see the second move below - and never as a side effect of
 "bumping the version" for a fix.
 
-It has moved twice, and the two moves are not the same kind of thing:
+It has moved three times, and the moves are not all the same kind of thing:
 
 - **1.5.1 → 1.6.1 on 2026-09-07, build 67, asked for in those words by a
   human.**  The occasion was that 1.5.1's description had stopped being true of
@@ -29,6 +29,10 @@ It has moved twice, and the two moves are not the same kind of thing:
   that point the build number alone cannot carry the change and the version
   string has to move; that is the one circumstance in which this section's rule
   does not apply.
+- **1.6.2 → 1.7.1 on 2026-11-09, build 75, asked for in those words by a
+  human** ("set the version to 1.7.1"), for the build that carries the GDB
+  stub.  The Store served 1.6.2 (build 74) that day.  There is no 1.7.0: 1.7.1
+  is the number the human named.
 
 Recorded here because a reader who finds this file and the project disagreeing
 should be able to tell an authorised bump from the accident this section exists
@@ -43,8 +47,8 @@ only thing that moves between submissions of the same version, and it is what
 every CHANGELOG entry here is keyed to:
 
 ```
-CURRENT_PROJECT_VERSION = 74;      <- bump this, once, for a new build
-MARKETING_VERSION = 1.6.2;         <- leave alone
+CURRENT_PROJECT_VERSION = 75;      <- bump this, once, for a new build
+MARKETING_VERSION = 1.7.1;         <- leave alone
 ```
 
 Both appear twice in the pbxproj (Debug and Release); change both occurrences of

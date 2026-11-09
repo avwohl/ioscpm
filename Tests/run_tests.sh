@@ -1074,8 +1074,10 @@ echo
 # Tests/GdbHost.cc is HBIOSEmulator with gdbListen(), gdbRun() and gdbCancel()
 # and no views; Tests/gdb_stub_test.py drives it as a debugger would, over a
 # real socket, and checks stop replies, a breakpoint, a HLT, ^C, detach, Stop
-# during a wait and during a session, a port in use, and loopback-only. It needs
-# a cached ROM (romwbw_emu's tools/romwbw-get) and skips, saying so, without one.
+# during a wait and during a session, a port in use, and loopback-only, and
+# then boots CP/M and checks monitor wait-program on romwbw_emu's gdb_prog.asm.
+# It needs a cached ROM (romwbw_emu's tools/romwbw-get) and skips, saying so,
+# without one; the wait-program part also needs hd1k_cpm22, um80 and cpm_disk.py.
 printf '%s\n' "=== GdbStub ==="
 if command -v xcrun >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     C="$ROOT/iOSCPM/Core"
