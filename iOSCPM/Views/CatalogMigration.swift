@@ -571,6 +571,47 @@ enum CatalogMigration {
         return catalogDiskStems.contains(stem) ? stem : nil
     }
 
+    /// What a release switch puts in one drive. See `slotCarry(leaving:...)`.
+    enum SlotCarry: Equatable {
+        /// Leave the drive as the new release's own slots have it.
+        case keep
+        /// Mount this file, which is the new release's copy of the same disk
+        /// (or, for a user's own disk, the same file).
+        case disk(String)
+        /// A catalog disk the new release does not publish. The caller empties
+        /// the drive and says which disk did not come.
+        case unavailable(String)
+    }
+
+    /// The disk a drive should carry from the release being left to `published`.
+    ///
+    /// The owner's ruling, 2026-11-10: on a RomWBW release switch the disks
+    /// load the new release. A catalog filename carries its release, so the
+    /// carry goes by catalog id: `hd1k_combo-v0-3.5.1.img` becomes the
+    /// `published` name whose id is also `hd1k_combo`. Nothing is deleted - the
+    /// old image keeps its old name, and switching back carries it back.
+    ///
+    /// `leaving` is the leaving release's saved name for the drive, nil when
+    /// nothing was saved. An empty drive carries nothing: the rule is about
+    /// disks, and an empty drive emptying the other release's drive would only
+    /// ever remove one - 3.5.1's ws4, which 3.6.0 does not publish, would be
+    /// lost on the way back. A user's own disk (no catalog id) is the same file
+    /// under every release, so it is carried by name.
+    static func slotCarry(leaving: String?,
+                          published: [String],
+                          knownStems: Set<String> = catalogDiskStems) -> SlotCarry {
+        guard let leaving = leaving, !leaving.isEmpty else { return .keep }
+        guard let id = catalogID(ofDiskNamed: leaving, knownStems: knownStems) else {
+            return .disk(leaving)
+        }
+        if let match = published.first(where: {
+            catalogID(ofDiskNamed: $0, knownStems: knownStems) == id
+        }) {
+            return .disk(match)
+        }
+        return .unavailable(leaving)
+    }
+
     /// Split `hd1k_msx-v0-3.6.0.img` into ("hd1k_msx", "3.6.0"), both folded.
     ///
     /// nil for anything that is not a `.img` carrying the interface marker -

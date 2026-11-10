@@ -9,6 +9,52 @@ that says what users have, and a TestFlight build is not one of the things it
 can see. The GDB stub sections below were written and measured while the
 project said 1.6.2 (74); they mean this build.
 
+### A release switch takes the disks to the new release
+
+The owner's ruling, 2026-11-10: on a RomWBW release switch, the disks load the
+new release. Before, each release kept its own drives, so a switch to 3.6.0
+showed the drives that 3.6.0 had the last time, or the default disks. Now each
+drive that held a catalog disk gets the same disk of the new release. The
+catalog id finds it: `hd1k_combo-v0-3.5.1.img` becomes
+`hd1k_combo-v0-3.6.0.img`. This applies to a pick in Settings and to an
+automatic switch, for example an upgraded device that the index moves to
+3.6.0. Play downloads each disk that is not on the device. The app deletes no
+image, and a switch back carries the disks back.
+
+The rules are in `CatalogMigration.slotCarry`:
+
+- A drive that was empty carries nothing, so the new release keeps its own
+  disk there. An empty drive does not remove a disk.
+- A user's own disk, with no catalog id, is the same file in each release.
+- Sometimes the new release does not publish the disk, or a user's file is
+  gone. Then the app empties the drive, and the status line names the disk. Drive 0 then gets
+  the default disk, and the status line says so.
+- The carry comes from the saved slots of the release that is left, not from
+  the drives in memory. At launch an automatic switch can occur before the app
+  reads any drive.
+- A profile applied before the new catalog arrives cancels the carry. An index
+  switch and a change to a drive also cancel it.
+
+Run on Mac Catalyst on 2026-11-10, with the app container backed up and put
+back after:
+
+- **An upgraded device.** 3.5.1 was in use with no pick. Its drives held
+  combo, ws4 and games, with drive 3 empty. 3.6.0 had cpm3 in drive 0 and zsdos
+  in drive 3. At launch the index moved the device to 3.6.0, and the 3.6.0
+  drives became combo, empty, games and zsdos. The status line said
+  `Not carried to RomWBW 3.6.0: Disk 1 (OS): hd1k_ws4-v0-3.5.1.img - choose a
+  disk in Settings`. The 3.5.1 slots did not change.
+- **A pick back to 3.5.1.** The 3.5.1 drives became combo, ws4, games and
+  zsdos. The empty drive 1 left ws4 in place, and zsdos came across.
+
+Two review rounds checked the change. The first round found five defects, and
+this change fixes all five. The second round found two small defects, and this
+change fixes both. First, a saved catalog can be older than the live one. So
+after the saved catalog, the app keeps the carry, and the live catalog applies
+it again. A change that you make to a drive cancels the kept carry. Second, the
+status line does not call a drive "not carried" when a disk from Files fills
+it.
+
 ### Five unused Info.plist settings are gone
 
 The project set five `INFOPLIST_KEY_*` build settings in Debug and in

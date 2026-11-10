@@ -588,12 +588,41 @@ func runIndexScopeTests() {
           "and is 8 hex characters, short enough to sit in a path")
 }
 
+func runSlotCarryTests() {
+    section("A release switch carries each drive's disk to the new release")
+
+    let new360 = ["hd1k_combo-v0-3.6.0.img", "hd1k_games-v0-3.6.0.img",
+                  "hd1k_wp-v0-3.6.0.img"]
+    check(CatalogMigration.slotCarry(leaving: "hd1k_combo-v0-3.5.1.img", published: new360)
+            == .disk("hd1k_combo-v0-3.6.0.img"),
+          "a catalog disk becomes the new release's disk with the same id")
+    check(CatalogMigration.slotCarry(leaving: "HD1K_Games-v0-3.5.1.img", published: new360)
+            == .disk("hd1k_games-v0-3.6.0.img"),
+          "matched by id, with the case folded as everywhere else")
+    check(CatalogMigration.slotCarry(leaving: "hd1k_ws4-v0-3.5.1.img", published: new360)
+            == .unavailable("hd1k_ws4-v0-3.5.1.img"),
+          "a disk the new release does not publish is reported, not swapped for another")
+    check(CatalogMigration.slotCarry(leaving: "mine.img", published: new360) == .disk("mine.img"),
+          "a user's own disk has no catalog id and is carried as the same file")
+    check(CatalogMigration.slotCarry(leaving: "hd1k_combo.img", published: new360)
+            == .disk("hd1k_combo-v0-3.6.0.img"),
+          "a pre-v0 name still answers to its id")
+    check(CatalogMigration.slotCarry(leaving: "", published: new360) == .keep,
+          "an empty drive carries nothing - it must not take a disk out of the other release")
+    check(CatalogMigration.slotCarry(leaving: nil, published: new360) == .keep,
+          "nothing saved for the drive: the new release's own slot stands")
+    check(CatalogMigration.slotCarry(leaving: "hd1k_combo-v0-3.5.1.img", published: [])
+            == .unavailable("hd1k_combo-v0-3.5.1.img"),
+          "an empty catalog carries nothing in")
+}
+
 @main
 enum CatalogMigrationTestMain {
     static func main() {
         runAllTests()
         runEquivalenceTests()
         runSlotPersistTests()
+        runSlotCarryTests()
         runIndexScopeTests()
         print("\n" + String(repeating: "=", count: 60))
         print("Results: \(checks - failures) passed, \(failures) failed")

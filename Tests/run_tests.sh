@@ -681,7 +681,7 @@ fi
 # selectedDisks key, so savedSelections is nil, the first-launch branch fills
 # the slots from RomWBWCatalogDocument.defaultDiskIDs, and a flag still raised
 # would decline to write them - on precisely the switch that needs them.
-restore_body=$(body_of "    private func restoreDiskSelections() {" "$VM_FILE" | statements)
+restore_body=$(body_of "    private func restoreDiskSelections(fromCachedCatalog: Bool = false) {" "$VM_FILE" | statements)
 if [ -z "$restore_body" ]; then
     echo "FAIL: cannot find restoreDiskSelections() - has it been renamed?"
     status=1
@@ -726,7 +726,7 @@ echo
 # checked - through statements(), so the comment explaining the change does not
 # count as the change being undone.
 printf '%s\n' "=== FirstLaunchDrivesByCatalogID ==="
-first_launch=$(body_of "    private func restoreDiskSelections() {" "$VM_FILE" | statements)
+first_launch=$(body_of "    private func restoreDiskSelections(fromCachedCatalog: Bool = false) {" "$VM_FILE" | statements)
 if [ -z "$first_launch" ]; then
     echo "FAIL: cannot find restoreDiskSelections() - has it been renamed?"
     status=1

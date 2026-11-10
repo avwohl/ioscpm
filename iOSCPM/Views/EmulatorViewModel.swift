@@ -399,6 +399,24 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// the key they move to: what it held belongs to the key that is leaving.
     private var slotNamesBehindSelection: [String] = Array(repeating: "", count: 4)
 
+    /// The leaving release's four saved slot names, held from a release switch
+    /// until the new release's catalog lands and `restoreDiskSelections()`
+    /// carries them across (`CatalogMigration.slotCarry`). Read from the
+    /// leaving release's KEY, not from `selectedDisks`: an automatic switch at
+    /// launch happens before any slot is in memory, and four blanks carried
+    /// from there would empty the new release's drives. Kept across a second
+    /// switch whose first fetch never landed, since nothing replaced the
+    /// machine it describes. An index switch clears it - another catalog's
+    /// disks are not this one's.
+    private var pendingSlotCarry: [String]?
+    /// Whether a carry is pending at all, which `pendingSlotCarry` cannot say
+    /// alone: a leaving release with no saved slots carries nil, and that nil
+    /// must still be held across a second switch rather than re-read from the
+    /// release in between. Cleared with it. A profile applied before the
+    /// catalog lands also clears it - that is the user saying what the drives
+    /// hold, and a carry must not overwrite it.
+    private var slotCarryIsPending = false
+
     /// The four names `selectedDisksKey` holds now, `""`-padded to four.
     private func savedSlotNames() -> [String] {
         let saved = UserDefaults.standard.stringArray(forKey: selectedDisksKey) ?? []
@@ -418,6 +436,10 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 let after = selectedDisks[i]
                 guard before?.filename != after?.filename || before?.name != after?.name
                 else { continue }
+                // A drive somebody changed: a release carry held for the live
+                // catalog must not undo it.
+                pendingSlotCarry = nil
+                slotCarryIsPending = false
                 if after?.isLocalFile == true {
                     // A Files disk was laid over this slot. Keep what it covers.
                     // Anything else - None included, while a binding is still
@@ -869,7 +891,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// those images were renamed to `-v0-3.5.1` names by the storage migration
     /// and adopting 3.6.0 shows four empty drives and asks for a download. That
     /// is a real cost and it is now accepted deliberately, because the opposite
-    /// cost is worse: every existing user was pinned to the older RomWBW for as
+    /// cost is worse. (Since 2026-11-10 the drives are not empty: the switch
+    /// carries each one's disk to 3.6.0 - see pendingSlotCarry - and Play
+    /// downloads what is not on the device yet.) every existing user was pinned to the older RomWBW for as
     /// long as they never opened the picker, which is most of them, and a
     /// release nobody is moved onto may as well not be published.
     ///
@@ -1658,6 +1682,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
             }
         }
 
+        // The user's word on the drives; a pending release carry must not
+        // replace it when the catalog lands.
+        pendingSlotCarry = nil
+        slotCarryIsPending = false
+
         isRestoringSelections = true
         for (index, filename) in profile.diskFilenames.enumerated() where index < 4 {
             if filename.isEmpty {
@@ -2039,7 +2068,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
     }
 
     /// Restore saved disk selections from UserDefaults, or set defaults
-    private func restoreDiskSelections() {
+    /// `fromCachedCatalog` when the catalog is the saved copy and not a fetch:
+    /// a pending release carry is applied but HELD, because the saved copy can
+    /// be older than the live one and lack a disk it has. The live catalog then
+    /// applies it again. A change the user makes to a drive drops it first.
+    private func restoreDiskSelections(fromCachedCatalog: Bool = false) {
         // Read once, before anything can rewrite it, and kept in
         // slotNamesBehindSelection so a name this catalog cannot resolve is
         // remembered rather than blanked - by the persist at the end, and by
@@ -2108,6 +2141,53 @@ class EmulatorViewModel: NSObject, ObservableObject {
             }
         }
 
+        // A release switch carries the drives across: each catalog disk the
+        // leaving release had becomes this release's disk with the same id.
+        // The owner's ruling, 2026-11-10. Applied here, over this release's own
+        // saved slots, because this is where its catalog has just landed.
+        //
+        // A drive whose disk cannot come - the new release does not publish it,
+        // or a user's own file is gone - is EMPTIED and named on the status
+        // line. Leaving the new release's old disk there would mount something
+        // nobody had in that drive a moment ago, under a message saying it is
+        // missing.
+        var notCarried: [(drive: Int, filename: String)] = []
+        let leaving = slotCarryIsPending ? pendingSlotCarry : nil
+        if !fromCachedCatalog {
+            pendingSlotCarry = nil
+            slotCarryIsPending = false
+        }
+        if let leaving = leaving {
+            let published = diskCatalog.map { $0.filename }
+            for i in selectedDisks.indices where i < slotNamesBehindSelection.count {
+                var missing: String?
+                switch CatalogMigration.slotCarry(leaving: i < leaving.count ? leaving[i] : nil,
+                                                  published: published,
+                                                  knownStems: knownCatalogStems) {
+                case .keep:
+                    break
+                case .disk(let filename):
+                    if let disk = availableDisks.first(where: { $0.filename == filename }) {
+                        selectedDisks[i] = disk
+                        // Remembered as well as selected: if this release has
+                        // a Files disk bound to the drive, restoreLocalDiskBindings
+                        // below lays it over this one, and Close File must find
+                        // the carried disk under it.
+                        slotNamesBehindSelection[i] = filename
+                    } else {
+                        missing = filename
+                    }
+                case .unavailable(let filename):
+                    missing = filename
+                }
+                if let missing = missing {
+                    selectedDisks[i] = nil
+                    slotNamesBehindSelection[i] = ""
+                    notCarried.append((drive: i, filename: missing))
+                }
+            }
+        }
+
         // Ensure disk 0 has something selected (fallback if no catalog defaults)
         //
         // NOT when the user has a name in slot 0 that this launch merely failed
@@ -2138,7 +2218,10 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // owner's ruling, 2026-11-10: leave the drive empty if the disk is
         // removed. So a stand-in goes into slot 0 only when nothing was saved
         // for it, and the status line names the disk that is missing.
-        let savedSlotZero = savedSelections?.first ?? ""
+        // After a carry, the name drive 0 is meant to hold is the carried one.
+        let savedSlotZero = selectedDisks[0]?.filename.isEmpty == false
+            ? selectedDisks[0]!.filename
+            : (slotNamesBehindSelection.first ?? "")
         let slotZeroFallbackIsSafe = savedSlotZero.isEmpty
         var missingSlotZero: String? = nil
         if slotZeroFallbackIsSafe,
@@ -2176,6 +2259,17 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // then the drive is not empty and there is nothing to report.
         if let missing = missingSlotZero, localDiskURLs[0] == nil {
             statusText = "\(diskLabels[0]): \(missing) could not be found - choose a disk in Settings"
+        } else if notCarried.contains(where: { localDiskURLs[$0.drive] == nil }) {
+            // Drive 0 is the one the fallback above refills, so say so rather
+            // than call a drive missing that now holds a disk.
+            // A drive a Files binding has just filled is not missing anything.
+            let unfilled = notCarried.filter { localDiskURLs[$0.drive] == nil }
+            let named = unfilled.map { "\(diskLabels[$0.drive]): \($0.filename)" }
+            let refilled = unfilled.contains { $0.drive == 0 } && selectedDisks[0] != nil
+            statusText = "Not carried to RomWBW \(romwbwVersion): "
+                + named.joined(separator: ", ")
+                + (refilled ? " - \(diskLabels[0]) has the default disk" : "")
+                + " - choose a disk in Settings"
         } else {
             statusText = "Ready - Press Play to start"
         }
@@ -3876,6 +3970,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private func applyRomWBWVersionSwitch(from previous: String,
                                          refetch: Bool,
                                          chosenByUser: Bool) {
+        // The machine being left, for restoreDiskSelections() to carry into
+        // this release once its catalog lands. See pendingSlotCarry.
+        if !(slotsAwaitingCatalog && slotCarryIsPending) {
+            pendingSlotCarry = UserDefaults.standard.stringArray(
+                forKey: CatalogMigration.versionedKey("selectedDisks", romwbwVersion: previous))
+            slotCarryIsPending = true
+        }
         UserDefaults.standard.set(romwbwVersion, forKey: Self.romwbwVersionKey)
         // Only the picker writes the pick, and it writes the release: a release
         // the user picked stays picked until they pick another one, and an
@@ -4042,6 +4143,9 @@ class EmulatorViewModel: NSObject, ObservableObject {
         }
 
         debugPrint("[Catalog] index \(before) -> \(CatalogMigration.indexURL)")
+        // Another catalog: the disks the previous one named are not its own.
+        pendingSlotCarry = nil
+        slotCarryIsPending = false
 
         // Everything in memory belongs to the catalog that is leaving, and so
         // does everything the slots name: the files live in a different
@@ -5178,7 +5282,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         recordCatalogStems(from: disks.map { $0.filename })
         restoreROMSelection()
         refreshAvailableDisks()
-        restoreDiskSelections()
+        restoreDiskSelections(fromCachedCatalog: true)
         // Safe here, unlike in the old salvage branch: these are the sha256
         // values this release actually publishes, so judging installed images
         // against them is the same question a live fetch would ask.

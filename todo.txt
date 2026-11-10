@@ -22,9 +22,5 @@ greppable string, never a file:line.
   [DEVICE] boxes - section 17's press-and-drag above all - are what only a real
   device can answer.
 
-- [MAC] decide whether switching release should carry the slot IDENTITIES across
-  - resolve each occupied slot's catalog id in the new release and mount it -
-  instead of arriving with four empty drives.
-
 - [DEVICE] the GDB stub (docs/gdb.md) has never run on a real iPhone or iPad, or
   through the Settings screen and Play; MANUAL_CHECKS.md has the check.
