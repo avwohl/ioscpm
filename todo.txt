@@ -21,9 +21,6 @@ greppable string, never a file:line.
 - [MAC] five INFOPLIST_KEY_* settings in the pbxproj do nothing next to
   GENERATE_INFOPLIST_FILE = NO; delete them so Info.plist is visibly the source.
 
-- [MAC] "Open File..." and "Create New..." present no picker under Catalyst -
-  present AFTER the fullScreenCover dismissal, not beside it (KNOWN_PROBLEMS).
-
 - [MAC] "Running RomWBW <release>" on the status line is overwritten by the
   core's emu_status() when the guest first touches a drive.  Give it a region
   the guest cannot reach, or stop claiming one.
@@ -38,6 +35,3 @@ greppable string, never a file:line.
 
 - [DEVICE] the GDB stub (docs/gdb.md) has never run on a real iPhone or iPad, or
   through the Settings screen and Play; MANUAL_CHECKS.md has the check.
-
-- [DEVICE] Close File has never been used: Open File shows no picker under Mac
-  Catalyst.  MANUAL_CHECKS.md has the box.

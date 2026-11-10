@@ -306,7 +306,11 @@ struct ContentView: View {
                     }
                 }
             }
-            .fullScreenCover(isPresented: $showingSettings) {
+            // onDismiss, and not the button, presents Open File and Create
+            // New: a dialog asked for while this cover is still dismissing
+            // never appears. See EmulatorViewModel.PendingFileDialog.
+            .fullScreenCover(isPresented: $showingSettings,
+                             onDismiss: { viewModel.presentPendingFileDialog() }) {
                 SettingsView(viewModel: viewModel)
             }
             .fileImporter(

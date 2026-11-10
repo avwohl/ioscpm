@@ -739,7 +739,8 @@ saved profile and a ledger with a record for each is enough for all of it.
       the name gone from `selectedDisks`.  Then put the file back and relaunch:
       drive 0 has it again.
 - [ ] [DEVICE] **Close File puts back the disk the Files binding covered.**
-      Never run: Open File shows no picker under Mac Catalyst.  Put a catalog
+      MEASURED 2026-11-10 on Mac Catalyst, every step right; open on iOS,
+      where the picker and the bookmark take other code paths.  Put a catalog
       disk in drive 1, then Open File and pick an image from Files.  Right:
       Settings names the file, and `selectedDisks.v0.<release>` still holds
       the catalog disk for drive 1.  Close File: drive 1 shows that disk

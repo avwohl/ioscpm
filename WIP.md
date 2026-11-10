@@ -64,10 +64,9 @@ and the Catalyst build was driven by hand. What that settled:
 - **The status line claim was wrong** and the CHANGELOG entry now says so. See
   that entry; the short version is that `emu_status()` in the shared core writes
   to the same line and fires after `startEmulator()` returns.
-- **"Open File..." and "Create New..." present nothing on Mac Catalyst.** See
-  `KNOWN_PROBLEMS.md`. This is not new in 1.6.2 and is not a reason to hold
-  it, but it is the route the new local-disk release warning is reached by, so
-  that feature is unverified on this platform.
+- **"Open File..." and "Create New..." presented nothing on Mac Catalyst.**
+  Fixed in build 75 (2026-11-10): the sandbox had no user-selected-files
+  entitlement. See that build's CHANGELOG entry.
 
 - **On iOS, one measurement and no taps.** The same build was installed on an
   iPhone 17 Pro simulator (iOS 26.5) onto an UPGRADED container — pre-v0

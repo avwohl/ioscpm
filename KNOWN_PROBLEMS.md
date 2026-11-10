@@ -88,38 +88,6 @@ romwbw_disks still uses cpmtools in `tools/build_disks.sh` to build the
 published images. That is that repository's business and its `tools/diskdefs` is
 load-bearing there; it is the one place in this family the tool is named.
 
-### Neither "Open File..." nor "Create New..." presents anything under Mac Catalyst
-
-Measured 2026-09-21 on a Release Mac Catalyst build of this tree - numbered 73
-when it was driven, 74 as it ships - on Xcode 27
-and macOS 26, with the click placed by finding the control's own pixels rather
-than by guessing: pressing **Open File...** in Settings dismisses Settings and
-**no picker, panel or sheet ever appears** - `every window of process "iOSCPM"`
-stays `Z80CPM` for ten seconds and `every sheet of window 1` is empty.
-**Create New...** does the same. Settings reopens normally afterwards, so
-nothing is wedged; the file dialog simply never arrives.
-
-**This is not new in 1.6.2 and not a reason to hold a release.** The
-`presentationMode.wrappedValue.dismiss()` that sits beside
-`viewModel.openLocalDisk(unit:)` arrived in `b5dac37` (2026-03-16, build 36),
-in a commit whose message is "Fix macOS disk dialog freeze" - so the dismissal
-was put there deliberately, to cure a freeze, and what it bought was a dialog
-that does not open at all. Every build users have had since carries it.
-
-The shape is the ordinary UIKit one: `showingOpenDisk` flips true while the
-`.fullScreenCover` holding Settings is mid-dismissal, and the `.fileImporter`
-bound to it lives on the root `ContentView`, which cannot present while a
-dismissal is in flight. A fix presents AFTER the dismissal completes rather
-than beside it. Do not just delete the `dismiss()`: the freeze it was added for
-is presumably still there behind it, and nothing here has reproduced it.
-
-**iOS is untested, and must not be assumed to match.** No session has been able
-to drive an iOS simulator since Xcode 27 removed `Simulator.app` - see
-`WIP.md` - so this is a Catalyst measurement and nothing more. It matters
-beyond the two buttons because **"Open File..." is the only route to the
-local-disk release warning** added in 1.6.2, which therefore has never been
-seen on a Mac.
-
 ## User Data Persistence
 
 ### Data Loss Risk with GitHub Disks

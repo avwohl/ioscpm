@@ -9,6 +9,35 @@ that says what users have, and a TestFlight build is not one of the things it
 can see. The GDB stub sections below were written and measured while the
 project said 1.6.2 (74); they mean this build.
 
+### Open File and Create New work under Mac Catalyst
+
+Under Mac Catalyst, "Open File..." and "Create New..." in Settings showed no
+panel. Build 73 is the first build where this was measured. `KNOWN_PROBLEMS.md`
+blamed the timing: the
+app asked for the dialog before Settings had closed. That was not the whole
+cause. The app runs in the sandbox (`ENABLE_APP_SANDBOX`), and the project did not
+give it access to files that the user selects. Without that access, the
+sandbox does not show an open or save panel, and it gives no error.
+
+The project now sets `ENABLE_USER_SELECTED_FILES = readwrite`, so the build
+has `com.apple.security.files.user-selected.read-write`. Settings also asks
+for the dialog after it closes: the `onDismiss` of the `fullScreenCover` calls
+`presentPendingFileDialog()`.
+
+The bookmark of a disk from Files was also empty under Catalyst. There, a
+bookmark of a picked file is security-scoped, and Foundation refuses
+`.minimalBookmark` for it ("cannot be used with scoped bookmarks"). The app
+logged the error only in debug mode, so a binding did not survive a relaunch.
+Catalyst now makes the bookmark with no options. iOS still uses
+`.minimalBookmark`.
+
+Run on Mac Catalyst on 2026-11-10: the open panel and the save panel appear.
+
+A disk from Files went into drive 1, and Settings named it. The bookmark was
+924 bytes, and the binding was there after a relaunch. Close File put Games
+back in drive 1, in the same session and after a relaunch. **Not run on
+iOS**: Xcode 27 gives no way to drive the simulator.
+
 ### Three defects that the Mac run found, fixed
 
 The Mac run of the changes from Linux found three defects, and this build
@@ -28,8 +57,8 @@ File.
   `""`, so the choice wins.
 - **Close File.** A disk from Files replaced the saved name of the drive with
   `""`. Now the name of the disk under it stays, and Close File puts that disk
-  back. **Not run**: Open File shows no picker under Mac Catalyst. MANUAL_CHECKS.md
-  has the check.
+  back. Run later the same day, after the Open File fix: see "Open File and
+  Create New work under Mac Catalyst".
 
 The release switch and the index switch now read the slot names again from
 the key that they move to. Before, `applyProfile` after a failed switch could

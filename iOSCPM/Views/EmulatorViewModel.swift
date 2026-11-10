@@ -2330,14 +2330,35 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     // MARK: - Local Disk File Management
 
+    /// A file dialog asked for from Settings, held until Settings has gone.
+    ///
+    /// "Open File..." and "Create New..." live in Settings, which is a
+    /// `.fullScreenCover`, and their dialogs are presented from the root view.
+    /// Setting `showingOpenDisk` while the cover was still dismissing - the
+    /// buttons dismiss it in the same action - presented nothing at all under
+    /// Mac Catalyst (KNOWN_PROBLEMS.md). The root's `onDismiss`, which runs
+    /// once the dismissal is complete, calls `presentPendingFileDialog()`.
+    enum PendingFileDialog { case open, create }
+    private var pendingFileDialog: PendingFileDialog?
+
     func openLocalDisk(unit: Int) {
         diskUnitForFileOp = unit
-        showingOpenDisk = true
+        pendingFileDialog = .open
     }
 
     func createLocalDisk(unit: Int) {
         diskUnitForFileOp = unit
-        showingCreateDisk = true
+        pendingFileDialog = .create
+    }
+
+    /// Present the dialog Settings asked for, now that nothing is dismissing.
+    func presentPendingFileDialog() {
+        switch pendingFileDialog {
+        case .open: showingOpenDisk = true
+        case .create: showingCreateDisk = true
+        case nil: break
+        }
+        pendingFileDialog = nil
     }
 
     /// The release a local file's NAME claims, when it is not this machine's.
@@ -2565,6 +2586,20 @@ class EmulatorViewModel: NSObject, ObservableObject {
         CatalogMigration.versionedKey("localDiskBookmarks", romwbwVersion: romwbwVersion)
     }
 
+    /// How a Files binding's bookmark is made.
+    ///
+    /// Not `.minimalBookmark` under Mac Catalyst: a bookmark of a URL the
+    /// picker handed over is security-scoped there, and Foundation refuses the
+    /// pair - "kCFURLBookmarkCreationMinimalBookmarkMask cannot be used with
+    /// scoped bookmarks", NSCocoaErrorDomain 256, measured 2026-11-10. The
+    /// error was caught and only logged in debug mode, so every binding was
+    /// saved as an empty bookmark and was gone on the next launch.
+    #if targetEnvironment(macCatalyst)
+    private static let localDiskBookmarkOptions: URL.BookmarkCreationOptions = []
+    #else
+    private static let localDiskBookmarkOptions: URL.BookmarkCreationOptions = .minimalBookmark
+    #endif
+
     /// Save security-scoped bookmarks for local disk files to UserDefaults
     private func saveLocalDiskBindings() {
         var bookmarks: [Data?] = Array(repeating: nil, count: 4)
@@ -2573,7 +2608,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
             guard let url = localDiskURLs[i] else { continue }
             do {
                 let bookmarkData = try url.bookmarkData(
-                    options: .minimalBookmark,
+                    options: Self.localDiskBookmarkOptions,
                     includingResourceValuesForKeys: nil,
                     relativeTo: nil
                 )
