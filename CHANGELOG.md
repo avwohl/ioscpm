@@ -1,13 +1,14 @@
 # Changelog
 
-## Version 1.7.1 (Build 75)
+## Version 1.7.1 (Build 76)
 
-The first build under 1.7.1, set by a human on 2026-11-09; `CLAUDE.md` records
-the move. The Store serves 1.6.2 (build 74). **Nothing in this section has been
-submitted or released** - `sh tools/check-store-version.sh` is the only thing
-that says what users have, and a TestFlight build is not one of the things it
-can see. The GDB stub sections below were written and measured while the
-project said 1.6.2 (74); they mean this build.
+The build number moved 75 -> 76 for a TestFlight upload, asked for by a human
+on 2026-11-10. The version stays 1.7.1: the Store serves 1.6.2 (build 74), so
+1.7.1 has not been released. Everything in this section came after build 75's
+commit (`27e390e`): the six changes written on Linux, their run on a Mac, and
+the fixes that the run led to. **Nothing in this section has been submitted
+or released** - `sh tools/check-store-version.sh` is the only thing that says
+what users have.
 
 ### A release switch takes the disks to the new release
 
@@ -246,6 +247,15 @@ order, so when drive 0 names the image, a failed download still stops the
 start. Run on a Mac on 2026-11-10: with the combo image in drives 0 and 1, Play
 received 52.1 MB. That is one 51.4 MB image and the 0.5 MB ROM. Both drives
 mounted the image.
+
+## Version 1.7.1 (Build 75)
+
+The first build under 1.7.1, set by a human on 2026-11-09; `CLAUDE.md` records
+the move. The Store serves 1.6.2 (build 74). **Nothing in this section has been
+submitted or released** - `sh tools/check-store-version.sh` is the only thing
+that says what users have, and a TestFlight build is not one of the things it
+can see. The GDB stub sections below were written and measured while the
+project said 1.6.2 (74); they mean this build.
 
 ### Tests/gdb_stub_test.py: wait-program, run on this app's core
 
