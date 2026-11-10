@@ -14,7 +14,7 @@ project said 1.6.2 (74); they mean this build.
 Build 41 removed the file pickers from the R8 and W8 transfers. R8 reads the
 Imports folder and W8 writes the Exports folder. The view model kept eight
 properties and two result handlers for the removed pickers, and no code used
-them. They are deleted. **Not built**: a session on Linux made this change,
+them. This change deletes them. **Not built**: a session on Linux made it,
 and only `swiftc -parse` checked it.
 
 ### Close File removes a disk from Files, and Settings names it
