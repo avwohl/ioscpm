@@ -63,7 +63,8 @@ and the Catalyst build was driven by hand. What that settled:
   selection back to 3.6.0** and the ROM row with it.
 - **The status line claim was wrong** and the CHANGELOG entry now says so. See
   that entry; the short version is that `emu_status()` in the shared core writes
-  to the same line and fires after `startEmulator()` returns.
+  to the same line and fires after `startEmulator()` returns. Build 75 moves
+  the claim beside the Running dot, where the core cannot reach.
 - **"Open File..." and "Create New..." presented nothing on Mac Catalyst.**
   Fixed in build 75 (2026-11-10): the sandbox had no user-selected-files
   entitlement. See that build's CHANGELOG entry.

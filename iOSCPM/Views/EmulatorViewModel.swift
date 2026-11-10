@@ -2440,6 +2440,24 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// after the start finishes and which reached the screen only from
     /// `handleOpenDiskResult`. Read off `localDiskURLs` rather than the cached
     /// notices so it describes the drives as they actually ended up.
+    /// What the status bar's Running indicator says while the machine runs.
+    ///
+    /// Its own text and not `statusText`: the shared core's `emu_status()`
+    /// writes `statusText` when the guest first touches a drive, which is after
+    /// `startEmulator()` returns, so "Running RomWBW <release>" written there was
+    /// gone within a second of every boot (measured on Mac Catalyst,
+    /// 2026-09-21). The indicator is a region nothing in the core can reach.
+    /// The release cannot change while the machine runs - the picker refuses
+    /// and an index move waits for Stop - so this needs no copy of its own.
+    var runningLabel: String {
+        romwbwVersion.isEmpty ? "Running" : "Running RomWBW \(romwbwVersion)"
+    }
+
+    /// `mountedLocalDiskReleaseWarning()` as of the last start, shown beside
+    /// `runningLabel` for the same reason: it rode on `statusText` and was
+    /// overwritten with it.
+    @Published private(set) var runningDiskNotice: String?
+
     private func mountedLocalDiskReleaseWarning() -> String? {
         let named = localDiskURLs.enumerated().compactMap { unit, url -> String? in
             guard let url = url,
@@ -3124,10 +3142,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // the separation romwbw_emu's CLI gets for free by printing its own
         // "RomWBW v%s (from %s)" to stderr. Empty release, no claim: "Running"
         // alone, the same refusal to invent one that startBanner makes.
-        let running = romwbwVersion.isEmpty ? "Running" : "Running RomWBW \(romwbwVersion)"
-        // A mounted local file naming another release is said HERE, because
-        // this is the write that survives: see mountedLocalDiskReleaseWarning.
-        statusText = mountedLocalDiskReleaseWarning().map { "\(running) - \($0)" } ?? running
+        // Written to statusText as well, for the moment before the guest's
+        // first disk access replaces it; runningLabel and runningDiskNotice are
+        // what stay on screen.
+        let running = runningLabel
+        runningDiskNotice = mountedLocalDiskReleaseWarning()
+        statusText = runningDiskNotice.map { "\(running) - \($0)" } ?? running
         terminalShouldFocus = true  // Auto-focus terminal
         debugPrint("🟢 [START] emulator started, isRunning=\(isRunning)")
 
@@ -5385,8 +5405,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // instead. One successful fetch clears it.
         guard !catalogIsUnverified else {
             downloadStates[disk.filename] =
-                .error("the saved catalog could not be verified; connect to the internet "
-                       + "so it can be refreshed, then try again")
+                // Not "the saved catalog": since indexIsUnverified, an
+                // unverified RELEASE LIST keeps this off too, with a catalog
+                // fresh from the network. Same words as Settings' note.
+                .error("this app cannot confirm that it saved the release list or catalog "
+                       + "in use; connect to the internet so they can be fetched, then try again")
             return
         }
 

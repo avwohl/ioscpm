@@ -126,10 +126,18 @@ struct ContentView: View {
                     Spacer()
 
                     if viewModel.isRunning {
+                        // Here and not in statusText, which the core
+                        // overwrites: see EmulatorViewModel.runningLabel.
+                        if let notice = viewModel.runningDiskNotice {
+                            Text(notice)
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                                .lineLimit(1)
+                        }
                         Circle()
                             .fill(.green)
                             .frame(width: 8, height: 8)
-                        Text("Running")
+                        Text(viewModel.runningLabel)
                             .font(.caption)
                             .foregroundColor(.green)
                     } else {
@@ -609,6 +617,15 @@ struct DiskImageDocument: FileDocument {
 
 struct SettingsView: View {
     @ObservedObject var viewModel: EmulatorViewModel
+
+    /// A drive picker's selection: `selectedDisks[unit]`, except that an empty
+    /// drive - nil, which matches no tag, so the menu label was blank - reads
+    /// as the catalog's None row. A choice is written through as it is.
+    private func diskPickerSelection(_ unit: Int) -> Binding<DiskOption?> {
+        Binding(get: { viewModel.selectedDisks[unit]
+                        ?? viewModel.availableDisks.first { $0.filename.isEmpty } },
+                set: { viewModel.selectedDisks[unit] = $0 })
+    }
     @Environment(\.presentationMode) private var presentationMode
     /// Name being typed into the "Save Current As" field.
     @State private var newProfileName = ""
@@ -825,7 +842,7 @@ struct SettingsView: View {
                                     .foregroundColor(.secondary)
                             }
 
-                            Picker("", selection: $viewModel.selectedDisks[unit]) {
+                            Picker("", selection: diskPickerSelection(unit)) {
                                 ForEach(viewModel.availableDisks) { disk in
                                     Text(disk.name).tag(disk as DiskOption?)
                                 }

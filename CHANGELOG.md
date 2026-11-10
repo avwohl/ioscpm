@@ -9,6 +9,30 @@ that says what users have, and a TestFlight build is not one of the things it
 can see. The GDB stub sections below were written and measured while the
 project said 1.6.2 (74); they mean this build.
 
+### The status bar keeps the release, and three smaller fixes
+
+- **"Running RomWBW <release>" stays on the screen.** `startEmulator()` wrote
+  it to `statusText`, and the core's `emu_status()` writes the same line when
+  the guest first reads a drive. So the text was gone within a second of each
+  boot. The text is now `runningLabel`, beside the green dot, where the core
+  cannot write. The warning for a disk from Files that names another release
+  had the same problem. It is now `runningDiskNotice`, in orange beside the
+  label. Run on Mac Catalyst on 2026-11-10: after the boot loader read the
+  drives, the bar showed `Disk 1 (OS) names RomWBW 3.5.1, not 3.6.0` and
+  `Running RomWBW 3.6.0`, and the status text showed
+  `[HBIOS] Loaded disk 1: 8388608 bytes (in-memory)`. Before this run, no one
+  had seen that warning on a Mac.
+- **An empty drive shows "None".** Its picker had a blank label, because an
+  empty drive is nil and nil matches no row. `diskPickerSelection(_:)` shows
+  nil as the None row. The app saves a choice as before: CP/M 2.2 picked for
+  drive 2 went into the key as `hd1k_cpm22-v0-3.6.0.img`.
+- **A refused download names the right cause.** The row said "the saved
+  catalog could not be verified", but an unverified release list also turns
+  downloads off. The row now uses the words of the Settings note.
+
+`Tests/check_view_bindings.sh` finds the drive picker by
+`diskPickerSelection(unit)` now.
+
 ### Open File and Create New work under Mac Catalyst
 
 Under Mac Catalyst, "Open File..." and "Create New..." in Settings showed no
@@ -556,8 +580,8 @@ that matters and the half cpmdroid predicted; and the status line reads
 when the guest first touches a drive, which is after `startEmulator()` has
 returned. The status write is still made and is still the right thing to write;
 it is simply not out of the guest's reach, so the CLAIM is withdrawn rather than
-the code changed at this end of a release. `todo.txt` carries what to do about
-it.
+the code changed at this end of a release. Build 75 moves the text out of the
+guest's reach: see "The status bar keeps the release".
 
 ### Pressing Play twice during a download started a second machine over the first
 

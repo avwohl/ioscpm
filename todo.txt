@@ -21,10 +21,6 @@ greppable string, never a file:line.
 - [MAC] five INFOPLIST_KEY_* settings in the pbxproj do nothing next to
   GENERATE_INFOPLIST_FILE = NO; delete them so Info.plist is visibly the source.
 
-- [MAC] "Running RomWBW <release>" on the status line is overwritten by the
-  core's emu_status() when the guest first touches a drive.  Give it a region
-  the guest cannot reach, or stop claiming one.
-
 - [DEVICE] nothing here has ever run on physical iOS hardware.  MANUAL_CHECKS.md's
   [DEVICE] boxes - section 17's press-and-drag above all - are what only a real
   device can answer.

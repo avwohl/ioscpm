@@ -189,7 +189,7 @@ gating_of() { # $1 = the selection expression, $2 = file
 }
 
 CV="$ROOT/iOSCPM/Views/ContentView.swift"
-for sel in '$viewModel.romwbwVersion' '$viewModel.selectedDisks[unit]' \
+for sel in '$viewModel.romwbwVersion' 'diskPickerSelection(unit)' \
            '$viewModel.selectedROM'; do
     got=$(gating_of "selection: $sel" "$CV")
     if [ -z "$got" ]; then
