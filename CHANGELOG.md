@@ -9,6 +9,15 @@ that says what users have, and a TestFlight build is not one of the things it
 can see. The GDB stub sections below were written and measured while the
 project said 1.6.2 (74); they mean this build.
 
+### Five unused Info.plist settings are gone
+
+The project set five `INFOPLIST_KEY_*` build settings in Debug and in
+Release. Xcode reads those settings only when it makes the Info.plist, and
+`GENERATE_INFOPLIST_FILE = NO` here, so `iOSCPM/Info.plist` is the file that
+ships. This change deletes the five settings. Measured on 2026-11-10: the
+built Info.plist is the same, byte for byte, before and after, for Release on
+iOS devices, Release on Mac Catalyst and Debug on the iOS Simulator.
+
 ### The status bar keeps the release, and three smaller fixes
 
 - **"Running RomWBW <release>" stays on the screen.** `startEmulator()` wrote

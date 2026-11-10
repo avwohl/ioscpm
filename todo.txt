@@ -18,9 +18,6 @@ greppable string, never a file:line.
   were fetched and hashed on 2026-09-21; attach it to the next review and set
   its Date line to that day.
 
-- [MAC] five INFOPLIST_KEY_* settings in the pbxproj do nothing next to
-  GENERATE_INFOPLIST_FILE = NO; delete them so Info.plist is visibly the source.
-
 - [DEVICE] nothing here has ever run on physical iOS hardware.  MANUAL_CHECKS.md's
   [DEVICE] boxes - section 17's press-and-drag above all - are what only a real
   device can answer.
