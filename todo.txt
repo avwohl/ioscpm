@@ -24,9 +24,6 @@ greppable string, never a file:line.
 - [ANY] the unverified-cache account ("Downloads are off until a fetch
   succeeds") is composed into CatalogFailure.detail and no view renders it.
 
-- [ANY] romwbwVersionChosenKey is a bare boolean; applyRomWBWVersionSwitch
-  writes romwbwVersionKey on AUTOMATIC switches too, pinning the device.
-
 - [ANY] slotZeroFallbackIsSafe only covers the unlistable-directory case, so an
   unresolvable slot-0 name is overwritten and persisted away.
 
@@ -57,6 +54,8 @@ greppable string, never a file:line.
 - [DEVICE] the GDB stub (docs/gdb.md) has never run on a real iPhone or iPad, or
   through the Settings screen and Play; MANUAL_CHECKS.md has the check.
 
-- [MAC] build e68a739 (start() fetches an image once for two drives), written on
-  Linux and checked only by swiftc -parse: xcodebuild it, then Play once with one
-  catalog image in drives 0 and 1 and see a single download.
+- [MAC] build e68a739 (start() fetches an image once for two drives) and the
+  pickedRomWBWVersion commit, both written on Linux and checked only by swiftc:
+  xcodebuild; Play once with one catalog image in drives 0 and 1 and see a
+  single download; pick a release, let the index move the device, relaunch, and
+  see the pick kept.

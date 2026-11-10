@@ -704,7 +704,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
     private static let romwbwVersionKey =
         "selectedRomWBWVersion.\(CatalogMigration.interface)"
 
-    /// Whether the release above was PICKED, as opposed to adopted by the app.
+    /// The release the user PICKED, as opposed to one adopted by the app.
     ///
     /// `romwbwVersionKey` records which release is in play and is written on
     /// every switch, automatic ones included, because the next launch has to
@@ -714,8 +714,21 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// adopted: the index's `default: true` moved a device once, wrote itself
     /// here, and could never move it again.
     ///
-    /// Absent means no. Only the picker sets it.
-    private static let romwbwVersionChosenKey =
+    /// It names the release, and only the picker writes it. It used to be a
+    /// boolean, `romwbwVersionChosenLegacyKey` below, that vouched for whatever
+    /// `romwbwVersionKey` held - so once anything had been picked, every later
+    /// AUTOMATIC switch wrote the release it moved to and the flag adopted it:
+    /// a release the index moved the device to became "the user's choice" and
+    /// pinned the device there. Absent or empty means nobody picked.
+    private static let romwbwVersionPickedKey =
+        "pickedRomWBWVersion.\(CatalogMigration.interface)"
+
+    /// The boolean `romwbwVersionPickedKey` replaced. Read once, by
+    /// `userChosenRomWBWVersion()`, and removed: true there means the release
+    /// in `romwbwVersionKey` was picked or adopted after a pick, which cannot
+    /// be told apart now, so it is carried over as the pick - the meaning the
+    /// boolean had - and the device is no worse off than before.
+    private static let romwbwVersionChosenLegacyKey =
         "selectedRomWBWVersionIsUserChoice.\(CatalogMigration.interface)"
 
     // This app bundles no ROM.
@@ -764,8 +777,18 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// The release the user actually picked, or nil if they never have.
     private static func userChosenRomWBWVersion() -> String? {
-        guard UserDefaults.standard.bool(forKey: romwbwVersionChosenKey) else { return nil }
-        return storedRomWBWVersion()
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: romwbwVersionChosenLegacyKey) != nil {
+            if defaults.bool(forKey: romwbwVersionChosenLegacyKey),
+               defaults.string(forKey: romwbwVersionPickedKey) == nil,
+               let stored = storedRomWBWVersion() {
+                defaults.set(stored, forKey: romwbwVersionPickedKey)
+            }
+            defaults.removeObject(forKey: romwbwVersionChosenLegacyKey)
+        }
+        guard let picked = defaults.string(forKey: romwbwVersionPickedKey),
+              !picked.isEmpty else { return nil }
+        return picked
     }
 
     /// What to hand `RomWBWIndex.preferred` as "the release already in play",
@@ -3713,11 +3736,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
                                          refetch: Bool,
                                          chosenByUser: Bool) {
         UserDefaults.standard.set(romwbwVersion, forKey: Self.romwbwVersionKey)
-        // Only ever set, never cleared: a release the user picked stays picked
-        // until they pick another one. An automatic adoption leaves this alone
-        // rather than writing false, so it cannot demote an earlier choice.
+        // Only the picker writes the pick, and it writes the release: a release
+        // the user picked stays picked until they pick another one, and an
+        // automatic adoption - which writes romwbwVersionKey above like any
+        // switch - changes neither which release that is nor whether there is
+        // one.
         if chosenByUser {
-            UserDefaults.standard.set(true, forKey: Self.romwbwVersionChosenKey)
+            UserDefaults.standard.set(romwbwVersion, forKey: Self.romwbwVersionPickedKey)
         }
         debugPrint("[Release] RomWBW \(previous) -> \(romwbwVersion)")
 

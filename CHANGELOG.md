@@ -9,6 +9,20 @@ that says what users have, and a TestFlight build is not one of the things it
 can see. The GDB stub sections below were written and measured while the
 project said 1.6.2 (74); they mean this build.
 
+### An automatic release switch no longer counts as the user's pick
+
+The app kept a flag that said "the user picked the release", and read the
+release from the key that every switch writes. After one pick, each automatic
+switch wrote its release to that key, and the flag then called that release
+the pick. The app kept the device on it.
+
+The pick is now its own key, `pickedRomWBWVersion.v0`, and it holds the
+release. Only the picker writes it. When a device upgrades, the old flag gives
+its value to the new key one time, and then the app removes the old flag.
+**Not built**: a session on Linux made this change. `swiftc -parse` checked the
+file, and the two changed functions, copied out without change, ran through
+eight cases with Foundation on Linux.
+
 ### Play fetches an image once when two drives name it
 
 `start()` made a list of the disks to download, one entry for each drive. If
