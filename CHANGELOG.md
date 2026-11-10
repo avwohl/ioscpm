@@ -9,6 +9,14 @@ that says what users have, and a TestFlight build is not one of the things it
 can see. The GDB stub sections below were written and measured while the
 project said 1.6.2 (74); they mean this build.
 
+### The unused W8 picker code is gone
+
+Build 41 removed the file pickers from the R8 and W8 transfers. R8 reads the
+Imports folder and W8 writes the Exports folder. The view model kept eight
+properties and two result handlers for the removed pickers, and no code used
+them. They are deleted. **Not built**: a session on Linux made this change,
+and only `swiftc -parse` checked it.
+
 ### Close File removes a disk from Files, and Settings names it
 
 A drive can hold a disk from Files. The app then uses that file in place of

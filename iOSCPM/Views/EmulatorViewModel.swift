@@ -251,15 +251,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// more 512 KB transfer.
     private var romRefetched: Set<String> = []
 
-    // Host file transfer (R8/W8 utilities)
-    @Published var showingHostFileImporter: Bool = false
-    @Published var showingHostFileExporter: Bool = false
-    @Published var hostFileExportFilename: String = "download.bin"
-    @Published var hostFileExportDocument: DiskImageDocument?
-    @Published var hostFileTempURL: URL?
-    @Published var showingHostFileMoveExporter: Bool = false
-    @Published var showingHostFileSavePrompt: Bool = false  // Alert asking user to save
-    private var pendingHostFileData: Data?  // Data waiting to be saved
+    // Host file transfer (R8/W8 utilities). No picker is ever put up in a
+    // transfer's path: R8 reads Documents/Imports and W8 writes
+    // Documents/Exports (34041b5). The per-transfer importer and exporters
+    // and their state went from the views then and from here later.
+    //
     // Toggles the "Import File…" picker that stages an arbitrary host file into
     // the Imports folder (so a later R8 can read it). Not tied to any guest wait.
     @Published var showingImportToInbox: Bool = false
@@ -5892,53 +5888,6 @@ extension EmulatorViewModel: RomWBWEmulatorDelegate {
         // Legacy callback - no longer used, polling checkHostFileState() instead
         // Keep for protocol compliance but do nothing
         debugPrint("[HostFile] emulatorHostFileDownload called (legacy, ignored)")
-    }
-
-    /// Handle result from host file move picker (W8)
-    func handleHostFileMoveResult(_ result: Result<URL, Error>) {
-        // Clean up temp file
-        if let tempURL = hostFileTempURL {
-            try? FileManager.default.removeItem(at: tempURL)
-        }
-        hostFileTempURL = nil
-
-        // Tell emulator we're done with the write data
-        emu_host_file_write_done_c()
-
-        switch result {
-        case .success(let url):
-            statusText = "W8: Saved to \(url.lastPathComponent)"
-        case .failure(let error):
-            if (error as NSError).code == NSUserCancelledError {
-                statusText = "W8: Save cancelled"
-            } else {
-                showError("Failed to save: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    /// Handle result from the arbitrary-path W8 exporter.
-    func handleHostFileExportResult(_ result: Result<URL, Error>) {
-        // Capture the payload before clearing, so a cancel can fall back to the
-        // Exports folder instead of silently dropping the export (the guest was
-        // already told the close succeeded, per the async close_write contract).
-        let pendingData = hostFileExportDocument?.data
-        let pendingName = hostFileExportFilename
-        hostFileExportDocument = nil
-        switch result {
-        case .success(let url):
-            statusText = "W8: Saved to \(url.lastPathComponent)"
-        case .failure(let error):
-            if (error as NSError).code == NSUserCancelledError {
-                if let data = pendingData {
-                    saveToExportsFolder(data: data, filename: pendingName)  // no silent loss
-                } else {
-                    statusText = "W8: Save cancelled"
-                }
-            } else {
-                showError("Failed to save: \(error.localizedDescription)")
-            }
-        }
     }
 
     /// Handle the "Import File…" picker: copy the chosen host file(s) into the
