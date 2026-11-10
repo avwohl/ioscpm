@@ -56,3 +56,7 @@ greppable string, never a file:line.
 
 - [DEVICE] the GDB stub (docs/gdb.md) has never run on a real iPhone or iPad, or
   through the Settings screen and Play; MANUAL_CHECKS.md has the check.
+
+- [MAC] build e68a739 (start() fetches an image once for two drives), written on
+  Linux and checked only by swiftc -parse: xcodebuild it, then Play once with one
+  catalog image in drives 0 and 1 and see a single download.
