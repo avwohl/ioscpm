@@ -9,6 +9,32 @@ that says what users have, and a TestFlight build is not one of the things it
 can see. The GDB stub sections below were written and measured while the
 project said 1.6.2 (74); they mean this build.
 
+### Three defects that the Mac run found, fixed
+
+The Mac run of the changes from Linux found three defects, and this build
+fixes all three. Each fix was run on Mac Catalyst on 2026-11-10, except Close
+File.
+
+- **A catalog behind an unverified release list.** The fetch saved the catalog
+  with a stamp. On a later launch the catalog server did not answer, and the
+  app used the saved copy as verified and turned downloads on. Now the app
+  saves the catalog with no stamp in that case. An earlier stamp of the same
+  bytes stays. Run: with no stamp, Settings said "Downloads are off" for the
+  saved copy. After a fetch behind a verified list, the stamp came back.
+- **A missing drive-0 disk.** The app kept the name only until the next change
+  to any drive. Now `slotNamesBehindSelection` keeps it until the user changes
+  that drive. Run: a change to drive 1 kept `mytest.img` for drive 0, and the
+  disk booted when the file came back. A choice of None for drive 0 saved
+  `""`, so the choice wins.
+- **Close File.** A disk from Files replaced the saved name of the drive with
+  `""`. Now the name of the disk under it stays, and Close File puts that disk
+  back. **Not run**: Open File shows no picker under Mac Catalyst. MANUAL_CHECKS.md
+  has the check.
+
+The release switch and the index switch now read the slot names again from
+the key that they move to. Before, `applyProfile` after a failed switch could
+write `""` over a saved name.
+
 ### A removed drive-0 disk leaves drive 0 empty
 
 Sometimes the disk saved for drive 0 was gone from the device. Then the app
@@ -23,7 +49,7 @@ Catalyst, Release): `mytest.img` was in drive 0, then the test removed the file.
 After a relaunch, drive 0 was empty, the status line named `mytest.img`, and
 the saved name stayed. **Defect found**: the next change to a different drive
 in Settings saves an empty name for drive 0. When the file comes back, drive 0
-gets the default disk. See `todo.txt`.
+gets the default disk. Fixed: see "Three defects that the Mac run found".
 
 ### Tests/run_tests.sh runs the Swift suites off a Mac
 
@@ -53,11 +79,11 @@ Now Settings shows the name of the file under the drive, and a Close File
 button removes it. The button is off while the machine runs.
 
 A session on Linux made this change. It builds on a Mac (2026-11-10), but
-nobody has used it: Open File shows no picker under Mac Catalyst, so no drive could get a disk
-from Files. **Defect found in the code**: when a drive gets a disk from Files,
+nobody has used it: Open File shows no picker under Mac Catalyst, so no drive
+could get a disk from Files. **Defect found in the code**: when a drive gets a disk from Files,
 the app saves an empty name for that drive. Close File does not put the old
-name back. After Close File and a relaunch, the drive is empty. See
-`todo.txt`.
+name back. After Close File and a relaunch, the drive is empty. Fixed: see
+"Three defects that the Mac run found".
 
 ### Settings says when downloads are off
 
@@ -83,7 +109,8 @@ Run on a Mac on 2026-11-10: the catalog came from the network and downloads
 stayed off. **Defect found**: that fetch also saves the catalog with a correct
 stamp. On the next launch, the release list came from
 the network and the catalog server did not answer. The app then used the saved
-catalog and turned downloads on. See `todo.txt`.
+catalog and turned downloads on. Fixed: see "Three defects that the Mac run
+found".
 
 ### An automatic release switch no longer counts as the user's pick
 

@@ -81,6 +81,11 @@ struct DiskOption: Identifiable, Hashable, Equatable {
     let name: String
     let filename: String
     var isDownloaded: Bool = false  // true if available locally
+    /// The placeholder a Files binding puts in a slot - never a catalog disk
+    /// and never the picker's "None". `selectedDisks`' didSet reads it to tell
+    /// a binding, which keeps the pick it covers, from a choice in the picker,
+    /// which replaces it. Not part of equality: the picker matches by filename.
+    var isLocalFile: Bool = false
 
     // Equatable based on filename (the unique identifier)
     static func == (lhs: DiskOption, rhs: DiskOption) -> Bool {
@@ -368,9 +373,37 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// `restoreDiskSelections()` fills them from the new catalog - so it is
     /// true for exactly the window in which a fetch is outstanding, and it
     /// STAYS true when that fetch fails, because on that path nothing ever
-    /// refills the slots. `persistSelectedDisks(remembering:)` reads it, and
+    /// refills the slots. `persistSelectedDisks()` reads it, and
     /// `CatalogMigration.slotNamesToPersist` says what it costs to ignore.
     private var slotsAwaitingCatalog = false
+
+    /// Per slot, the name the key keeps while the slot's selection names no
+    /// file - `""` where there is none. `persistSelectedDisks()` writes it into
+    /// each empty slot (`CatalogMigration.slotNamesToPersist`).
+    ///
+    /// Two things put a name here, and both used to be lost:
+    ///
+    ///   - A saved name this launch could not resolve - a disk removed from
+    ///     Documents/Disks, or one the catalog no longer names.
+    ///     `restoreDiskSelections()` sets the whole array from the key. It used
+    ///     to pass the key to its own persist only, so the next edit of ANY slot
+    ///     wrote `""` over the name, and drive 0 then got the catalog default.
+    ///   - The pick a Files binding covers. A binding sets the slot to a
+    ///     `filename: ""` placeholder, and that blank used to be saved over the
+    ///     pick, so Close File and a relaunch came back to an empty drive.
+    ///     `clearLocalDisk(unit:)` puts this disk back.
+    ///
+    /// A slot the user changes - a picker choice, None, a deleted disk, a
+    /// profile - loses its entry here, so a remembered name never overrides a
+    /// choice somebody made. The release and index switches re-read it from
+    /// the key they move to: what it held belongs to the key that is leaving.
+    private var slotNamesBehindSelection: [String] = Array(repeating: "", count: 4)
+
+    /// The four names `selectedDisksKey` holds now, `""`-padded to four.
+    private func savedSlotNames() -> [String] {
+        let saved = UserDefaults.standard.stringArray(forKey: selectedDisksKey) ?? []
+        return (0..<4).map { $0 < saved.count ? saved[$0] : "" }
+    }
 
     @Published var selectedDisks: [DiskOption?] = Array(repeating: nil, count: 4) {
         didSet {
@@ -380,6 +413,22 @@ class EmulatorViewModel: NSObject, ObservableObject {
             // three times over with a half-applied selection. Both bracket
             // themselves and persist once at the end instead.
             guard !isRestoringSelections else { return }
+            for i in selectedDisks.indices where i < slotNamesBehindSelection.count {
+                let before = i < oldValue.count ? oldValue[i] : nil
+                let after = selectedDisks[i]
+                guard before?.filename != after?.filename || before?.name != after?.name
+                else { continue }
+                if after?.isLocalFile == true {
+                    // A Files disk was laid over this slot. Keep what it covers.
+                    // Anything else - None included, while a binding is still
+                    // in place - is a choice, and the choice is what is saved.
+                    if let covered = before?.filename, !covered.isEmpty {
+                        slotNamesBehindSelection[i] = covered
+                    }
+                } else {
+                    slotNamesBehindSelection[i] = ""
+                }
+            }
             persistSelectedDisks()
         }
     }
@@ -414,12 +463,10 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// is the one such caller: a profile applied between a failed switch and a
     /// catalog is still the user saying what they want in the slots, and it has
     /// to survive being said.
-    private func persistSelectedDisks(remembering remembered: [String]? = nil,
-                                      evenWhileAwaitingCatalog: Bool = false) {
+    private func persistSelectedDisks(evenWhileAwaitingCatalog: Bool = false) {
         guard let filenames = CatalogMigration.slotNamesToPersist(
                 selected: selectedDisks.map { $0?.filename ?? "" },
-                remembered: remembered,
-                localBound: localDiskURLs.map { $0 != nil },
+                remembered: slotNamesBehindSelection,
                 awaitingCatalog: slotsAwaitingCatalog && !evenWhileAwaitingCatalog)
         else { return }
         UserDefaults.standard.set(filenames, forKey: selectedDisksKey)
@@ -1615,8 +1662,10 @@ class EmulatorViewModel: NSObject, ObservableObject {
         for (index, filename) in profile.diskFilenames.enumerated() where index < 4 {
             if filename.isEmpty {
                 selectedDisks[index] = nil
+                slotNamesBehindSelection[index] = ""
             } else if let disk = resolveProfileDisk(named: filename) {
                 selectedDisks[index] = disk
+                slotNamesBehindSelection[index] = ""
                 // A catalog disk replaces whatever local file was bound here;
                 // leaving the bookmark would have the slot claim two sources,
                 // and leaving the notice would have it warn about a file that
@@ -1991,10 +2040,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
     /// Restore saved disk selections from UserDefaults, or set defaults
     private func restoreDiskSelections() {
-        // Read once, before anything can rewrite it, and hand it to the persist
-        // at the end so a name this catalog cannot resolve is remembered rather
-        // than blanked. See persistSelectedDisks(remembering:).
+        // Read once, before anything can rewrite it, and kept in
+        // slotNamesBehindSelection so a name this catalog cannot resolve is
+        // remembered rather than blanked - by the persist at the end, and by
+        // every persist after it until the user changes that slot.
         let savedSelections = UserDefaults.standard.stringArray(forKey: selectedDisksKey)
+        slotNamesBehindSelection = savedSlotNames()
 
         isRestoringSelections = true
         defer {
@@ -2008,7 +2059,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
             // Once, at the end, with the whole selection settled. The first-run
             // path picks defaults out of the catalog and those do have to be
             // written; it is only the three intermediate states that did not.
-            persistSelectedDisks(remembering: savedSelections)
+            persistSelectedDisks()
         }
 
         // Which disk belongs in which drive when nobody has chosen, asked once
@@ -2061,7 +2112,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
         //
         // NOT when the user has a name in slot 0 that this launch merely failed
         // to RESOLVE. Forcing the catalog's default here makes slot 0 non-empty,
-        // which makes persistSelectedDisks(remembering:) skip it - its guard is
+        // which makes slotNamesToPersist skip it - its guard is
         // `filenames[i].isEmpty` - and the defer at the top of this function
         // then writes the default over the user's choice. Their name is gone
         // from the versioned key, and the unsuffixed pre-v0 key that still holds
@@ -2394,7 +2445,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
             }
             if emulator?.loadDisk(Int32(unit), from: data) == true {
                 localDiskURLs[unit] = url
-                selectedDisks[unit] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "")
+                selectedDisks[unit] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "", isLocalFile: true)
                 // Beside the binding it is about, so the two cannot drift: a
                 // slot whose notice names a file it no longer holds is worse
                 // than no notice at all. Not mirrored into `statusText` here -
@@ -2454,7 +2505,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
             try data.write(to: url)
             if emulator?.loadDisk(Int32(diskUnitForFileOp), from: data) == true {
                 localDiskURLs[diskUnitForFileOp] = url
-                selectedDisks[diskUnitForFileOp] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "")
+                selectedDisks[diskUnitForFileOp] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "", isLocalFile: true)
                 // This path never goes through `loadLocalDisk`, so the warning
                 // left by whatever file was bound here before would survive onto
                 // an image this app has just written. Cleared and not recomputed:
@@ -2587,7 +2638,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
                 if FileManager.default.fileExists(atPath: url.path) {
                     localDiskURLs[i] = url
-                    selectedDisks[i] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "")
+                    selectedDisks[i] = DiskOption(name: "Local: \(url.lastPathComponent)", filename: "", isLocalFile: true)
                     // Recomputed rather than carried, which is the whole reason
                     // it is not stored with the bookmark: this also runs from
                     // `applyRomWBWVersionSwitch`, and the same file that named
@@ -2618,6 +2669,18 @@ class EmulatorViewModel: NSObject, ObservableObject {
         localDiskURLs[unit] = nil
         localDiskReleaseNotices[unit] = nil
         saveLocalDiskBindings()
+        // The slot still shows the binding's placeholder. Put back the disk the
+        // binding covered, or leave the slot empty and the name remembered if
+        // this catalog cannot resolve it. Bracketed so the didSet does not
+        // read the change as the user emptying the slot.
+        if selectedDisks[unit]?.filename.isEmpty ?? true {
+            let covered = slotNamesBehindSelection[unit]
+            isRestoringSelections = true
+            selectedDisks[unit] = covered.isEmpty
+                ? nil : availableDisks.first { $0.filename == covered }
+            isRestoringSelections = false
+            persistSelectedDisks()
+        }
         debugPrint("[LocalDisk] Cleared local disk for slot \(unit)")
     }
 
@@ -3777,6 +3840,10 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         isRestoringSelections = true
         selectedDisks = Array(repeating: nil, count: 4)
+        // The NEW key's names, which the key has already moved to. Blank would
+        // let applyProfile - which writes while the catalog is awaited - save
+        // "" over any of them its profile cannot resolve.
+        slotNamesBehindSelection = savedSlotNames()
         slotsAwaitingCatalog = true
         isRestoringSelections = false
 
@@ -3929,6 +3996,10 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // find either what was left there last time or nothing at all.
         isRestoringSelections = true
         selectedDisks = Array(repeating: nil, count: 4)
+        // The NEW key's names, which the key has already moved to. Blank would
+        // let applyProfile - which writes while the catalog is awaited - save
+        // "" over any of them its profile cannot resolve.
+        slotNamesBehindSelection = savedSlotNames()
         slotsAwaitingCatalog = true
         isRestoringSelections = false
 
@@ -4769,7 +4840,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
         catalogDocument = document
         diskCatalog = disks
-        saveCatalogToCache(data, for: version)
+        saveCatalogToCache(data, for: version, vouched: !indexIsUnverified)
         // The ROM list is this document's `roms[]`, so the remembered choice
         // has to be resolved against it - before restoreDiskSelections(), which
         // ends by claiming the machine is ready to play.
@@ -5086,16 +5157,39 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// check, `payloadProblem`, the decode, `documentProblem` and the empty-list
     /// refusal - has already passed, so the stamp certifies a document this app
     /// verified rather than merely one it managed to read.
-    private func saveCatalogToCache(_ data: Data, for version: String) {
+    ///
+    /// `vouched` is false when the release list that named this document's URL
+    /// and checksum was itself unverified (`indexIsUnverified`). The bytes are
+    /// still saved, so an offline launch can boot from them, but the stamp is
+    /// REMOVED rather than written: a stamp would let the next
+    /// `loadCachedCatalog()` read this document as verified, and turn
+    /// downloads on against a checksum nobody verified. With no stamp it is
+    /// adopted the way any unstamped cache is - in use, downloads off - until a
+    /// fetch behind a verified release list rewrites both.
+    private func saveCatalogToCache(_ data: Data, for version: String, vouched: Bool) {
         do {
             // .atomic: a kill or a full disk partway through a plain write
             // leaves a truncated document that decodes to nothing, or worse to
             // a short disk list. Temp-file-and-rename makes the file wholly old
             // or wholly new.
             try data.write(to: catalogCacheURL(for: version), options: .atomic)
-            stampCache(data,
-                       sha256Key: catalogCacheStampKey(for: version),
-                       sizeKey: catalogCacheSizeKey(for: version))
+            if vouched {
+                stampCache(data,
+                           sha256Key: catalogCacheStampKey(for: version),
+                           sizeKey: catalogCacheSizeKey(for: version))
+            } else if CachedCatalog.stampVerdict(
+                          byteCount: data.count,
+                          sha256: Self.sha256Hex(data),
+                          stampedSize: UserDefaults.standard
+                              .object(forKey: catalogCacheSizeKey(for: version)) as? Int,
+                          stampedSHA256: UserDefaults.standard
+                              .string(forKey: catalogCacheStampKey(for: version))) != .verified {
+                // Kept only when it already describes these exact bytes: then
+                // an earlier, verified fetch saved them, and they are no less
+                // verified for arriving again behind an unverified list.
+                UserDefaults.standard.removeObject(forKey: catalogCacheStampKey(for: version))
+                UserDefaults.standard.removeObject(forKey: catalogCacheSizeKey(for: version))
+            }
         } catch {
             // The stamp is deliberately LEFT ALONE here. `.atomic` means a
             // failed write leaves the previous file wholly intact, so the stamp

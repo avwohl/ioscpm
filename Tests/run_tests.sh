@@ -647,14 +647,16 @@ printf '%s\n' "=== SlotTeardownFlagsAwaitingCatalog ==="
 # which is the initial value at launch and must not raise the flag - does not
 # count as a teardown.
 teardown=$(statements < "$VM_FILE" | awk '
-    /^selectedDisks = Array\(repeating: nil/ { sites++; window = 3; next }
+    /^selectedDisks = Array\(repeating: nil/ { sites++; window = 3; seenFlag = 0; seenNames = 0; next }
     window > 0 {
-        if ($0 ~ /^slotsAwaitingCatalog = true/) { flagged++; window = 0 }
-        else window--
+        if ($0 ~ /^slotsAwaitingCatalog = true/ && !seenFlag) { flagged++; seenFlag = 1 }
+        if ($0 ~ /^slotNamesBehindSelection = savedSlotNames\(\)/ && !seenNames) { named++; seenNames = 1 }
+        window--
     }
-    END { print sites + 0, flagged + 0 }')
-sites=${teardown% *}
-flagged=${teardown#* }
+    END { print sites + 0, flagged + 0, named + 0 }')
+sites=$(echo "$teardown" | cut -d" " -f1)
+flagged=$(echo "$teardown" | cut -d" " -f2)
+named=$(echo "$teardown" | cut -d" " -f3)
 if [ "$sites" -lt 2 ]; then
     echo "FAIL: found $sites places that blank the four slots, expected the release"
     echo "      switch and the index switch at least"
@@ -664,8 +666,14 @@ elif [ "$sites" -ne "$flagged" ]; then
     grep -n 'selectedDisks = Array(repeating: nil' "$VM_FILE" | sed 's/^/        /'
     echo "      The one that does not will persist its blanks on the user's next slot edit."
     status=1
+elif [ "$sites" -ne "$named" ]; then
+    echo "FAIL: $sites teardowns blank the four slots, only $named re-read slotNamesBehindSelection"
+    grep -n 'selectedDisks = Array(repeating: nil' "$VM_FILE" | sed 's/^/        /'
+    echo "      The one that does not carries the leaving key's names into the next"
+    echo "      persist - applyProfile writes even while the catalog is awaited."
+    status=1
 else
-    echo "PASS: all $sites slot teardowns raise slotsAwaitingCatalog"
+    echo "PASS: all $sites slot teardowns raise slotsAwaitingCatalog and re-read slotNamesBehindSelection"
 fi
 
 # And the restore lowers it BEFORE it persists. Clearing it afterwards reads
@@ -678,9 +686,9 @@ if [ -z "$restore_body" ]; then
     echo "FAIL: cannot find restoreDiskSelections() - has it been renamed?"
     status=1
 else
-    order=$(printf '%s\n' "$restore_body" | grep -nE '^(slotsAwaitingCatalog = false|persistSelectedDisks\(remembering:)')
+    order=$(printf '%s\n' "$restore_body" | grep -nE '^(slotsAwaitingCatalog = false|persistSelectedDisks\()')
     clear_at=$(printf '%s\n' "$order" | grep 'slotsAwaitingCatalog = false' | head -1 | cut -d: -f1)
-    persist_at=$(printf '%s\n' "$order" | grep 'persistSelectedDisks(remembering:' | head -1 | cut -d: -f1)
+    persist_at=$(printf '%s\n' "$order" | grep 'persistSelectedDisks(' | head -1 | cut -d: -f1)
     if [ -z "$clear_at" ] || [ -z "$persist_at" ]; then
         echo "FAIL: restoreDiskSelections no longer both clears the flag and persists:"
         printf '%s\n' "$order" | sed 's/^/        /'
@@ -890,7 +898,7 @@ for pair in "loadCachedCatalog:CachedCatalog.catalogVerdict(" \
     wanted=${pair#*:}
     case $fn in
         continueFromCachedIndex) head="    private func $fn(indexProblem: String) {" ;;
-        saveCatalogToCache)      head="    private func $fn(_ data: Data, for version: String) {" ;;
+        saveCatalogToCache)      head="    private func $fn(_ data: Data, for version: String, vouched: Bool) {" ;;
         saveIndexToCache)        head="    private func $fn(_ data: Data) {" ;;
         *)                       head="    private func $fn() {" ;;
     esac
@@ -906,6 +914,19 @@ for pair in "loadCachedCatalog:CachedCatalog.catalogVerdict(" \
         status=1
     fi
 done
+
+# And the catalog is stamped only when the release list that named its URL and
+# checksum was verified. A stamp written behind an unverified list is what let
+# the next loadCachedCatalog() read the catalog as verified and turn downloads
+# on - measured on Mac Catalyst on 2026-11-10.
+adopt_body=$(body_of "    private func adoptCatalog(_ document: RomWBWCatalogDocument," "$VM_FILE" | statements)
+if printf '%s\n' "$adopt_body" | grep -qF 'saveCatalogToCache(data, for: version, vouched: !indexIsUnverified)'; then
+    echo "PASS: adoptCatalog stamps the catalog only behind a verified release list"
+else
+    echo "FAIL: adoptCatalog does not pass vouched: !indexIsUnverified to saveCatalogToCache,"
+    echo "      so a catalog fetched off an unverified release list is stamped as verified."
+    status=1
+fi
 
 # Every deletion of a cache file is inside the discardsFile arm.
 cache_deletes=$( { body_of "    private func loadCachedCatalog() {" "$VM_FILE"

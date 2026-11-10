@@ -337,7 +337,8 @@ enum CatalogMigration {
     // MARK: - The four stores
 
     /// The four disk slots as `selectedDisks` stores them: bare filenames, with
-    /// `""` for a slot that is empty or bound to a local file.
+    /// `""` for a slot that is empty. A slot bound to a local file keeps the
+    /// name of the disk the binding covers, or `""` if it covers none.
     ///
     /// Length and order are preserved exactly. A slot the migration has nothing
     /// to say about comes back byte-identical, which is the whole contract:
@@ -370,8 +371,9 @@ enum CatalogMigration {
     /// key by `saveLocalDiskBindings()`, not here. A caller with a deliberate
     /// selection to record - `applyProfile` - passes false and is written.
     ///
-    /// `remembered` is what the key held before `restoreDiskSelections()` ran,
-    /// and it is passed only from there. A slot whose stored name the catalog
+    /// `remembered` is the view model's `slotNamesBehindSelection`: what the key
+    /// held when `restoreDiskSelections()` ran, and since then the pick a Files
+    /// binding covers, less every slot the user has changed. A slot whose stored name the catalog
     /// cannot resolve right now is nil in memory - the restore assigns the
     /// lookup's optional result - and writing that nil straight back is what
     /// permanently erased a configured disk the first time a catalog stopped
@@ -380,21 +382,22 @@ enum CatalogMigration {
     /// Play button, and it comes back on its own the moment the catalog names
     /// it again.
     ///
-    /// A slot bound to a local file is excluded by `localBound`.
-    /// `restoreLocalDiskBindings()` runs inside the same bracket and
-    /// deliberately writes `filename: ""` over whatever catalog name that slot
-    /// had; putting the name back would fight with it every launch.
+    /// A slot bound to a local file is filled from `remembered` like any other
+    /// empty slot. Its selection is the `filename: ""` placeholder, and the
+    /// name kept under it is the disk the user picked before the binding:
+    /// Close File puts that disk back, on this launch and on the next. This
+    /// used to leave such a slot `""`, on the grounds that the name would
+    /// fight the binding every launch. It does not - `restoreDiskSelections()`
+    /// resolves the name and `restoreLocalDiskBindings()` then lays the file
+    /// over it - and writing `""` meant a binding erased the pick for good.
     static func slotNamesToPersist(selected: [String],
                                    remembered: [String]?,
-                                   localBound: [Bool],
                                    awaitingCatalog: Bool) -> [String]? {
         guard !awaitingCatalog else { return nil }
         var filenames = selected
         if let remembered = remembered {
             for i in filenames.indices {
-                guard filenames[i].isEmpty,
-                      i < remembered.count,
-                      i < localBound.count, !localBound[i] else { continue }
+                guard filenames[i].isEmpty, i < remembered.count else { continue }
                 filenames[i] = remembered[i]
             }
         }

@@ -463,24 +463,20 @@ func runSlotPersistTests() {
     // case below with `awaitingCatalog: true` is the user touching a slot
     // between a failed switch and a catalog that never came.
     let blanked = ["", "", "", ""]
-    let unbound = [false, false, false, false]
 
     check(CatalogMigration.slotNamesToPersist(selected: blanked,
                                               remembered: nil,
-                                              localBound: unbound,
                                               awaitingCatalog: true) == nil,
           "a slot edit after a switch whose catalog never landed writes NOTHING - not four "
             + "blanks, which on a release this device has never visited creates the key and "
             + "makes hasSavedSelections true for ever")
     check(CatalogMigration.slotNamesToPersist(selected: ["", "", v0Name, ""],
                                               remembered: nil,
-                                              localBound: unbound,
                                               awaitingCatalog: true) == nil,
           "including the edit itself: one name and three teardown blanks is not a machine "
             + "anybody configured, and writing it loses the three")
     check(CatalogMigration.slotNamesToPersist(selected: blanked,
                                               remembered: [v0Name, "", "", ""],
-                                              localBound: unbound,
                                               awaitingCatalog: true) == nil,
           "the gate is answered before the merge; restoreDiskSelections lowers the flag "
             + "before it persists rather than leaning on this")
@@ -491,29 +487,26 @@ func runSlotPersistTests() {
 
     check(CatalogMigration.slotNamesToPersist(selected: blanked,
                                               remembered: nil,
-                                              localBound: unbound,
                                               awaitingCatalog: false) == blanked,
           "four blanks ARE written once the flag is down - applyProfile clearing every slot "
             + "is a selection, and so is a first launch that found no catalog defaults")
     check(CatalogMigration.slotNamesToPersist(selected: ["", "", "", ""],
                                               remembered: [v0Name, "", "", ""],
-                                              localBound: unbound,
                                               awaitingCatalog: false) == [v0Name, "", "", ""],
           "a name this catalog cannot resolve right now is remembered rather than blanked - "
             + "the slot is empty in the UI either way and comes back when the catalog names it")
     check(CatalogMigration.slotNamesToPersist(selected: ["hd1k_bp-v0-3.5.1.img", "", "", ""],
                                               remembered: [v0Name, "", "", ""],
-                                              localBound: unbound,
                                               awaitingCatalog: false)
             == ["hd1k_bp-v0-3.5.1.img", "", "", ""],
           "the slot the user just set wins over the remembered name; this is a merge into the "
             + "empties and not a restore")
     check(CatalogMigration.slotNamesToPersist(selected: blanked,
                                               remembered: [v0Name, "", "", ""],
-                                              localBound: [true, false, false, false],
-                                              awaitingCatalog: false) == blanked,
-          "a slot bound to a local file stays \"\" - restoreLocalDiskBindings writes that "
-            + "blank on purpose, and putting the catalog name back would fight it every launch")
+                                              awaitingCatalog: false) == [v0Name, "", "", ""],
+          "a slot bound to a local file keeps the name of the disk the binding covers - its "
+            + "selection is the filename-\"\" placeholder, and writing that blank is what made "
+            + "Close File and a relaunch come back to an empty drive")
 
     // MARK: -
 
@@ -521,19 +514,15 @@ func runSlotPersistTests() {
 
     check(CatalogMigration.slotNamesToPersist(selected: blanked,
                                               remembered: [v0Name],
-                                              localBound: unbound,
                                               awaitingCatalog: false) == [v0Name, "", "", ""],
           "a shorter remembered array fills what it covers and leaves the rest alone")
-    check(CatalogMigration.slotNamesToPersist(selected: blanked,
-                                              remembered: [v0Name, "hd1k_bp-v0-3.5.1.img"],
-                                              localBound: [true],
-                                              awaitingCatalog: false) == blanked,
-          "a slot past the end of localBound is left alone rather than read past it: not "
-            + "knowing whether a slot is bound to a local file is a reason to keep hands off, "
-            + "and the view model always passes all four")
+    check(CatalogMigration.slotNamesToPersist(selected: ["", ""],
+                                              remembered: [v0Name, "hd1k_bp-v0-3.5.1.img", "x.img"],
+                                              awaitingCatalog: false)
+            == [v0Name, "hd1k_bp-v0-3.5.1.img"],
+          "a longer remembered array is read only as far as the slots go")
     check(CatalogMigration.slotNamesToPersist(selected: [],
                                               remembered: [v0Name],
-                                              localBound: [],
                                               awaitingCatalog: false) == [],
           "no slots in means no slots out, rather than a padded array")
 }

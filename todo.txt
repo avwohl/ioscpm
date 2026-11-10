@@ -39,14 +39,5 @@ greppable string, never a file:line.
 - [DEVICE] the GDB stub (docs/gdb.md) has never run on a real iPhone or iPad, or
   through the Settings screen and Play; MANUAL_CHECKS.md has the check.
 
-- [ANY] adoptCatalog calls saveCatalogToCache while indexIsUnverified, so a
-  later loadCachedCatalog trusts that stamp and turns downloads on (seen 2026-11-10).
-
-- [ANY] loadLocalDisk saves "" over the slot's disk name and clearLocalDisk does
-  not put it back: after Close File and a relaunch the drive is empty.
-
-- [ANY] an unresolved slot-0 name survives only restoreDiskSelections' own
-  persist; the next selectedDisks edit saves "" over it (seen 2026-11-10).
-
 - [DEVICE] Close File has never been used: Open File shows no picker under Mac
-  Catalyst, so no drive there can get a disk from Files.
+  Catalyst.  MANUAL_CHECKS.md has the box.

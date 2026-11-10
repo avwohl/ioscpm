@@ -727,7 +727,9 @@ saved profile and a ledger with a record for each is enough for all of it.
       Mac Catalyst with `mytest.img`: right on all three points, and back in
       drive 0 when the file came back.  Two differences: the picker shows
       blank, not None (each empty drive does), and a change to a different
-      drive before the file comes back loses the name (`todo.txt`).
+      drive before the file came back lost the name.  That is fixed, and
+      MEASURED the same day: a change to drive 1 kept the name, and None
+      picked for drive 0 saved `""`.
       Put a disk from the
       library in drive 0, then delete that file in Files (the directory stays
       readable) and relaunch.  Right: drive 0's picker shows None, the status
@@ -736,6 +738,13 @@ saved profile and a ledger with a record for each is enough for all of it.
       (the behaviour before this box): the catalog's default disk in drive 0, and
       the name gone from `selectedDisks`.  Then put the file back and relaunch:
       drive 0 has it again.
+- [ ] [DEVICE] **Close File puts back the disk the Files binding covered.**
+      Never run: Open File shows no picker under Mac Catalyst.  Put a catalog
+      disk in drive 1, then Open File and pick an image from Files.  Right:
+      Settings names the file, and `selectedDisks.v0.<release>` still holds
+      the catalog disk for drive 1.  Close File: drive 1 shows that disk
+      again.  Bind again, relaunch, Close File: the same.  Wrong (before
+      build 75's fix): drive 1 empty, and `""` saved for it.
 - [x] **A directory that cannot be listed defers the NAMES, and moves the KEYS
       anyway.**  MEASURED 2026-09-07 with `chmod 000` on `Documents/Disks`:
       `selectedDisks.v0.3.5.1`, `emulatorNvram.v0.3.5.1` and
