@@ -18,9 +18,6 @@ greppable string, never a file:line.
   were fetched and hashed on 2026-09-21; attach it to the next review and set
   its Date line to that day.
 
-- [ANY] slotZeroFallbackIsSafe only covers the unlistable-directory case, so an
-  unresolvable slot-0 name is overwritten and persisted away.
-
 - [MAC] five INFOPLIST_KEY_* settings in the pbxproj do nothing next to
   GENERATE_INFOPLIST_FILE = NO; delete them so Info.plist is visibly the source.
 
@@ -43,13 +40,15 @@ greppable string, never a file:line.
   through the Settings screen and Play; MANUAL_CHECKS.md has the check.
 
 - [MAC] build e68a739 (start() fetches an image once for two drives), the
-  pickedRomWBWVersion commit, indexIsUnverified, Close File and the W8 picker
-  deletion, all written on Linux.  Tests/run_tests.sh passes on Linux (Swift
-  6.0.3: the Foundation suites and every source check, ViewBindings included),
-  but nothing there type-checks EmulatorViewModel.swift or ContentView.swift:
-  xcodebuild; Play once with one catalog image in drives 0 and 1 and see a
-  single download; pick a release, let the index move the device, relaunch, and
-  see the pick kept; with an unstamped cached index and no network, downloads
-  stay off after the catalog loads and Settings says so above the disk list.
-  Bind a drive from Files, see its name in Settings, Close File, relaunch, and
-  see the drive back on its picked disk.  An R8 and a W8 still work.
+  pickedRomWBWVersion commit, indexIsUnverified, Close File, the W8 picker
+  deletion and the empty drive 0 for a removed disk, all written on Linux.
+  Tests/run_tests.sh passes on Linux (Swift 6.0.3: the Foundation suites and
+  every source check, ViewBindings included), but nothing there type-checks
+  EmulatorViewModel.swift or ContentView.swift: xcodebuild; Play once with one
+  catalog image in drives 0 and 1 and see a single download; pick a release,
+  let the index move the device, relaunch, and see the pick kept; with an
+  unstamped cached index and no network, downloads stay off after the catalog
+  loads and Settings says so above the disk list; bind a drive from Files, see
+  its name in Settings, Close File, relaunch, and see the drive back on its
+  picked disk; an R8 and a W8 still work; and MANUAL_CHECKS.md's
+  removed-slot-0-disk box.

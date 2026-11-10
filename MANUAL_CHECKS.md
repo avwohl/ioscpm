@@ -723,6 +723,14 @@ saved profile and a ledger with a record for each is enough for all of it.
       `migratedToInterfaceV0` stayed set.  Clear `migratedToInterfaceV0` in
       the preferences plist, relaunch, and confirm no file is renamed a second
       time and no name gains a second `-v0-`.
+- [ ] **A removed slot-0 disk leaves drive 0 empty.**  Put a disk from the
+      library in drive 0, then delete that file in Files (the directory stays
+      readable) and relaunch.  Right: drive 0's picker shows None, the status
+      line says `Disk 0 (OS): <name> could not be found - choose a disk in
+      Settings`, and `selectedDisks.v0.<release>` still holds the name.  Wrong
+      (the behaviour before this box): the catalog's default disk in drive 0, and
+      the name gone from `selectedDisks`.  Then put the file back and relaunch:
+      drive 0 has it again.
 - [x] **A directory that cannot be listed defers the NAMES, and moves the KEYS
       anyway.**  MEASURED 2026-09-07 with `chmod 000` on `Documents/Disks`:
       `selectedDisks.v0.3.5.1`, `emulatorNvram.v0.3.5.1` and

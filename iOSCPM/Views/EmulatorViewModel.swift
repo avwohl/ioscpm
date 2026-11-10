@@ -2079,8 +2079,17 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // Leaving slot 0 empty for this launch is right: there is nothing
         // mountable to put in it either way, and the name survives to be
         // resolved on the launch after the directory can be read.
-        let slotZeroFallbackIsSafe = downloadsDirectoryWasListable
-            || !(savedSelections?.first.map { !$0.isEmpty } ?? false)
+        //
+        // AND THE SAME WHEN THE DIRECTORY COULD BE READ. This used to fall back
+        // whenever Documents/Disks was listable, so a slot-0 disk that had been
+        // REMOVED - deleted in Files, or no longer in any catalog - was replaced
+        // by the catalog's default and the default persisted over its name. The
+        // owner's ruling, 2026-11-10: leave the drive empty if the disk is
+        // removed. So a stand-in goes into slot 0 only when nothing was saved
+        // for it, and the status line names the disk that is missing.
+        let savedSlotZero = savedSelections?.first ?? ""
+        let slotZeroFallbackIsSafe = savedSlotZero.isEmpty
+        var missingSlotZero: String? = nil
         if slotZeroFallbackIsSafe,
            selectedDisks[0] == nil || selectedDisks[0]?.filename.isEmpty == true {
             // Drive 0's own first-launch disk if this release publishes it,
@@ -2092,9 +2101,12 @@ class EmulatorViewModel: NSObject, ObservableObject {
                 }
                 ?? availableDisks.first { !$0.filename.isEmpty }
                 ?? availableDisks.first
-        } else if !slotZeroFallbackIsSafe {
-            debugPrint("[RestoreDisks] Documents/Disks was not listable; "
-                       + "leaving slot 0 empty so the saved name is remembered")
+        } else if !slotZeroFallbackIsSafe,
+                  selectedDisks[0] == nil || selectedDisks[0]?.filename.isEmpty == true {
+            debugPrint("[RestoreDisks] '\(savedSlotZero)' did not resolve"
+                       + (downloadsDirectoryWasListable ? "" : " (Documents/Disks was not listable)")
+                       + "; leaving slot 0 empty so the saved name is remembered")
+            missingSlotZero = savedSlotZero
         }
 
         debugPrint("[RestoreDisks] Final selections:")
@@ -2109,7 +2121,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // Restore local disk bindings from bookmarks
         restoreLocalDiskBindings()
 
-        statusText = "Ready - Press Play to start"
+        // Not when restoreLocalDiskBindings() just put a Files disk in drive 0:
+        // then the drive is not empty and there is nothing to report.
+        if let missing = missingSlotZero, localDiskURLs[0] == nil {
+            statusText = "\(diskLabels[0]): \(missing) could not be found - choose a disk in Settings"
+        } else {
+            statusText = "Ready - Press Play to start"
+        }
     }
 
 

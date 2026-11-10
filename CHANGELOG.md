@@ -9,6 +9,17 @@ that says what users have, and a TestFlight build is not one of the things it
 can see. The GDB stub sections below were written and measured while the
 project said 1.6.2 (74); they mean this build.
 
+### A removed drive-0 disk leaves drive 0 empty
+
+Sometimes the disk saved for drive 0 was gone from the device. Then the app
+put the default disk of the catalog into drive 0, and saved it over the name.
+
+Now drive 0 stays empty and keeps the saved name, and the status line names
+the disk that is missing. The app puts a default disk into drive 0 only when
+no disk name is saved for it. **Not built**: a session on Linux made this
+change. `swiftc -parse` and `Tests/run_tests.sh` checked it. No check on Linux
+type-checks the file.
+
 ### Tests/run_tests.sh runs the Swift suites off a Mac
 
 Without `xcrun`, the script skipped each Swift suite. Most suites need only
