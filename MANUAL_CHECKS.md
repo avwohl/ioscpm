@@ -723,7 +723,12 @@ saved profile and a ledger with a record for each is enough for all of it.
       `migratedToInterfaceV0` stayed set.  Clear `migratedToInterfaceV0` in
       the preferences plist, relaunch, and confirm no file is renamed a second
       time and no name gains a second `-v0-`.
-- [ ] **A removed slot-0 disk leaves drive 0 empty.**  Put a disk from the
+- [x] **A removed slot-0 disk leaves drive 0 empty.**  MEASURED 2026-11-10 on
+      Mac Catalyst with `mytest.img`: right on all three points, and back in
+      drive 0 when the file came back.  Two differences: the picker shows
+      blank, not None (each empty drive does), and a change to a different
+      drive before the file comes back loses the name (`todo.txt`).
+      Put a disk from the
       library in drive 0, then delete that file in Files (the directory stays
       readable) and relaunch.  Right: drive 0's picker shows None, the status
       line says `Disk 0 (OS): <name> could not be found - choose a disk in

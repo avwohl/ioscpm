@@ -39,16 +39,14 @@ greppable string, never a file:line.
 - [DEVICE] the GDB stub (docs/gdb.md) has never run on a real iPhone or iPad, or
   through the Settings screen and Play; MANUAL_CHECKS.md has the check.
 
-- [MAC] build e68a739 (start() fetches an image once for two drives), the
-  pickedRomWBWVersion commit, indexIsUnverified, Close File, the W8 picker
-  deletion and the empty drive 0 for a removed disk, all written on Linux.
-  Tests/run_tests.sh passes on Linux (Swift 6.0.3: the Foundation suites and
-  every source check, ViewBindings included), but nothing there type-checks
-  EmulatorViewModel.swift or ContentView.swift: xcodebuild; Play once with one
-  catalog image in drives 0 and 1 and see a single download; pick a release,
-  let the index move the device, relaunch, and see the pick kept; with an
-  unstamped cached index and no network, downloads stay off after the catalog
-  loads and Settings says so above the disk list; bind a drive from Files, see
-  its name in Settings, Close File, relaunch, and see the drive back on its
-  picked disk; an R8 and a W8 still work; and MANUAL_CHECKS.md's
-  removed-slot-0-disk box.
+- [ANY] adoptCatalog calls saveCatalogToCache while indexIsUnverified, so a
+  later loadCachedCatalog trusts that stamp and turns downloads on (seen 2026-11-10).
+
+- [ANY] loadLocalDisk saves "" over the slot's disk name and clearLocalDisk does
+  not put it back: after Close File and a relaunch the drive is empty.
+
+- [ANY] an unresolved slot-0 name survives only restoreDiskSelections' own
+  persist; the next selectedDisks edit saves "" over it (seen 2026-11-10).
+
+- [DEVICE] Close File has never been used: Open File shows no picker under Mac
+  Catalyst, so no drive there can get a disk from Files.

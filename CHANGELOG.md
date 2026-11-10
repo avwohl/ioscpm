@@ -16,9 +16,14 @@ put the default disk of the catalog into drive 0, and saved it over the name.
 
 Now drive 0 stays empty and keeps the saved name, and the status line names
 the disk that is missing. The app puts a default disk into drive 0 only when
-no disk name is saved for it. **Not built**: a session on Linux made this
-change. `swiftc -parse` and `Tests/run_tests.sh` checked it. No check on Linux
-type-checks the file.
+no disk name is saved for it.
+
+A session on Linux made this change. **Run on a Mac on 2026-11-10** (Mac
+Catalyst, Release): `mytest.img` was in drive 0, then the test removed the file.
+After a relaunch, drive 0 was empty, the status line named `mytest.img`, and
+the saved name stayed. **Defect found**: the next change to a different drive
+in Settings saves an empty name for drive 0. When the file comes back, drive 0
+gets the default disk. See `todo.txt`.
 
 ### Tests/run_tests.sh runs the Swift suites off a Mac
 
@@ -33,8 +38,10 @@ with Swift 6.0.3 the script exits 0 and skips 7 suites, against 19 before.
 Build 41 removed the file pickers from the R8 and W8 transfers. R8 reads the
 Imports folder and W8 writes the Exports folder. The view model kept eight
 properties and two result handlers for the removed pickers, and no code used
-them. This change deletes them. **Not built**: a session on Linux made it,
-and only `swiftc -parse` checked it.
+them. This change deletes them.
+
+A session on Linux made it. On a Mac on 2026-11-10 it built, and R8 and W8
+each moved a 5-byte file without a change.
 
 ### Close File removes a disk from Files, and Settings names it
 
@@ -43,16 +50,23 @@ the disk chosen in the picker. Before this change, no control removed that
 file from the drive, and the picker showed "None" while the file booted.
 
 Now Settings shows the name of the file under the drive, and a Close File
-button removes it. The button is off while the machine runs. **Not built**: a session
-on Linux made this change, and only `swiftc -parse` checked it.
+button removes it. The button is off while the machine runs.
+
+A session on Linux made this change. It builds on a Mac (2026-11-10), but
+nobody has used it: Open File shows no picker under Mac Catalyst, so no drive could get a disk
+from Files. **Defect found in the code**: when a drive gets a disk from Files,
+the app saves an empty name for that drive. Close File does not put the old
+name back. After Close File and a relaunch, the drive is empty. See
+`todo.txt`.
 
 ### Settings says when downloads are off
 
 When the app cannot confirm that it saved the catalog or release list in use,
 it turns downloads off. Settings showed no reason until a tap on a disk failed.
 The text that explained it was in the failure detail, and no view showed that
-detail. The disk list now shows a note while downloads are off. **Not built**:
-a session on Linux made this change, and only `swiftc -parse` checked it.
+detail. The disk list now shows a note while downloads are off. Seen on a Mac
+on 2026-11-10 with an unstamped cached release list and no index server. The
+note showed above the disk list, and a tap on a disk did not download.
 
 ### A catalog from an unverified release list does not turn downloads on
 
@@ -63,8 +77,13 @@ verified.
 
 Now the release list has its own flag. A catalog keeps downloads off while
 that flag is set. A release list from the network clears it, as does a cached
-list with a correct stamp. **Not built**: a session on Linux made this change,
-and only `swiftc -parse` checked it.
+list with a correct stamp.
+
+Run on a Mac on 2026-11-10: the catalog came from the network and downloads
+stayed off. **Defect found**: that fetch also saves the catalog with a correct
+stamp. On the next launch, the release list came from
+the network and the catalog server did not answer. The app then used the saved
+catalog and turned downloads on. See `todo.txt`.
 
 ### An automatic release switch no longer counts as the user's pick
 
@@ -76,9 +95,12 @@ the pick. The app kept the device on it.
 The pick is now its own key, `pickedRomWBWVersion.v0`, and it holds the
 release. Only the picker writes it. When a device upgrades, the old flag gives
 its value to the new key one time, and then the app removes the old flag.
-**Not built**: a session on Linux made this change. `swiftc -parse` checked the
-file, and the two changed functions, copied out without change, ran through
-eight cases with Foundation on Linux.
+
+Run on a Mac on 2026-11-10. The old flag was true, with 3.5.1 in the release
+key. The app moved 3.5.1 into `pickedRomWBWVersion.v0` and removed the flag.
+A release list without 3.5.1 moved the device to 3.6.0, and the pick stayed.
+The next launch, on the real list, went back to 3.5.1. A pick made with the
+picker was not tested.
 
 ### Play fetches an image once when two drives name it
 
@@ -86,8 +108,9 @@ eight cases with Foundation on Linux.
 two drives named the same image, Play downloaded it two times. Now the list
 has the image one time, for the first drive that names it. Drives are in
 order, so when drive 0 names the image, a failed download still stops the
-start. **Not built**: a session on Linux made this change, with no Xcode, and only
-`swiftc -parse` checked it.
+start. Run on a Mac on 2026-11-10: with the combo image in drives 0 and 1, Play
+received 52.1 MB. That is one 51.4 MB image and the 0.5 MB ROM. Both drives
+mounted the image.
 
 ### Tests/gdb_stub_test.py: wait-program, run on this app's core
 
