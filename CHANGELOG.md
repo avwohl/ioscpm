@@ -9,6 +9,15 @@ that says what users have, and a TestFlight build is not one of the things it
 can see. The GDB stub sections below were written and measured while the
 project said 1.6.2 (74); they mean this build.
 
+### Play fetches an image once when two drives name it
+
+`start()` made a list of the disks to download, one entry for each drive. If
+two drives named the same image, Play downloaded it two times. Now the list
+has the image one time, for the first drive that names it. Drives are in
+order, so when drive 0 names the image, a failed download still stops the
+start. **Not built**: a session on Linux made this change, with no Xcode, and only
+`swiftc -parse` checked it.
+
 ### Tests/gdb_stub_test.py: wait-program, run on this app's core
 
 The stub test now boots CP/M 2.2 in the app's core (`Tests/GdbHost.cc`, Boot

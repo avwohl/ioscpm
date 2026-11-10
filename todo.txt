@@ -30,9 +30,6 @@ greppable string, never a file:line.
 - [ANY] slotZeroFallbackIsSafe only covers the unlistable-directory case, so an
   unresolvable slot-0 name is overwritten and persisted away.
 
-- [ANY] neededDownloads in start() does not de-duplicate by filename: the same
-  image in two drives is fetched twice on a first Play.
-
 - [ANY] clearLocalDisk(unit:) has no caller, so a slot bound from Files cannot
   be un-bound, and the Picker under it reads "None" while that file boots.
 

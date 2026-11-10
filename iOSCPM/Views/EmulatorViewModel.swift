@@ -2667,6 +2667,13 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
             // Need to download - look up in catalog
             if let catalogEntry = diskCatalog.first(where: { $0.filename == disk.filename }) {
+                // One image in two drives is one download. The first drive to
+                // name it keeps the entry, and drives are walked in order, so a
+                // copy in drive 0 is the one whose failure stays fatal.
+                if neededDownloads.contains(where: { $0.disk.filename == disk.filename }) {
+                    debugPrint("[Start] '\(disk.filename)' for drive \(i) is already queued")
+                    continue
+                }
                 debugPrint("[Start] Need download: '\(disk.filename)' for drive \(i)")
                 neededDownloads.append((drive: i, disk: catalogEntry))
             } else {
