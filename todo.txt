@@ -21,9 +21,6 @@ greppable string, never a file:line.
 - [ANY] slotZeroFallbackIsSafe only covers the unlistable-directory case, so an
   unresolvable slot-0 name is overwritten and persisted away.
 
-- [ANY] clearLocalDisk(unit:) has no caller, so a slot bound from Files cannot
-  be un-bound, and the Picker under it reads "None" while that file boots.
-
 - [ANY] eleven W8 host-file members (showingHostFileImporter and its nine
   neighbours, two handlers) are published and reached by no view.
 
@@ -49,9 +46,11 @@ greppable string, never a file:line.
   through the Settings screen and Play; MANUAL_CHECKS.md has the check.
 
 - [MAC] build e68a739 (start() fetches an image once for two drives), the
-  pickedRomWBWVersion commit and indexIsUnverified, all written on Linux and
-  checked only by swiftc:
+  pickedRomWBWVersion commit, indexIsUnverified and Close File, all written on
+  Linux and checked only by swiftc:
   xcodebuild; Play once with one catalog image in drives 0 and 1 and see a
   single download; pick a release, let the index move the device, relaunch, and
   see the pick kept; with an unstamped cached index and no network, downloads
   stay off after the catalog loads and Settings says so above the disk list.
+  Bind a drive from Files, see its name in Settings, Close File, relaunch, and
+  see the drive back on its picked disk.

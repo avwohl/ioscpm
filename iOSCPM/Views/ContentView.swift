@@ -811,6 +811,16 @@ struct SettingsView: View {
                                 }
                             }
 
+                            // A file bound from Files is what this drive mounts,
+                            // whatever the picker below says - it reads "None"
+                            // for such a drive - so the file is named here.
+                            if let url = viewModel.localDiskURLs[unit] {
+                                Text("From Files: \(url.lastPathComponent). It is used in place "
+                                     + "of the disk chosen below until it is closed.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
                             Picker("", selection: $viewModel.selectedDisks[unit]) {
                                 ForEach(viewModel.availableDisks) { disk in
                                     Text(disk.name).tag(disk as DiskOption?)
@@ -874,6 +884,16 @@ struct SettingsView: View {
                                         viewModel.saveDiskToFile(unit: unit)
                                     }
                                     .font(.caption)
+
+                                    // The only way to un-bind a file: without it
+                                    // the binding survived every launch.
+                                    // Disabled while running for the picker's
+                                    // reason above.
+                                    Button("Close File") {
+                                        viewModel.clearLocalDisk(unit: unit)
+                                    }
+                                    .font(.caption)
+                                    .disabled(viewModel.isRunning)
                                 }
                             }
                             .buttonStyle(.borderless)

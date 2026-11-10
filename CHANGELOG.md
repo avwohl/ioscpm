@@ -9,6 +9,15 @@ that says what users have, and a TestFlight build is not one of the things it
 can see. The GDB stub sections below were written and measured while the
 project said 1.6.2 (74); they mean this build.
 
+### A disk from Files can be closed, and Settings names it
+
+A drive can hold a disk from Files. The app then uses that file in place of
+the disk chosen in the picker. Before this change, nothing could remove that
+file from the drive, and the picker showed "None" while the file booted. Now
+Settings shows the name of the file under the drive, and a Close File button
+removes it. The button is off while the machine runs. **Not built**: a session
+on Linux made this change, and only `swiftc -parse` checked it.
+
 ### Settings says when downloads are off
 
 When the app cannot confirm that it saved the catalog or release list in use,
