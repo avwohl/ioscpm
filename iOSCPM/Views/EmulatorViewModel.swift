@@ -609,6 +609,15 @@ class EmulatorViewModel: NSObject, ObservableObject {
     /// `CachedCatalog.Verdict` carries the rest of the argument.
     @Published private(set) var catalogIsUnverified: Bool = false
 
+    /// Whether the release list in play came off the device unverified - the
+    /// index half of `catalogIsUnverified`, kept apart because a catalog fetched
+    /// over the network is no better than the list that sent it there: the
+    /// list names the catalog's URL and the checksum the fetch is verified
+    /// against. So `adoptCatalog` clears `catalogIsUnverified` only when this is
+    /// false. Set by `continueFromCachedIndex` when it adopts an unstamped list;
+    /// cleared when a list arrives over the network or a stamped one is read.
+    private var indexIsUnverified = false
+
     /// The whole decoded catalog for the release in play, kept because the disk
     /// list is not all of it: `roms[]` is what says which ROM this release
     /// publishes, which is now what the app loads rather than only what it
@@ -4451,6 +4460,7 @@ class EmulatorViewModel: NSObject, ObservableObject {
 
                 self.debugPrint("[Catalog] Index lists \(index.romwbwVersions.count) release(s)")
                 self.saveIndexToCache(data)
+                self.indexIsUnverified = false
                 self.adoptIndex(index, indexProblem: nil)
             }
         }.resume()
@@ -4492,8 +4502,10 @@ class EmulatorViewModel: NSObject, ObservableObject {
                     // by catalogIsUnverified.
                     debugPrint("[Catalog] Using the cached release list, UNVERIFIED: \(why)")
                     catalogIsUnverified = true
+                    indexIsUnverified = true
                 } else {
                     debugPrint("[Catalog] Using the cached release list")
+                    indexIsUnverified = false
                 }
                 adoptIndex(index, indexProblem: indexProblem)
                 return
@@ -4711,8 +4723,11 @@ class EmulatorViewModel: NSObject, ObservableObject {
         // This document came off the network and through payloadProblem and
         // documentProblem, and saveCatalogToCache is about to stamp it. Whatever
         // an earlier offline launch adopted unverified is superseded here, which
-        // is the one way catalogIsUnverified is ever cleared.
-        catalogIsUnverified = false
+        // is the one way catalogIsUnverified is ever cleared - unless the
+        // release list that named this document's URL and checksum was itself
+        // unverified. Then the fetch proved only that the bytes match what the
+        // unverified list said, and downloads stay off (indexIsUnverified).
+        catalogIsUnverified = indexIsUnverified
 
         let disks = Self.downloadableDisks(from: document)
         let generationText = document.generation.map { String($0) } ?? "unstated"

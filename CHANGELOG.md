@@ -9,6 +9,18 @@ that says what users have, and a TestFlight build is not one of the things it
 can see. The GDB stub sections below were written and measured while the
 project said 1.6.2 (74); they mean this build.
 
+### A catalog from an unverified release list does not turn downloads on
+
+If the app cannot show that it saved its cached release list, it turns
+downloads off. The list names the URL of the catalog and its checksum. Then the catalog fetch that the list started cleared that state and
+turned downloads on again. The catalog matched a checksum that nobody had
+verified.
+
+Now the release list has its own flag. A catalog keeps downloads off while
+that flag is set. A release list from the network clears it, as does a cached
+list with a correct stamp. **Not built**: a session on Linux made this change,
+and only `swiftc -parse` checked it.
+
 ### An automatic release switch no longer counts as the user's pick
 
 The app kept a flag that said "the user picked the release", and read the
