@@ -18,9 +18,6 @@ greppable string, never a file:line.
   were fetched and hashed on 2026-09-21; attach it to the next review and set
   its Date line to that day.
 
-- [ANY] the unverified-cache account ("Downloads are off until a fetch
-  succeeds") is composed into CatalogFailure.detail and no view renders it.
-
 - [ANY] slotZeroFallbackIsSafe only covers the unlistable-directory case, so an
   unresolvable slot-0 name is overwritten and persisted away.
 
@@ -57,4 +54,4 @@ greppable string, never a file:line.
   xcodebuild; Play once with one catalog image in drives 0 and 1 and see a
   single download; pick a release, let the index move the device, relaunch, and
   see the pick kept; with an unstamped cached index and no network, downloads
-  stay off after the catalog loads.
+  stay off after the catalog loads and Settings says so above the disk list.

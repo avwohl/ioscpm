@@ -1126,6 +1126,22 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
 
+                        // Said here, before a tap on a row finds it out. Keyed
+                        // on the flag, not on catalogFailure: the flag is what
+                        // turns downloads off, and an unverified release list
+                        // sets it with no failure to report at all.
+                        if viewModel.catalogIsUnverified {
+                            HStack(alignment: .top) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .foregroundColor(.orange)
+                                Text("Downloads are off: this app cannot confirm that it saved "
+                                     + "the release list or catalog in use. They come back on "
+                                     + "after the next fetch succeeds.")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
                         ForEach(viewModel.diskCatalog) { disk in
                             DiskDownloadRow(disk: disk, viewModel: viewModel)
                         }

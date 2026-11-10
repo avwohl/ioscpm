@@ -9,6 +9,14 @@ that says what users have, and a TestFlight build is not one of the things it
 can see. The GDB stub sections below were written and measured while the
 project said 1.6.2 (74); they mean this build.
 
+### Settings says when downloads are off
+
+When the app cannot confirm that it saved the catalog or release list in use,
+it turns downloads off. Settings showed no reason until a tap on a disk failed.
+The text that explained it was in the failure detail, and no view showed that
+detail. The disk list now shows a note while downloads are off. **Not built**:
+a session on Linux made this change, and only `swiftc -parse` checked it.
+
 ### A catalog from an unverified release list does not turn downloads on
 
 If the app cannot show that it saved its cached release list, it turns
