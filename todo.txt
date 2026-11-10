@@ -44,7 +44,9 @@ greppable string, never a file:line.
 
 - [MAC] build e68a739 (start() fetches an image once for two drives), the
   pickedRomWBWVersion commit, indexIsUnverified, Close File and the W8 picker
-  deletion, all written on Linux and checked only by swiftc:
+  deletion, all written on Linux.  Tests/run_tests.sh passes on Linux (Swift
+  6.0.3: the Foundation suites and every source check, ViewBindings included),
+  but nothing there type-checks EmulatorViewModel.swift or ContentView.swift:
   xcodebuild; Play once with one catalog image in drives 0 and 1 and see a
   single download; pick a release, let the index move the device, relaunch, and
   see the pick kept; with an unstamped cached index and no network, downloads

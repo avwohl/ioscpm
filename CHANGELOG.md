@@ -9,6 +9,14 @@ that says what users have, and a TestFlight build is not one of the things it
 can see. The GDB stub sections below were written and measured while the
 project said 1.6.2 (74); they mean this build.
 
+### Tests/run_tests.sh runs the Swift suites off a Mac
+
+Without `xcrun`, the script skipped each Swift suite. Most suites need only
+Foundation, and Swift for Linux has Foundation. The script now uses `swiftc`
+from PATH when there is no `xcrun`. It skips the two suites that import
+CoreGraphics. Stages that need the macOS SDK still skip, as before. On Linux
+with Swift 6.0.3 the script exits 0 and skips 7 suites, against 19 before.
+
 ### The unused W8 picker code is gone
 
 Build 41 removed the file pickers from the R8 and W8 transfers. R8 reads the

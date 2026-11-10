@@ -27,20 +27,34 @@ trap 'rm -rf "$OUT"' EXIT
 # at; SDKROOT so Foundation resolves on a machine with only Command Line Tools
 # selected.
 #
-# Off a Mac there is no xcrun, and the two halves fare differently. The Swift
-# suites need Foundation and are skipped. The C++ suite does not: it compiles
-# the same symlinked core with any C++11 compiler, and it is the only check in
-# the repo that notices when an upstream core sync adds a backend function this
-# port has not defined yet - which has happened (see the CHANGELOG entry for
-# emu_host_file_get_read_name). Losing that check on every non-Mac machine is
-# worse than running it under a different compiler.
+# Off a Mac there is no xcrun. The Swift suites need Foundation, which the
+# swift.org toolchain for Linux carries, so with a `swiftc` on PATH they run
+# under it - all but the two that import CoreGraphics (APPLE_ONLY below), and
+# the type-check and Objective-C stages at the end, which need the macOS SDK
+# and say SKIP. With no swiftc at all the Swift suites are skipped. The C++
+# suite needs neither: it compiles the same symlinked core with any C++11
+# compiler, and it is the only check in the repo that notices when an upstream
+# core sync adds a backend function this port has not defined yet - which has
+# happened (see the CHANGELOG entry for emu_host_file_get_read_name). Losing
+# that check on every non-Mac machine is worse than running it under a
+# different compiler.
 if command -v xcrun >/dev/null 2>&1; then
     SWIFTC="xcrun --sdk macosx swiftc -parse-as-library"
     CXX="xcrun --sdk macosx c++ -std=c++11 -Wall"
+    APPLE_SDK=1
+elif command -v swiftc >/dev/null 2>&1; then
+    SWIFTC="swiftc -parse-as-library"
+    CXX="${CXX:-c++} -std=c++11 -Wall"
+    APPLE_SDK=0
 else
     SWIFTC=""
     CXX="${CXX:-c++} -std=c++11 -Wall"
+    APPLE_SDK=0
 fi
+
+# Suites whose production source imports an Apple framework that no other
+# platform's Foundation provides.
+APPLE_ONLY=" TerminalSelectionTests WindowFrameTests "
 
 status=0
 skipped=0
@@ -50,7 +64,13 @@ run_suite() {
     shift
     printf '%s\n' "=== $name ==="
     if [ -z "$SWIFTC" ]; then
-        echo "SKIP: no Swift toolchain (needs a Mac with Xcode)"
+        echo "SKIP: no Swift toolchain (needs a Mac with Xcode, or swiftc on PATH)"
+        skipped=$((skipped + 1))
+        echo
+        return
+    fi
+    if [ "$APPLE_SDK" -eq 0 ] && [ "${APPLE_ONLY#* $name }" != "$APPLE_ONLY" ]; then
+        echo "SKIP: imports CoreGraphics, which only Apple's SDK has"
         skipped=$((skipped + 1))
         echo
         return
@@ -973,7 +993,7 @@ if command -v xcrun >/dev/null 2>&1; then
         status=1
     fi
 else
-    echo "SKIP: no Swift toolchain (needs a Mac)"
+    echo "SKIP: needs the macOS SDK (xcrun)"
     skipped=$((skipped + 1))
 fi
 echo
@@ -1015,7 +1035,7 @@ elif [ "$(printf '%s\n' "$FLOOR" | wc -l)" -ne 1 ]; then
     echo "      Debug and Release ship one app; this stage needs one floor to check"
     status=1
 elif ! command -v xcrun >/dev/null 2>&1; then
-    echo "SKIP: no Swift toolchain (needs a Mac)"
+    echo "SKIP: needs the macOS SDK (xcrun)"
     skipped=$((skipped + 1))
 elif floor_out=$(xcrun --sdk macosx swiftc -typecheck -parse-as-library \
         -target "arm64-apple-ios${FLOOR}-macabi" \

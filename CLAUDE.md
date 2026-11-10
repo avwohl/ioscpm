@@ -110,6 +110,14 @@ have, and five files stay out of reach — `ContentView.swift`,
 on the macosx SDK.  `Tests/check_view_bindings.sh` covers the question that
 matters most there, by spelling rather than by type.
 
+Off a Mac, put swift.org's Swift for Linux on PATH and the same script runs
+every Swift suite that needs only Foundation, the C++ core and the source
+checks; it skips the two suites that import CoreGraphics and the stages that
+need the macOS SDK (the `EmulatorViewModel` type-checks and the Objective-C
+bridge), and says so.  Measured 2026-11-10 on Linux with Swift 6.0.3: exit 0,
+7 suites skipped.  Nothing there type-checks `EmulatorViewModel.swift`, so a
+change to it still needs a Mac; `swiftc -parse` at least catches a syntax error.
+
 Where there IS Xcode, run it as well as the build; it is faster and it catches
 the C++ side, which `xcodebuild` on this project does not exercise as directly.
 And run the build, because the five files above have exactly one compiler:
